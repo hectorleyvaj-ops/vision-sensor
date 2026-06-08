@@ -1,0 +1,26 @@
+# VS Code
+.vscode/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Entornos virtuales
+venv/
+vision_env/
+
+# Variables sensibles
+.env
+
+# Logs
+*.log
+
+# Archivos temporales
+*.tmp
+
+# Sistema
+.DS_Store
+
+# Qt / builds
+*.qmlc
+*.jsc

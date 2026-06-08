@@ -1,0 +1,70 @@
+{
+    "recipes": [
+        {
+            "name": "MODELO_A",
+            "selected": true,
+            "steps": [
+                {
+                    "tool": "dmtx",
+                    "params": {
+                        "roi": [
+                            428,
+                            204,
+                            748,
+                            552
+                        ],
+                        "expected_code": "0402010XB",
+                        "retries": 3.0,
+                        "delay": 1.0,
+                        "show_roi": true,
+                        "required": true
+                    }
+                }
+            ]
+        },
+        {
+            "name": "MODELO_B",
+            "selected": false,
+            "steps": [
+                {
+                    "tool": "dmtx",
+                    "params": {
+                        "roi": [
+                            440,
+                            208,
+                            764,
+                            556
+                        ],
+                        "expected_code": "0402012XA",
+                        "retries": 3.0,
+                        "delay": 1.0,
+                        "show_roi": true,
+                        "required": true
+                    }
+                }
+            ]
+        },
+        {
+            "name": "MODELO_F",
+            "selected": false,
+            "steps": [
+                {
+                    "tool": "dmtx",
+                    "params": {
+                        "roi": [
+                            436,
+                            220,
+                            748,
+                            544
+                        ],
+                        "expected_code": "0402009XB",
+                        "retries": 3.0,
+                        "delay": 1.0,
+                        "show_roi": true,
+                        "required": true
+                    }
+                }
+            ]
+        }
+    ]
+}
