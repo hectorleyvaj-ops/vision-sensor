@@ -39,6 +39,8 @@ class MainWindow(QMainWindow):
         self.selected_recipe = None
         self.rois_to_apply = []
 
+        self.fsm_busy = False
+
         self.BASE_STYLE = """
         border: 2px solid;
         font-size: 16px;
@@ -149,6 +151,8 @@ class MainWindow(QMainWindow):
 
         self.state_manager.inspectionResult.connect(self.update_indicator)
 
+        self.state_worker.cycle_finished.connect(self.on_fsm_finished)
+
             # STATE MANAGER OBTIENE RECIPE MANAGER PARA ACCEDER A LAS RECETAS DESDE EL WORKER
         self.state_manager.set_recipe_manager(self.recipe_manager)
         self.state_manager.load_selected_recipe()
@@ -169,12 +173,19 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(delay, lambda: self.ui.indicator_1.setStyleSheet(self.BASE_STYLE))
 
     def run_fsm(self):
+        if self.fsm_busy:
+            print("[FSM] Ciclo ocupado, trigger ignorado")
+            return
+        
         if not self.state_thread.isRunning():
+            print("[FSM] State thread no esta corriendo")
             return
         
         if self.state_manager.state != "IDLE":
-            print("[FSM] Ocupada, trigger ignorado")
+            print(f"[FSM] Ocupada en estado {self.state_manager.state}, trigger ignorado")
             return
+        
+        self.fsm_busy = True
         
         if self.state_thread.isRunning():
             QMetaObject.invokeMethod(
@@ -182,11 +193,17 @@ class MainWindow(QMainWindow):
                 "run_once",
                 Qt.QueuedConnection
             )
+
+    def on_fsm_finished(self):
+        self.fsm_busy = False
         
     def get_current_frame(self):
         return self.current_frame
     
     def on_model_changed(self, model_name):
+        if not model_name:
+            print("[SERIAL] Modelo vacio, cambio ignorado")
+            
         print(f"Cambiando receta a modelo: {model_name}")
         self.state_manager.set_active_recipe(model_name)
         self.apply_rois_from_recipe()

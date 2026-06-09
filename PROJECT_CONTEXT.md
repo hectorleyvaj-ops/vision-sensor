@@ -69,3 +69,27 @@ Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametro
 - Mejorar diseño de interfaz de configuracion, tanto la ventana dinamica (ventana escalada y en pantalla completa, widgets escaldos, copiar paleta de colores de la ventana principal)
 - Mejorar FSM
 - Preparar V2.0 para producción en otra máquina
+
+## Ramas para avanzar
+1. stabilize-system-base
+   - hilos
+   - cierre seguro
+   - FSM
+   - SerialComm
+   - triggers dobles
+
+2. improve-camera-worker
+   - autofocus inicial
+   - estabilización
+   - congelar focus_absolute
+   - recalibración segura
+
+3. improve-config-ui
+   - fullscreen
+   - mejor diseño visual
+   - consistencia con ventana principal
+
+4. improve-tool-editor-ui
+   - UI dinámica más clara
+   - mejor selección de ROI
+   - widgets más grandes y ordenados
