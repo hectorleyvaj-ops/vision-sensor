@@ -84,12 +84,34 @@ Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametro
    - congelar focus_absolute
    - recalibración segura
 
-3. improve-config-ui
+   Windows:
+      - Usa OpenCV + CAP_DSHOW.
+      - Intenta activar autofocus con CAP_PROP_AUTOFOCUS.
+      - Si no se puede, sigue funcionando sin calibración.
+      - No usa v4l2-ctl.
+
+   Raspberry/Linux:
+      - Busca /dev/videoX.
+      - Usa CAP_V4L2.
+      - Revisa si existe v4l2-ctl.
+      - Lee controles disponibles.
+      - Solo calibra si existen:
+      - focus_automatic_continuous
+      - focus_absolute
+      - Si no existen, transmite video normalmente.
+
+3. add logger
+   - crear el handler del logger
+   - redirigir los logs al txtlog de mi interfaz
+   - agregar logger en cada script y reemplazar por print
+   - mostrar logs tanto en ui como en la terminal
+
+4. improve-config-ui
    - fullscreen
    - mejor diseño visual
    - consistencia con ventana principal
 
-4. improve-tool-editor-ui
+5. improve-tool-editor-ui
    - UI dinámica más clara
    - mejor selección de ROI
    - widgets más grandes y ordenados
