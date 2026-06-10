@@ -363,13 +363,10 @@ class CameraWorker(QObject):
 
         optional_controls = {
             "auto_exposure": 3,
-            "exposure_dynamic_framerate": 1,
-            "gain": 10,
+            "exposure_dynamic_framerate": 0,
+            "gain": 0,
             "brightness": 0,
             "contrast": 32,
-            "sharpness": 3,
-            "power_line_frequency": 1,
-            "white_balance_automatic": 1,
         }
 
         for control, value in optional_controls.items():
