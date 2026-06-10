@@ -88,7 +88,7 @@ class MainWindow(QMainWindow):
     def setup_camera(self):
         # CREAR THREAD Y WORKER DE CAMARA
         self.camera_thread = QThread()
-        self.camera_worker = CameraWorker(camera_index=0,width=1980,height=1080,platform=self.platform)
+        self.camera_worker = CameraWorker(camera_index=0,width=1920,height=1080,platform=self.platform)
 
         # MOVER WORKER AL HILO DE VISION
         self.camera_worker.moveToThread(self.camera_thread)

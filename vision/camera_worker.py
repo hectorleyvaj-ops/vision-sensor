@@ -120,14 +120,24 @@ class CameraWorker(QObject):
         if self.cap is None:
             return
         
+        if self.is_linux():
+            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        self.cap.set(cv2.CAP_PROP_FPS, 30)
+
+        for _ in range(5):
+            self.cap.read()
+            time.sleep(0.03)
 
         real_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         real_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        real_fps = self.cap.get(cv2.CAP_PROP_FPS)
 
         print(f"[CAMERA] Resolucion solicitada: {self.width} x {self.height}")
         print(f"[CAMERA] Resolucion activa: {real_width} x {real_height}")
+        print(f"[CAMERA] FPS activo: {real_fps}")
 
     def warmup_camera(self, frames=30, delay=0.02):
         # LEE CIERTOS FRAMES PARA ESTABILIZAR CAMARA
@@ -366,11 +376,7 @@ class CameraWorker(QObject):
             if self.has_v4l2_control(control):
                 self.set_v4l2_controls(control, value)
 
-        if self.can_freeze_focus:
-            self.set_autofocus_linux(False)
-            time.sleep(0.2)
-            self.set_focus_absolute(500)
-            time.sleep(0.2)
+        if self.autofocus_supported:
             self.set_autofocus_linux(True)
 
     def apply_base_controls_windows(self):
@@ -867,7 +873,7 @@ class CameraWorker(QObject):
             print("[CAMERA][WARNING] Cámara sin autofocus controlable. Se usará video sin congelar enfoque.")
             return
 
-        best_frame, score, focus_value = self.autofocus_calibration()
+        best_frame, score, focus_value = self.autofocus_calibration_linux_with_retries()
 
         if focus_value is None:
             print("[CAMERA][WARNING] No se pudo obtener focus_absolute, intentando recalibración...")
