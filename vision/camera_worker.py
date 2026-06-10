@@ -12,7 +12,7 @@ class CameraWorker(QObject):
     finished = Signal()
     recalibrate_request = Signal()
 
-    def __init__(self,camera_index=0, width=1980, height=1080, platform="other"):
+    def __init__(self,camera_index=0, width=1920, height=1080, platform="other"):
         super().__init__()
         self.camera_index = camera_index
         
@@ -189,19 +189,18 @@ class CameraWorker(QObject):
                 if match:
                     self.v4l2_controls.add(match.group(1))
 
-                self.v4l2_available = True
+            self.v4l2_available = len(self.v4l2_controls) > 0
 
-                self.autofocus_supported = "focus_automatic_continuous" in self.v4l2_controls
-                self.focus_absolute_supported = "focus_absolute" in self.v4l2_controls
-                self.can_freeze_focus = self.autofocus_supported and self.focus_absolute_supported
+            self.autofocus_supported = "focus_automatic_continuous" in self.v4l2_controls
+            self.focus_absolute_supported = "focus_absolute" in self.v4l2_controls
+            self.can_freeze_focus = self.autofocus_supported and self.focus_absolute_supported
 
-                print(f"[CAMERA] Controles v4l2 detectados: {sorted(self.v4l2_controls)}")
+            print(f"[CAMERA] Controles v4l2 detectados: {sorted(self.v4l2_controls)}")
 
-                if self.can_freeze_focus:
-                    print("[CAMERA] Autofocus + focus_absolute disponibles. Calibracion habilitada")
-
-                else:
-                    print("[CAMERA][WARNING] Camara sin controles completos de autofocus. Calibracion omitida.")
+            if self.can_freeze_focus:
+                print("[CAMERA] Autofocus + focus_absolute disponibles. Calibracion habilitada")
+            else:
+                print("[CAMERA][WARNING] Camara sin controles completos de autofocus. Calibracion omitida.")
 
         except Exception as e:
             print(f"[CAMERA][ERROR] Error detectando controles: {e}")
@@ -629,19 +628,19 @@ class CameraWorker(QObject):
 
             time.sleep(interval)
 
-    def autofocus_calibration_linux_with_retires(self):
+    def autofocus_calibration_linux_with_retries(self):
         best_global_frame = None
         best_global_score = -1
         best_global_focus = None
 
-        for attempt in range(1, self.min_focus_score_linux + 1):
+        for attempt in range(1, self.max_focus_retries_linux + 1):
             print(f"[CAMERA] Intento autofocus Linux {attempt}/{self.max_focus_retries_linux}")
 
             best_frame, score, focus_value = self.autofocus_calibration()
 
             if score > best_global_score:
-                best_global_frame = best_frame,
-                best_global_score = score,
+                best_global_frame = best_frame
+                best_global_score = score
                 best_global_focus = focus_value
 
             if focus_value is not None and score > self.min_focus_score_linux:
@@ -649,11 +648,12 @@ class CameraWorker(QObject):
                 return best_frame, score, focus_value
             
             print(
-            f"[CAMERA][WARNING] Enfoque Linux bajo o foco inválido. "
-            f"score={score}, focus={focus_value}. Reintentando..."
+                f"[CAMERA][WARNING] Enfoque Linux bajo o foco inválido. "
+                f"score={score}, focus={focus_value}. Reintentando..."
             )
 
-            self.reset_autofocus_linux_for_retry()
+            if attempt < self.max_focus_retries_linux:
+                self.reset_autofocus_linux_for_retry()
 
         print(
             f"[CAMERA][ERROR] No se alcanzó score mínimo Linux. "
