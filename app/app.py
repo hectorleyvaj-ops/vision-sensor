@@ -25,6 +25,9 @@ class MainWindow(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
+        self.platform = self.detect_platform()
+        print(f"[CAMERA] Sistema operativo detectado: {self.platform}")
+
         # ASIGNAR WIDGETS DE LA UI A VARIABLES CORRESPONDIENTES
         self.lbl_video = self.ui.lbl_video
         self.lbl_video.get_frame = self.get_current_frame
@@ -38,6 +41,8 @@ class MainWindow(QMainWindow):
         self.current_frame = None
         self.selected_recipe = None
         self.rois_to_apply = []
+
+        self.fsm_busy = False
 
         self.BASE_STYLE = """
         border: 2px solid;
@@ -71,11 +76,19 @@ class MainWindow(QMainWindow):
         self.setup_serial()
         self.setup_state_manager()
         
+    def detect_platform(self):
+        if sys.platform.startswith("win"):
+            return "windows"
+        
+        if sys.platform.startswith("linux"):
+            return "linux"
+        
+        return "other"
 
     def setup_camera(self):
         # CREAR THREAD Y WORKER DE CAMARA
         self.camera_thread = QThread()
-        self.camera_worker = CameraWorker()
+        self.camera_worker = CameraWorker(camera_index=0,width=1920,height=1080,platform=self.platform)
 
         # MOVER WORKER AL HILO DE VISION
         self.camera_worker.moveToThread(self.camera_thread)
@@ -106,8 +119,14 @@ class MainWindow(QMainWindow):
             self.lbl_video.set_rois(self.rois_to_apply)
 
     def setup_serial(self):
+        puerto = None
+        if self.platform == "linux":
+            puerto = "/dev/ttyUSB0"
+        elif self.platform == "windows":
+            puerto = "COM7"
+
         self.serial_thread = QThread()
-        self.serial = SerialComm(port="COM7", baudrate=115200)
+        self.serial = SerialComm(port=puerto, baudrate=115200)
 
         self.serial.moveToThread(self.serial_thread)
 
@@ -149,6 +168,8 @@ class MainWindow(QMainWindow):
 
         self.state_manager.inspectionResult.connect(self.update_indicator)
 
+        self.state_worker.cycle_finished.connect(self.on_fsm_finished)
+
             # STATE MANAGER OBTIENE RECIPE MANAGER PARA ACCEDER A LAS RECETAS DESDE EL WORKER
         self.state_manager.set_recipe_manager(self.recipe_manager)
         self.state_manager.load_selected_recipe()
@@ -169,12 +190,19 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(delay, lambda: self.ui.indicator_1.setStyleSheet(self.BASE_STYLE))
 
     def run_fsm(self):
+        if self.fsm_busy:
+            print("[FSM] Ciclo ocupado, trigger ignorado")
+            return
+        
         if not self.state_thread.isRunning():
+            print("[FSM] State thread no esta corriendo")
             return
         
         if self.state_manager.state != "IDLE":
-            print("[FSM] Ocupada, trigger ignorado")
+            print(f"[FSM] Ocupada en estado {self.state_manager.state}, trigger ignorado")
             return
+        
+        self.fsm_busy = True
         
         if self.state_thread.isRunning():
             QMetaObject.invokeMethod(
@@ -182,11 +210,17 @@ class MainWindow(QMainWindow):
                 "run_once",
                 Qt.QueuedConnection
             )
+
+    def on_fsm_finished(self):
+        self.fsm_busy = False
         
     def get_current_frame(self):
         return self.current_frame
     
     def on_model_changed(self, model_name):
+        if not model_name:
+            print("[SERIAL] Modelo vacio, cambio ignorado")
+            
         print(f"Cambiando receta a modelo: {model_name}")
         self.state_manager.set_active_recipe(model_name)
         self.apply_rois_from_recipe()

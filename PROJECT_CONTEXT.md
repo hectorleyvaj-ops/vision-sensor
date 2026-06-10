@@ -69,3 +69,50 @@ Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametro
 - Mejorar diseño de interfaz de configuracion, tanto la ventana dinamica (ventana escalada y en pantalla completa, widgets escaldos, copiar paleta de colores de la ventana principal)
 - Mejorar FSM
 - Preparar V2.0 para producción en otra máquina
+
+## Ramas para avanzar
+1. stabilize-system-base
+   - hilos
+   - cierre seguro
+   - FSM
+   - SerialComm
+   - triggers dobles
+
+2. improve-camera-worker
+   - autofocus inicial
+   - estabilización
+   - congelar focus_absolute
+   - recalibración segura
+
+   Windows:
+      - Usa OpenCV + CAP_DSHOW.
+      - Intenta activar autofocus con CAP_PROP_AUTOFOCUS.
+      - Si no se puede, sigue funcionando sin calibración.
+      - No usa v4l2-ctl.
+
+   Raspberry/Linux:
+      - Busca /dev/videoX.
+      - Usa CAP_V4L2.
+      - Revisa si existe v4l2-ctl.
+      - Lee controles disponibles.
+      - Solo calibra si existen:
+      - focus_automatic_continuous
+      - focus_absolute
+      - Si no existen, transmite video normalmente.
+
+3. improve-config-ui
+   - fullscreen
+   - mejor diseño visual
+   - consistencia con ventana principal
+
+4. improve-tool-editor-ui
+   - UI dinámica más clara
+   - mejor selección de ROI
+   - widgets más grandes y ordenados
+
+
+5. add logger
+   - crear el handler del logger
+   - redirigir los logs al txtlog de mi interfaz
+   - agregar logger en cada script y reemplazar por print
+   - mostrar logs tanto en ui como en la terminal
