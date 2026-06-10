@@ -25,6 +25,9 @@ class MainWindow(QMainWindow):
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
+        self.platform = self.detect_platform()
+        print(f"[CAMERA] Sistema operativo detectado: {self.platform}")
+
         # ASIGNAR WIDGETS DE LA UI A VARIABLES CORRESPONDIENTES
         self.lbl_video = self.ui.lbl_video
         self.lbl_video.get_frame = self.get_current_frame
@@ -73,11 +76,19 @@ class MainWindow(QMainWindow):
         self.setup_serial()
         self.setup_state_manager()
         
+    def detect_platform(self):
+        if sys.platform.startswith("win"):
+            return "windows"
+        
+        if sys.platform.startswith("linux"):
+            return "linux"
+        
+        return "other"
 
     def setup_camera(self):
         # CREAR THREAD Y WORKER DE CAMARA
         self.camera_thread = QThread()
-        self.camera_worker = CameraWorker()
+        self.camera_worker = CameraWorker(camera_index=0,width=1980,height=1080,platform=self.platform)
 
         # MOVER WORKER AL HILO DE VISION
         self.camera_worker.moveToThread(self.camera_thread)
@@ -108,8 +119,14 @@ class MainWindow(QMainWindow):
             self.lbl_video.set_rois(self.rois_to_apply)
 
     def setup_serial(self):
+        puerto = None
+        if self.platform == "linux":
+            puerto = "/dev/ttyUSB0"
+        elif self.platform == "windows":
+            puerto = "COM7"
+
         self.serial_thread = QThread()
-        self.serial = SerialComm(port="COM7", baudrate=115200)
+        self.serial = SerialComm(port=puerto, baudrate=115200)
 
         self.serial.moveToThread(self.serial_thread)
 

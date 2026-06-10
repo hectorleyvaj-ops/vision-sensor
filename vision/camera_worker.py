@@ -1,8 +1,6 @@
 import cv2
 import time
-import os
 import re
-import sys
 import shutil
 import subprocess
 
@@ -14,7 +12,7 @@ class CameraWorker(QObject):
     finished = Signal()
     recalibrate_request = Signal()
 
-    def __init__(self,camera_index=0, width=1980, height=1080):
+    def __init__(self,camera_index=0, width=1980, height=1080, platform="other"):
         super().__init__()
         self.camera_index = camera_index
         
@@ -40,8 +38,7 @@ class CameraWorker(QObject):
         self.max_focus_retries_linux = 3
 
         # DETECTAR SI SE TRABAJA EN WINDOWS(PRUEBAS) O RASPBERRY/LINUX(PRODUCCION)
-        self.platform = self.detect_platform()
-        print(f"[CAMERA] Sistema operativo detectado: {self.platform}")
+        self.platform = platform
 
         self.v4l2_available = False
         self.v4l2_controls = set()
@@ -50,15 +47,6 @@ class CameraWorker(QObject):
         self.can_freeze_focus = False
 
         self.recalibrate_request.connect(self.recalibrate_focus)
-
-    def detect_platform(self):
-        if sys.platform.startswith("win"):
-            return "windows"
-        
-        if sys.platform.startswith("linux"):
-            return "linux"
-        
-        return "other"
     
     def is_linux(self):
         return self.platform == "linux"
