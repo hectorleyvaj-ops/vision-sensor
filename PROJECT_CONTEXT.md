@@ -100,18 +100,19 @@ Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametro
       - focus_absolute
       - Si no existen, transmite video normalmente.
 
-3. add logger
-   - crear el handler del logger
-   - redirigir los logs al txtlog de mi interfaz
-   - agregar logger en cada script y reemplazar por print
-   - mostrar logs tanto en ui como en la terminal
-
-4. improve-config-ui
+3. improve-config-ui
    - fullscreen
    - mejor diseño visual
    - consistencia con ventana principal
 
-5. improve-tool-editor-ui
+4. improve-tool-editor-ui
    - UI dinámica más clara
    - mejor selección de ROI
    - widgets más grandes y ordenados
+
+
+5. add logger
+   - crear el handler del logger
+   - redirigir los logs al txtlog de mi interfaz
+   - agregar logger en cada script y reemplazar por print
+   - mostrar logs tanto en ui como en la terminal
