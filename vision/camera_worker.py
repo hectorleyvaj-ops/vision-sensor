@@ -590,13 +590,9 @@ class CameraWorker(QObject):
         try:
             print("[CAMERA] Reiniciando autofocus Linux para nuevo intento")
 
-            self.set_autofocus_linux(False)
-            time.sleep(0.4)
-
-            if self.focus_absolute_supported:
-                self.set_focus_absolute(500)
-                time.sleep(0.3)
-
+            self.set_autofocus_windows(False)
+            time.sleep(0.04)
+            
             self.set_autofocus_linux(True)
             time.sleep(0.4)
 
