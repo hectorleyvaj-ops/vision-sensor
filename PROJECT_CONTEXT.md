@@ -71,34 +71,20 @@ Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametro
 - Preparar V2.0 para producción en otra máquina
 
 ## Ramas para avanzar
-1. stabilize-system-base
+1. stabilize-system-base   / COMPLETADO
    - hilos
    - cierre seguro
    - FSM
    - SerialComm
    - triggers dobles
 
-2. improve-camera-worker
+2. improve-camera-worker   / COMPLETADO
    - autofocus inicial
    - estabilización
-   - congelar focus_absolute
    - recalibración segura
-
-   Windows:
-      - Usa OpenCV + CAP_DSHOW.
-      - Intenta activar autofocus con CAP_PROP_AUTOFOCUS.
-      - Si no se puede, sigue funcionando sin calibración.
-      - No usa v4l2-ctl.
-
-   Raspberry/Linux:
-      - Busca /dev/videoX.
-      - Usa CAP_V4L2.
-      - Revisa si existe v4l2-ctl.
-      - Lee controles disponibles.
-      - Solo calibra si existen:
-      - focus_automatic_continuous
-      - focus_absolute
-      - Si no existen, transmite video normalmente.
+   - enfoque basado en focus_score
+   - Windows: OpenCV autofocus
+   - Linux: autofocus_continuous + freeze por desactivación
 
 3. improve-config-ui
    - fullscreen

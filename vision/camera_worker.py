@@ -32,10 +32,10 @@ class CameraWorker(QObject):
         self.calibrating = False
 
         self.min_focus_score_windows = 350
-        self.max_focus_retries_windows = 3
+        self.max_focus_retries_windows = 5
 
         self.min_focus_score_linux = 350
-        self.max_focus_retries_linux = 3
+        self.max_focus_retries_linux = 5
 
         # DETECTAR SI SE TRABAJA EN WINDOWS(PRUEBAS) O RASPBERRY/LINUX(PRODUCCION)
         self.platform = platform
@@ -482,7 +482,7 @@ class CameraWorker(QObject):
             # TIEMPO PARA QUE LA CAMARA INTENTE ENFOCAR
             self.emit_preview_during_focus(seconds=3.0, interval=0.03)
 
-            for _ in range(80):
+            for _ in range(100):
                 if not self._running:
                     break
 
@@ -533,13 +533,13 @@ class CameraWorker(QObject):
                 print("[CAMERA] Calibración Windows omitida: autofocus no controlable")
                 return None, -1, None
 
-            self.emit_preview_during_focus(seconds=2.0, interval=0.03)
+            self.emit_preview_during_focus(seconds=3.0, interval=0.03)
 
             best_score = -1
             best_frame = None
             best_focus_value = None
 
-            for _ in range(80):
+            for _ in range(100):
                 if not self._running:
                     break
 
