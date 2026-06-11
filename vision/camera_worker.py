@@ -221,7 +221,7 @@ class CameraWorker(QObject):
     def has_v4l2_control(self, control_name):
         return self.v4l2_available and control_name in self.v4l2_controls
         
-    def run_v4l2(self, args, check=True, capture_output=False):
+    def run_v4l2(self, args, check=False, capture_output=True):
         if not self.is_linux():
             raise RuntimeError("[CAMERA][ERROR] v4l2 solo esta disponible para Linux")
         
@@ -233,25 +233,55 @@ class CameraWorker(QObject):
         
         cmd = ["v4l2-ctl", "-d", self.device] + args
 
-        if capture_output:
-            return subprocess.run(cmd, check=check, capture_output=True, text=True)
-        
-        return subprocess.run(
+        print(f"[V4L2][CMD] {' '.join(cmd)}")
+
+        result = subprocess.run(
             cmd,
-            check=check,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            check=False,
+            capture_output=True,
+            text=True
         )
-    
+
+        stdout = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+
+        print(f"[V4L2][RC] {result.returncode}")
+
+        if stdout:
+            print(f"[V4L2][OUT] {stdout}")
+
+        if stderr:
+            print(f"[V4L2][ERR] {stderr}")
+
+        if check and result.returncode != 0:
+            raise RuntimeError(f"Comando v4l2 falló: {' '.join(cmd)}")
+
+        return result
+        
     # API GENERAL PARA SETEAR CONTROLES
-    def set_v4l2_controls(self, control_name, value, check=False):
+    def set_v4l2_controls(self, control_name, value, check=False, verify=True):
         if not self.has_v4l2_control(control_name):
             print(f"[CAMERA][WARNING] Control no disponible, omitido: {control_name}")
             return False
         
         try:
-            self.run_v4l2([f"--set-ctrl={control_name}={value}"], check=check)
-            print(f"[CAMERA] Control aplicado: {control_name}={value}")
+            result = self.run_v4l2(
+                [f"--set-ctrl={control_name}={value}"],
+                check=check,
+                capture_output=True
+            )
+
+            if result.returncode != 0:
+                print(f"[CAMERA][ERROR] v4l2 rechazó {control_name}={value}")
+                return False
+
+            if verify:
+                actual = self.get_v4l2_control(control_name)
+                print(f"[CAMERA] Control aplicado/verificado: {control_name} pedido={value}, leído={actual}")
+
+            else:
+                print(f"[CAMERA] Control aplicado: {control_name}={value}")
+
             return True
         
         except Exception as e:
@@ -762,10 +792,10 @@ class CameraWorker(QObject):
             time.sleep(0.3)
 
             # FORZAR MANUALMENTE EL VALOR DEL MEJOR SCORE 
-            if self.focus_absolute_supported:
-                if not self.set_focus_absolute(focus_value):
-                    print(f"[CAMERA][WARNING] No se pudo aplicar focus_absolute={focus_value}")
-                    return None, -1
+            #if self.focus_absolute_supported:
+            #   if not self.set_focus_absolute(focus_value):
+            #        print(f"[CAMERA][WARNING] No se pudo aplicar focus_absolute={focus_value}")
+            #        return None, -1
                 
             time.sleep(0.35)
 
