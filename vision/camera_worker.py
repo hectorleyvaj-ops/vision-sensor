@@ -4,7 +4,7 @@ import re
 import shutil
 import subprocess
 
-from utils.qt_compat import QObject, Signal, QTimer, Slot
+from utils.qt_compat import QObject, Signal, Slot
 
 class CameraWorker(QObject):
     frame_ready = Signal(object)
@@ -36,6 +36,8 @@ class CameraWorker(QObject):
 
         self.min_focus_score_linux = 350
         self.max_focus_retries_linux = 10
+
+        self.max_focus_freeze_retries_linux = 3
 
         # DETECTAR SI SE TRABAJA EN WINDOWS(PRUEBAS) O RASPBERRY/LINUX(PRODUCCION)
         self.platform = platform
@@ -204,7 +206,7 @@ class CameraWorker(QObject):
             self.autofocus_supported = "focus_automatic_continuous" in self.v4l2_controls
             self.focus_absolute_supported = "focus_absolute" in self.v4l2_controls
 
-            self.can_freeze_focus = self.autofocus_supported
+            self.can_freeze_focus = self.autofocus_supported and self.focus_absolute_supported
 
             print(f"[CAMERA] Controles v4l2 detectados: {sorted(self.v4l2_controls)}")
 
@@ -416,6 +418,58 @@ class CameraWorker(QObject):
         except Exception:
             return -1
         
+    def verify_frozen_focus(self, expected_focus=None, min_score=None, samples=12, delay=0.04, focus_tolerance=3):
+        if min_score is None:
+            min_score = self.min_focus_score_linux if self.is_linux() else self.min_focus_score_windows
+
+        best_score = -1
+        best_frame = None
+
+
+        for _ in range(samples):
+            if not self._running:
+                break
+
+            ret, frame = self.cap.read()
+
+            if not ret or frame is None or not hasattr(frame, "shape") or frame.size == 0:
+                time.sleep(delay)
+                continue
+
+            score = self.focus_score(frame)
+
+            self.current_frame = frame.copy()
+            self.frame_ready.emit(frame.copy())
+
+            if score > best_score:
+                best_score = score
+                best_frame = frame.copy()
+
+            time.sleep(delay)
+
+        current_focus = None
+
+        if self.is_linux():
+            current_focus = self.get_focus_absolute()
+        elif self.is_windows():
+            current_focus = self.get_focus_windows()
+
+        focus_ok = True
+
+        if expected_focus is not None and current_focus is not None:
+            focus_ok = abs(current_focus - expected_focus)<=focus_tolerance
+
+        score_ok = best_score >= min_score
+
+        print(
+            f"[CAMERA] Verificación foco congelado: "
+            f"score={best_score}, min_score={min_score}, "
+            f"focus={current_focus}, expected={expected_focus}, "
+            f"score_ok={score_ok}, focus_ok={focus_ok}"
+        )
+
+        return score_ok and focus_ok, best_score, current_focus, best_frame
+        
     def wait_focus_stable(self, stable_samples=8, max_seconds=8.0, focus_delta=2):
         if not self.can_freeze_focus:
             return None
@@ -463,6 +517,7 @@ class CameraWorker(QObject):
 
         best_score = -1
         best_frame = None
+        best_focus_value = None
 
         invalid_frames = 0
         max_invalid_frames = 10
@@ -476,7 +531,7 @@ class CameraWorker(QObject):
                 print("[CAMERA] Cámara no disponible para calibración")
                 return None, -1, None
 
-            print("[CAMERA] Iniciando autofocus...")
+            print("[CAMERA] Iniciando autofocus en linux...")
             self.set_autofocus_linux(True)
 
             # TIEMPO PARA QUE LA CAMARA INTENTE ENFOCAR
@@ -494,13 +549,14 @@ class CameraWorker(QObject):
 
                     if invalid_frames >= max_invalid_frames:
                         print("[CAMERA][ERROR] Demasiados frames inválidos durante calibración")
-                        return None, -1
+                        return None, -1, None
 
                     time.sleep(0.03)
                     continue
 
                 # USANDO LAPLACE CON CV2
                 score = self.focus_score(frame)
+                focus_value = self.get_focus_absolute()
 
                 self.current_frame = frame.copy()
                 self.frame_ready.emit(frame.copy())
@@ -508,11 +564,15 @@ class CameraWorker(QObject):
                 if score > best_score:
                     best_score = score
                     best_frame = frame.copy()
+                    best_focus_value = focus_value
 
                 time.sleep(0.03)
 
+            if best_focus_value is None:
+                best_focus_value = self.get_focus_absolute()
+
             print(f"[CAMERA] Mejor score enfoque: {best_score}")
-            return best_frame, best_score
+            return best_frame, best_score, best_focus_value
         
         except Exception as e:
             print(f"[CAMERA] Error en calibración Linux: {e}")
@@ -619,23 +679,25 @@ class CameraWorker(QObject):
     def autofocus_calibration_linux_with_retries(self):
         best_global_frame = None
         best_global_score = -1
+        best_global_focus = None
 
         for attempt in range(1, self.max_focus_retries_linux + 1):
             print(f"[CAMERA] Intento autofocus Linux {attempt}/{self.max_focus_retries_linux}")
 
-            best_frame, score = self.autofocus_calibration()
+            best_frame, score, focus_value = self.autofocus_calibration()
 
             if score > best_global_score:
                 best_global_frame = best_frame
                 best_global_score = score
+                best_global_focus = focus_value
 
-            if score > self.min_focus_score_linux:
+            if focus_value is not None and score > self.min_focus_score_linux:
                 print(f"[CAMERA] Enfoque Linux aceptado score={score}")
-                return best_frame, score
+                return best_frame, score, focus_value
             
             print(
                 f"[CAMERA][WARNING] Enfoque Linux bajo o foco inválido. "
-                f"score={score}. Reintentando..."
+                f"score={score}, focus={focus_value}. Reintentando..."
             )
 
             if attempt < self.max_focus_retries_linux:
@@ -643,10 +705,10 @@ class CameraWorker(QObject):
 
         print(
             f"[CAMERA][ERROR] No se alcanzó score mínimo Linux. "
-            f"Mejor score={best_global_score}"
+            f"Mejor score={best_global_score}, focus={best_global_focus}"
         )
 
-        return best_global_frame, best_global_score
+        return best_global_frame, best_global_score, best_global_focus
 
 
     def autofocus_calibration_windows_with_retries(self):
@@ -682,24 +744,68 @@ class CameraWorker(QObject):
 
         return best_global_frame, best_global_score, best_global_focus
 
-    def freeze_camera(self):
+    def freeze_camera(self, focus_value=None, expected_score=None):
         if not self.can_freeze_focus:
             print("[CAMERA][WARNING] Congelamiento omitido: cámara sin controles de enfoque requeridos")
-            return None
+            return None, -1
 
         try:
+            if focus_value is None:
+                focus_value = self.get_focus_absolute()
 
+            if focus_value is None:
+                print("[CAMERA][WARNING] No se pudo obtener focus_absolute para congelar")
+                return None, -1
+            
+            # APAGAR AUTOFOCUS
             self.set_autofocus_linux(False)
             time.sleep(0.3)
 
-            self.locked_focus_value = None
+            # FORZAR MANUALMENTE EL VALOR DEL MEJOR SCORE 
+            if self.focus_absolute_supported:
+                if not self.set_focus_absolute(focus_value):
+                    print(f"[CAMERA][WARNING] No se pudo aplicar focus_absolute={focus_value}")
+                    return None, -1
+                
+            time.sleep(0.35)
 
-            print("[CAMERA] Autofocus detenido. Enfoque congelado")
-            return True
+            verified_focus = self.get_focus_absolute()
+
+            if verified_focus is None:
+                verified_focus = focus_value
+
+            min_score = self.min_focus_score_linux
+
+            # Opcional: si el mejor score fue muy alto, no aceptar una caída demasiado fuerte.
+            # Por ejemplo, exigir al menos 65% del score original, pero nunca menos que min_focus_score_linux.
+
+            if expected_score is not None and expected_score > 0:
+                min_score = max(self.min_focus_score_linux, int(expected_score * 0.65))
+
+            ok, verified_score, current_focus, best_frame = self.verify_frozen_focus(
+                expected_focus=focus_value,
+                min_score=min_score,
+                samples=12,
+                delay=0.04,
+                focus_tolerance=3
+            )
+
+            if not ok:
+                print(
+                    f"[CAMERA][WARNING] Foco congelado no válido. "
+                    f"score_post={verified_score}, min_score={min_score}, "
+                    f"focus_post={current_focus}, focus_objetivo={focus_value}"
+                )
+                return None, verified_score
+            
+            self.locked_focus_value = verified_focus
+            print(f"[CAMERA] Autofocus detenido. Enfoque congelado en {verified_focus}, score_post={verified_score}")
+
+            return verified_focus, verified_score
 
         except Exception as e:
             print(f"[CAMERA][ERROR] Error congelando foco: {e}")
-            return None
+            return None, -1
 
     def freeze_camera_windows(self, focus_value=None):
         try:
@@ -775,7 +881,7 @@ class CameraWorker(QObject):
             self.apply_base_controls_linux()
             self.warmup_camera(frames=30, delay=0.02)
 
-            best_frame, score = self.autofocus_calibration_linux_with_retries()
+            best_frame, score, focus_value = self.autofocus_calibration_linux_with_retries()
 
             if score < self.min_focus_score_linux:
                 print(
@@ -785,13 +891,13 @@ class CameraWorker(QObject):
                 self.set_autofocus_linux(True)
                 return
 
-            locked = self.freeze_camera()
+            locked, locked_score = self.freeze_camera(focus_value, expected_score=score)
 
             if locked is None:
-                print("[CAMERA][WARNING] Linux: no se pudo congelar recalibración, se deja autofocus activo")
-                self.set_autofocus_linux(True)
+                print("[CAMERA][WARNING] Linux: congelamiento falló por focus/score. Se reintenta autofocus.")
+                self.reset_autofocus_linux_for_retry()
             else:
-                print(f"[CAMERA] Linux recalibrado score={score}, focus={locked}")
+                print(f"[CAMERA] Linux recalibrado score_pre={score}, score_post={locked_score}, focus={locked}")
 
             return
 
@@ -831,24 +937,60 @@ class CameraWorker(QObject):
         if not self.can_freeze_focus:
             print("[CAMERA][WARNING] Cámara sin autofocus controlable. Se usará video sin congelar enfoque.")
             return
-
-        best_frame, score = self.autofocus_calibration_linux_with_retries()
-
-        if score < self.min_focus_score_linux:
-            print(
-                f"[CAMERA][WARNING] Linux: score bajo ({score}). "
-                "No se congela foco; se deja autofocus activo."
-            )
-            self.set_autofocus_linux(True)
-            return
         
-        locked = self.freeze_camera()
+        for attempt in range(1, self.max_focus_freeze_retries_linux + 1):
+            print(f"[CAMERA] Calibración inicial Linux {attempt}/{self.max_focus_freeze_retries_linux}")
 
-        if not locked:
-            print("[CAMERA][WARNING] Linux: no se pudo congelar foco, se deja autofocus activo")
-            self.set_autofocus_linux(True)
-        else:
-            print(f"[CAMERA] FOCUS CALIBRADO SCORE: {score}")
+            best_frame, score, focus_value = self.autofocus_calibration_linux_with_retries()
+
+            if focus_value is None:
+                print(
+                    f"[CAMERA][WARNING] Linux: calibración sin focus_value válido. "
+                    f"Intento {attempt}/{self.max_focus_freeze_retries_linux}"
+                )
+                if attempt < self.max_focus_freeze_retries_linux:
+                    self.reset_autofocus_linux_for_retry()
+                    continue
+                self.set_autofocus_linux(True)
+                return
+            
+            if score < self.min_focus_score_linux:
+                print(
+                    f"[CAMERA][WARNING] Linux: score bajo ({score}). "
+                    f"Intento {attempt}/{self.max_focus_freeze_retries_linux}"
+                )
+
+                if attempt < self.max_focus_freeze_retries_linux:
+                    self.reset_autofocus_linux_for_retry()
+                    continue
+
+                print("[CAMERA][WARNING] Linux: no se logró score mínimo. Se deja autofocus activo.")
+                self.set_autofocus_linux(True)
+                return
+        
+            locked, locked_score = self.freeze_camera(focus_value, expected_score=score)
+
+            if locked is not None:
+                print(
+                    f"[CAMERA] FOCUS CALIBRADO OK "
+                    f"SCORE_PRE: {score}, SCORE_POST: {locked_score}, FOCUS: {locked}"
+                )
+                return
+            
+            print(
+                f"[CAMERA][WARNING] Linux: foco congelado no pasó validación. "
+                f"SCORE_PRE: {score}, SCORE_POST: {locked_score}, "
+                f"FOCUS_OBJETIVO: {focus_value}. "
+                f"Reintentando calibración..."
+            )
+
+            if attempt < self.max_focus_retries_linux:
+
+                self.reset_autofocus_linux_for_retry()
+                continue
+
+        print("[CAMERA][ERROR] Linux: no se pudo calibrar y congelar foco después de todos los intentos.")
+        self.set_autofocus_linux(True)
 
     @Slot()
     def start(self):
