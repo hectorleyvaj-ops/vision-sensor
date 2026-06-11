@@ -1,5 +1,8 @@
 import os
-from utils.qt_compat import QWidget, QDialog, QVBoxLayout, QPushButton, QComboBox, QInputDialog, QTimer, Signal
+from utils.qt_compat import (
+    QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+    QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea
+)
 from ui.ui_config_window import Ui_Form
 from ui.tool_editor import ToolEditor
 from ui.schemas.schemas import TOOL_SCHEMAS
@@ -7,20 +10,229 @@ import shutil
 
 class ConfigWindow(QWidget):
     update_rois = Signal()
-    def __init__(self, recipe_manager, get_frame_callback, state_manager):
+    def __init__(self, recipe_manager, get_frame_callback, state_manager, platform):
         super().__init__()
 
         self.ui = Ui_Form()
         self.ui.setupUi(self)
 
+        self.apply_config_style()
+        self.apply_button_feedbakcs()
+
         self.recipe_manager = recipe_manager
         self.get_frame = get_frame_callback
         self.state_manager = state_manager
+        self.platform = platform
 
         self.current_recipe = None
 
         self.connect_signals()
         self.load_recipes()
+
+    def apply_config_style(self):
+        self.setStyleSheet("""
+            QWidget {
+                background-color: rgb(11, 19, 43);
+                color: rgb(234, 234, 234);
+                font-size: 14px;
+            }
+
+            QDialog {
+                background-color: rgb(11, 19, 43);
+                color: rgb(234, 234, 234);
+            }
+
+            QLabel {
+                color: rgb(234, 234, 234);
+                background-color: transparent;
+            }
+
+            QPushButton {
+                color: rgb(234, 234, 234);
+                border-radius: 10px;
+                border: 2px solid rgb(91, 192, 190);
+                background-color: rgb(15, 27, 61);
+                min-height: 28px;
+                padding: 4px 12px;
+            }
+
+            QPushButton:hover {
+                background-color: rgb(20, 38, 82);
+                border-color: rgb(46, 196, 182);
+            }
+
+            QPushButton:pressed {
+                background-color: rgb(46, 196, 182);
+                color: rgb(11, 19, 43);
+            }
+
+            QComboBox,
+            QLineEdit,
+            QDoubleSpinBox,
+            QSpinBox {
+                color: rgb(234, 234, 234);
+                border-radius: 4px;
+                border: 2px solid rgb(91, 192, 190);
+                background-color: rgb(15, 27, 61);
+                min-height: 28px;
+                padding-left: 6px;
+                padding-right: 26px;
+                selection-background-color: rgb(46, 196, 182);
+                selection-color: rgb(11, 19, 43);
+            }
+
+            QComboBox:hover,
+            QLineEdit:hover,
+            QDoubleSpinBox:hover,
+            QSpinBox:hover {
+                border-color: rgb(46, 196, 182);
+            }
+
+            QDoubleSpinBox::up-button,
+            QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 22px;
+                border-left: 1px solid rgb(91, 192, 190);
+                border-bottom: 1px solid rgb(91, 192, 190);
+                background-color: rgb(20, 38, 82);
+            }
+
+            QDoubleSpinBox::down-button,
+            QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 22px;
+                border-left: 1px solid rgb(91, 192, 190);
+                background-color: rgb(20, 38, 82);
+            }
+
+            QDoubleSpinBox::up-button:hover,
+            QDoubleSpinBox::down-button:hover,
+            QSpinBox::up-button:hover,
+            QSpinBox::down-button:hover {
+                background-color: rgb(46, 196, 182);
+            }
+
+            QCheckBox {
+                color: rgb(234, 234, 234);
+                background-color: transparent;
+                min-height: 24px;
+                spacing: 8px;
+            }
+
+            QCheckBox::indicator {
+                width: 15px;
+                height: 15px;
+                border-radius: 4px;
+                border: 2px solid rgb(91, 192, 190);
+                background-color: rgb(15, 27, 61);
+            }
+
+            QCheckBox::indicator:hover {
+                border-color: rgb(46, 196, 182);
+            }
+
+            QCheckBox::indicator:checked {
+                background-color: rgb(46, 196, 182);
+                border-color: rgb(46, 196, 182);
+            }
+
+            QFrame#line {
+                background-color: rgb(15, 27, 61);
+            }
+
+            QInputDialog {
+                background-color: rgb(11, 19, 43);
+                color: rgb(234, 234, 234);
+            }
+
+            QInputDialog QLabel {
+                color: rgb(234, 234, 234);
+            }
+
+            QScrollArea {
+                border: none;
+                background-color: rgb(11, 19, 43);
+            }
+
+            QScrollArea QWidget {
+                background-color: rgb(11, 19, 43);
+            }
+        """)
+
+    def add_button_feedback(self, button):
+        base_style = button.styleSheet().strip()
+        
+        feedback_style = """
+        QPushButton:hover {
+            background-color: rgb(20 ,38 ,82);
+            border-color: rgb(46, 196, 182);
+        }
+        QPushButton:pressed {
+            background-color: rgb(46, 196, 182);
+            color: rgb(11, 19, 43);
+        }
+        """
+
+        if base_style:
+            if "{" in base_style and "}" in base_style:
+                final_style = base_style + "\n" + feedback_style
+            else:
+                final_style = f"""
+                QPushButton {{
+                    {base_style}
+                }}
+                {feedback_style}
+                """
+        else:
+            final_style = """
+            QPushButton {
+                color: rgb(234, 234, 234);
+                border-radius: 10px;
+                border: 2px solid rgb(91, 192, 190);
+                background-color: rgb(15, 27, 61);
+                min-height: 28px;
+                padding: 4px 12px;
+            }
+
+            QPushButton:hover {
+                background-color: rgb(20, 38, 82);
+                border-color: rgb(46, 196, 182);
+            }
+
+            QPushButton:pressed {
+                background-color: rgb(46, 196, 182);
+                color: rgb(11, 19, 43);
+            }
+            """
+
+        button.setStyleSheet(final_style)
+        button.setCursor(Qt.PointingHandCursor)
+
+    def apply_button_feedbakcs(self):
+        buttons = [
+            self.ui.btn_add_r,
+            self.ui.btn_del_r,
+            self.ui.btn_select_r,
+            self.ui.btn_add_t,
+            self.ui.btn_del_t,
+            self.ui.btn_edit_t,
+            self.ui.btn_out,
+            self.ui.btn_save,
+        ]
+
+        for btn in buttons:
+            self.add_button_feedback(btn)
+
+    def get_screen_size(self):
+        screen = self.screen()
+
+        if screen is None:
+            return (480, 320)
+        
+        geo = screen.availableGeometry()
+        return geo.width(), geo.height()
 
     def safe_name(self, name):
         return name.replace(" ","_").replace("/","_").replace("\\","_")
@@ -42,6 +254,7 @@ class ConfigWindow(QWidget):
         self.ui.btn_add_r.clicked.connect(self.add_recipe)
         self.ui.btn_del_r.clicked.connect(self.delete_recipe)
         self.ui.btn_select_r.clicked.connect(self.select_recipe)
+        self.ui.btn_out.clicked.connect(self.close)
 
     def load_recipes(self):
         self.ui.cmb_recipes.clear()
@@ -85,23 +298,45 @@ class ConfigWindow(QWidget):
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Editar {tool_name}")
 
-        layout = QVBoxLayout()
+        screen_size = self.get_screen_size()
+        sw, sh =  screen_size
+
+        if self.platform == "linux": 
+            dialog.setMinimumSize(sw, sh)
+        else:
+            dialog.setMinimumSize(700,520)
+
+        dialog.setStyleSheet(self.styleSheet())
+
+        layout = QVBoxLayout(dialog)
 
         editor = ToolEditor(
             tool_name=tool_name,
             get_frame_callback=self.get_frame,
             base_path=base_path,
-            edit=True
+            edit=True,
+            platform=self.platform,
+            screen_size=screen_size
         )
 
         editor.set_values(params)
 
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(editor)
+
         btn_save = QPushButton("Guardar")
+        btn_cancel = QPushButton("Cancelar")
 
-        layout.addWidget(editor)
-        layout.addWidget(btn_save)
+        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setCursor(Qt.PointingHandCursor)
 
-        dialog.setLayout(layout)
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(btn_cancel)
+        buttons_layout.addWidget(btn_save)
+
+        layout.addWidget(scroll)
+        layout.addLayout(buttons_layout)
 
         def save():
             new_params = editor.get_values()
@@ -113,8 +348,17 @@ class ConfigWindow(QWidget):
             dialog.accept()
 
         btn_save.clicked.connect(save)
+        btn_cancel.clicked.connect(dialog.reject)
 
-        dialog.exec_()
+        if self.platform == "linux":
+            dialog.showFullScreen()
+        else:
+            dialog.resize(700, 520)
+
+        if hasattr(dialog, "exec"):
+            dialog.exec()
+        else:
+            dialog.exec_()
 
     def add_step(self):
         self.ensure_steps()  # ASEGURA QUE EXISTE LA CLAVE "steps" Y ES UNA LISTA
@@ -127,11 +371,13 @@ class ConfigWindow(QWidget):
         # VENTANA Y WIDGETS
         dialog = QDialog(self)
         dialog.setWindowTitle("Agregando nuevo Step")
+
+        dialog.setStyleSheet(self.styleSheet())
         layout = QVBoxLayout()
 
         cmb_tools = QComboBox()
         cmb_tools.addItems(tools)
-        btn_save = QPushButton("Guardar")
+        
 
         def create_path():
             tool_name = cmb_tools.currentText()
@@ -142,16 +388,41 @@ class ConfigWindow(QWidget):
 
         tool_name, base_path = create_path()
 
+        screen_size = self.get_screen_size()
+        sw, sh =  screen_size
+
+        if self.platform == "linux": 
+            dialog.setMinimumSize(sw, sh)
+        else:
+            dialog.setMinimumSize(700,520)
+
         editor = ToolEditor(
             tool_name=tool_name,
             get_frame_callback=self.get_frame,
             base_path=base_path,
-            edit=False
+            edit=False,
+            platform=self.platform,
+            screen_size=screen_size
         )
 
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(layout)
+
+        btn_cancel = QPushButton("Cancelar")
+        btn_save = QPushButton("Guardar")
+
+        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setCursor(Qt.PointingHandCursor)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(btn_cancel)
+        buttons_layout.addWidget(btn_save)
+
         layout.addWidget(cmb_tools)
-        layout.addWidget(editor)
-        layout.addWidget(btn_save)
+        layout.addWidget(scroll)
+        layout.addLayout(buttons_layout)
+
         dialog.setLayout(layout)
 
         def save():
@@ -168,6 +439,7 @@ class ConfigWindow(QWidget):
             dialog.accept()
 
         btn_save.clicked.connect(save)
+        btn_cancel.clicked.connect(dialog.reject)
 
         def reload_ui():
             tool_name, base_path = create_path()
@@ -176,7 +448,15 @@ class ConfigWindow(QWidget):
         cmb_tools.currentTextChanged.connect(reload_ui)
 
         # MUESTRA LA NUEVA VENTANA DE EDICION DE FORMA BLOQUEANTE
-        dialog.exec_()
+        if self.platform == "linux":
+            dialog.showFullScreen()
+        else:
+            dialog.resize(700, 520)
+
+        if hasattr(dialog, "exec"):
+            dialog.exec()
+        else:
+            dialog.exec_()
 
     def delete_tool(self):
         self.ensure_steps()
@@ -222,11 +502,28 @@ class ConfigWindow(QWidget):
             self.ui.cmb_tools.addItem(tool_name)
 
     def add_recipe(self):
-        name, ok = QInputDialog.getText(self, "Nueva Receta", "Nombre:")
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("Nueva Receta")
+        dialog.setLabelText("Nombre:")
+        dialog.setStyleSheet(self.styleSheet())
 
-        if not ok or not name.strip():
+        if self.platform == "linux":
+            dialog.resize(300, 160)
+        else:
+            dialog.resize(360, 180)
+
+        if hasattr(dialog, "exec"):
+            ok = dialog.exec()
+        else:
+            ok = dialog.exec_()
+
+        if not ok:
             return
         
+        name = dialog.textValue().strip()
+
+        if not name:
+            return
 
         # EVITAR DUPLICADOS
         if self.recipe_manager.get(name):

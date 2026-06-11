@@ -28,6 +28,8 @@ class MainWindow(QMainWindow):
         self.platform = self.detect_platform()
         print(f"[CAMERA] Sistema operativo detectado: {self.platform}")
 
+        self.apply_main_button_feedbacks()
+
         # ASIGNAR WIDGETS DE LA UI A VARIABLES CORRESPONDIENTES
         self.lbl_video = self.ui.lbl_video
         self.lbl_video.get_frame = self.get_current_frame
@@ -71,6 +73,14 @@ class MainWindow(QMainWindow):
         background-color: rgb(15, 27, 61);
         """
 
+        self.lbl_video.setStyleSheet("""
+            QLabel {
+                background-color: black;
+                border-radius: 0px;
+                border: 2px solid rgb(91, 192, 190);
+            }
+        """)
+
         self.recipe_manager = RecipeManager("core/models/recipes.json")
         self.setup_camera()
         self.setup_serial()
@@ -84,6 +94,64 @@ class MainWindow(QMainWindow):
             return "linux"
         
         return "other"
+    
+    def apply_main_button_feedbacks(self):
+        buttons = [
+            self.ui.btn_config,
+        ]
+
+        for btn in buttons:
+            self.add_button_feedback(btn)
+    
+    def add_button_feedback(self, button):
+        base_style = button.styleSheet().strip()
+
+        feedback_style = """
+        QPushButton:hover {
+            background-color: rgb(20, 38, 82);
+            border-color: rgb(46, 196, 182);
+        }
+
+        QPushButton:pressed {
+            background-color: rgb(46, 196, 182);
+            color: rgb(11, 19, 43);
+        }
+        """
+
+        if base_style:
+            if "{" in base_style and "}" in base_style:
+                final_style = base_style + "\n" + feedback_style
+            else:
+                final_style = f"""
+                QPushButton {{
+                    {base_style}
+                }}
+                {feedback_style}
+                """
+        else:
+            final_style = """
+            QPushButton {
+                color: rgb(234, 234, 234);
+                border-radius: 10px;
+                border: 2px solid rgb(91, 192, 190);
+                background-color: rgb(15, 27, 61);
+                min-height: 28px;
+                padding: 4px 12px;
+            }
+
+            QPushButton:hover {
+                background-color: rgb(20, 38, 82);
+                border-color: rgb(46, 196, 182);
+            }
+
+            QPushButton:pressed {
+                background-color: rgb(46, 196, 182);
+                color: rgb(11, 19, 43);
+            }
+            """
+
+        button.setStyleSheet(final_style)
+        button.setCursor(Qt.PointingHandCursor)
 
     def setup_camera(self):
         # CREAR THREAD Y WORKER DE CAMARA
@@ -230,11 +298,17 @@ class MainWindow(QMainWindow):
         self.config_window = ConfigWindow(
             recipe_manager=self.recipe_manager,
             get_frame_callback=self.get_current_frame,
-            state_manager=self.state_manager
+            state_manager=self.state_manager,
+            platform=self.platform
         )
         # CONECTAR SIGNALS DESDE CONFIG WINDOW
         self.config_window.update_rois.connect(self.apply_rois_from_recipe, Qt.UniqueConnection)
-        self.config_window.show()
+
+        if self.platform == "linux": 
+            self.config_window.showFullScreen()
+        else:
+            self.config_window.resize(480, 320)
+            self.config_window.show()
 
     def shutdown_thread(self,thread, worker, name="thread"):
         # DETENER WORKERS

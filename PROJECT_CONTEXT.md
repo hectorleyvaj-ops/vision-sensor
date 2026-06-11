@@ -102,3 +102,9 @@ Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametro
    - redirigir los logs al txtlog de mi interfaz
    - agregar logger en cada script y reemplazar por print
    - mostrar logs tanto en ui como en la terminal
+
+6. Mejoras en logica del sistema
+   - Bloquear fsm hasta que camara haya calibrado para evitar triggers prematuros
+   - Agregar retroalimentacion visual para el usuario usando el indicador de la interfaz, modificar segun el resultado del plc, esp o master (via Serial)
+   - Utilizar datos que actualmente no se usan de los parametros de las recetas en sus debidas herramientas o quitar si no son necesarios
+   - Hacer pruebas intensivas en el sistema de crear, editar y eliminar recetas y etiquetas para encontrar mejoras y bugs

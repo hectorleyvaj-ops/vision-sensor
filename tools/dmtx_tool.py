@@ -66,7 +66,7 @@ class DataMatrixTool(ToolBase):
                 debug_images.append(("ROI_DMTX", roi.copy()))
 
             if expected_code and code != expected_code:
-                print(f"[DMTX] Codigo incorrecto en intento {i+1}")
+                print(f"[DMTX] Codigo incorrecto en intento {i+1} : '{code}' ")
                 if i == retries - 1:
                     raise ValueError(f"Datamatrix invalido: esperado '{expected_code}', leido '{code}'")
             

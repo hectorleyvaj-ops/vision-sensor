@@ -8,14 +8,14 @@
                     "tool": "dmtx",
                     "params": {
                         "roi": [
-                            428,
-                            204,
-                            748,
-                            552
+                            833,
+                            224,
+                            1217,
+                            577
                         ],
-                        "expected_code": "0402010XB",
-                        "retries": 3.0,
-                        "delay": 1.0,
+                        "expected_code": "ML3B 15044F46 AC3JA6-25307",
+                        "retries": 3,
+                        "delay": 0.1,
                         "show_roi": true,
                         "required": true
                     }
@@ -40,6 +40,24 @@
                         "delay": 1.0,
                         "show_roi": true,
                         "required": true
+                    }
+                },
+                {
+                    "tool": "img_hist",
+                    "params": {
+                        "roi": [
+                            195,
+                            157,
+                            589,
+                            493
+                        ],
+                        "threshold": 0.0,
+                        "mode": "below",
+                        "template_paths": [
+                            "master_img/MODELO_B/img_hist_2/4ebd6f66f2de4b60954a0bdeb687c89c.png"
+                        ],
+                        "show_roi": false,
+                        "required": false
                     }
                 }
             ]

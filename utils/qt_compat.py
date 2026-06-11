@@ -5,10 +5,11 @@ try:
     from PySide6.QtWidgets import (
         QApplication, QWidget, QLabel, QMainWindow, 
         QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout, 
-        QLineEdit, QDoubleSpinBox, QComboBox, QCheckBox, QDialog, QInputDialog
+        QLineEdit, QDoubleSpinBox, QComboBox, QCheckBox, QDialog, QInputDialog,
+        QScrollArea, QSizePolicy
     )
     from PySide6.QtCore import QObject, QThread, Signal, Qt, QTimer, Slot, QMetaObject
-    from PySide6.QtGui import QImage, QPixmap, QPainter, QColor
+    from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QPen
     from PySide6.QtUiTools import QUiLoader
     from PySide6.QtCore import QFile
 

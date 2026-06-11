@@ -32,10 +32,10 @@ class CameraWorker(QObject):
         self.calibrating = False
 
         self.min_focus_score_windows = 350
-        self.max_focus_retries_windows = 5
+        self.max_focus_retries_windows = 10
 
         self.min_focus_score_linux = 350
-        self.max_focus_retries_linux = 5
+        self.max_focus_retries_linux = 10
 
         # DETECTAR SI SE TRABAJA EN WINDOWS(PRUEBAS) O RASPBERRY/LINUX(PRODUCCION)
         self.platform = platform
@@ -593,9 +593,6 @@ class CameraWorker(QObject):
     def reset_autofocus_windows_for_retry(self):
         try:
             print("[CAMERA] Reiniciando autofocus Windows para nuevo intento")
-
-            self.set_autofocus_windows(False)
-            time.sleep(0.04)
 
             # No forzamos CAP_PROP_FOCUS aquí porque en Windows el rango puede variar
             # mucho entre cámaras/backends. Solo reiniciamos el autofocus.
