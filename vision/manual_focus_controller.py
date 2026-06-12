@@ -277,11 +277,11 @@ class ManualFocusController:
     def calibrate(
         self,
         roi=None,
-        coarse_step=50,
-        fine_span=80,
-        fine_step=10,
-        micro_span=20,
-        micro_step=2,
+        coarse_step=100,
+        fine_span=60,
+        fine_step=20,
+        micro_span=15,
+        micro_step=3,
         min_score_ratio=0.65,
     ):
         print("[FOCUS] Iniciando autofocus manual")
@@ -353,8 +353,8 @@ class ManualFocusController:
             )
         
         # DEFINE EL RANGO Y LOS VALORES PARA EL BARRIDO FINO
-        micro_start = max(self.focus_min, fine_best - fine_span)
-        micro_stop = min(self.focus_max, fine_best + fine_span)
+        micro_start = max(self.focus_min, fine_best - micro_span)
+        micro_stop = min(self.focus_max, fine_best + micro_span)
         micro_values = self.make_range(
             micro_start,
             micro_stop,

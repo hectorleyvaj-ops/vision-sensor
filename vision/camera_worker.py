@@ -868,11 +868,11 @@ class CameraWorker(QObject):
 
             result = controler.calibrate(
                 roi = focus_roi,
-                coarse_step=50,
-                fine_span=80,
-                fine_step=10,
-                micro_span=20,
-                micro_step=2,
+                coarse_step=100,
+                fine_span=60,
+                fine_step=20,
+                micro_span=15,
+                micro_step=3,
                 min_score_ratio=0.65,
             )
 
