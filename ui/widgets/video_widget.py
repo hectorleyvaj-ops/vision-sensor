@@ -17,9 +17,9 @@ class VideoWidget(QLabel):
             self.setMaximumHeight(video_size[1])
         else:
             if self.platform == "linux":
-                self.setMinimumSize(260, 180)
-                self.setMinimumHeight(180)
-                self.setMaximumHeight(180)
+                self.setMinimumSize(260, 210)
+                self.setMinimumHeight(210)
+                self.setMaximumHeight(210)
             else:
                 self.setMinimumSize(480, 270)
                 self.setMinimumHeight(270)
