@@ -110,7 +110,7 @@ class ToolEditor(QWidget):
                 video_w = int(sw * 0.52)
                 video_h = int(sh * 0.50)
 
-                video_size = (max(220, video_w), max(140, video_h))
+                video_size = (max(220, video_w), max(180, video_h))
 
             elif self.platform == "windows":
                 video_size = (480,270)
