@@ -53,6 +53,10 @@ Carga y selecciona configuraciones de inspección.
 ### ConfigWindow
 Controla la interfaz de edicion de recetas y steps (herramientas) por receta.
 Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametros de cada herramienta segun dicha herramienta, usa schemas.py para vaciar la informacion de los widgets y parametros requeridos
+Debe llamar a otra ventana para calibracion del enfoque de la camara
+
+### Camera Worker
+Controla la camara, emite frames, contrla el enfoque manual por barrido.
 
 ---
 
@@ -66,6 +70,7 @@ Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametro
 
 ## 📌 Objetivo actual
 - Estabilizar UI (evitar freezes)
+- Congelar foco usando un autofocus manual, barrido de frames y calcular mejor focus usando score
 - Mejorar diseño de interfaz de configuracion, tanto la ventana dinamica (ventana escalada y en pantalla completa, widgets escaldos, copiar paleta de colores de la ventana principal)
 - Mejorar FSM
 - Preparar V2.0 para producción en otra máquina
@@ -78,13 +83,13 @@ Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametro
    - SerialComm
    - triggers dobles
 
-2. improve-camera-worker   / COMPLETADO
+2. improve-camera-worker   / EN PROCESOR DE MEJORA
    - autofocus inicial
    - estabilización
    - recalibración segura
    - enfoque basado en focus_score
    - Windows: OpenCV autofocus
-   - Linux: autofocus_continuous + freeze por desactivación
+   - Linux: autofocus apagado + barrido de frames para buscar score y focus_absolute + freeze focus en mejor valor
 
 3. improve-config-ui
    - fullscreen
