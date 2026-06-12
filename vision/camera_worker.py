@@ -319,9 +319,16 @@ class CameraWorker(QObject):
                 capture_output=True
             )
 
+            if result.returncode != 0:
+                output = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+                print(f"[CAMERA][WARNING] No se pudo leer {control_name}: {output}")
+                return None
 
-            output = (result.stdout or result.stderr or "").strip()
-            match = re.search(r"(-?\d+)\s*$", output)
+            output = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+            match = re.search(rf"{re.escape(control_name)}\s*:\s*(-?\d+)", output)
+
+            if not match:
+                match = re.search(r"(-?\d+)\s*$", output)
 
             if match:
                 return int(match.group(1))
@@ -335,7 +342,8 @@ class CameraWorker(QObject):
         
     def set_autofocus_linux(self, enabled):
         if not self.autofocus_supported:
-            return False
+            print("[CAMERA][WARNING] Control focus_automatic_continuous no disponible, se omite")
+            return True
 
         value = 1 if enabled else 0
         return self.set_v4l2_controls("focus_automatic_continuous", value)
@@ -426,7 +434,7 @@ class CameraWorker(QObject):
 
         for control, value in optional_controls.items():
             if self.has_v4l2_control(control):
-                self.set_v4l2_controls(control, value)
+                self.set_v4l2_controls(control, value, verify=False)
 
         if self.autofocus_supported:
             self.set_autofocus_linux(False)
@@ -694,8 +702,8 @@ class CameraWorker(QObject):
             return
 
         if self.is_linux():
-            if not self.autofocus_supported:
-                print("[CAMERA][WARNING] Linux: cámara sin autofocus. Recalibración omitida.")
+            if not self.focus_absolute_supported:
+                print("[CAMERA][WARNING] Linux: focus_absolute no disponible. Recalibración omitida.")
                 return
 
             self.apply_base_controls_linux()
@@ -749,8 +757,8 @@ class CameraWorker(QObject):
             print("[CAMERA] Plataforma no Linux: se omite calibración avanzada")
             return
 
-        if not self.can_freeze_focus:
-            print("[CAMERA][WARNING] Cámara sin autofocus controlable. Se usará video sin congelar enfoque.")
+        if not self.focus_absolute_supported:
+            print("[CAMERA][WARNING] Linux: focus_absolute no disponible. Se usará video sin enfoque manual.")
             return
         
         if self.autofocus_supported:
@@ -766,7 +774,7 @@ class CameraWorker(QObject):
                 min_score=self.focus_min_score,
                 apply_value=True,
             ):
-                print(f"[CAMERA] Foco manual previo fallido: {self.focus_value}")
+                print(f"[CAMERA] Foco manual previo válido: {self.focus_value}")
                 return
             
             print("[CAMERA][WARNING] Foco manual previo no paso verificacion. Recalibrando...")
@@ -786,12 +794,15 @@ class CameraWorker(QObject):
 
     # NUEVA INTEGRACION DE METODOS PARA MANUAL_FOCUS_CONTROLLER
     def parse_focus_absolute_range(self, list_ctrls_output):
-        for line in list_ctrls_output.splitLines():
+        if not isinstance(list_ctrls_output, str):
+            return 1, 1023, 1
+
+        for line in list_ctrls_output.splitlines():
             if "focus_absolute" not in line:
                 continue
 
             min_match = re.search(r"min=(-?\d+)", line)
-            max_match = re.search(r"mx=(-?\d+)", line)
+            max_match = re.search(r"max=(-?\d+)", line)
             step_match = re.search(r"step=(-?\d+)", line)
 
             if min_match and max_match:

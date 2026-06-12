@@ -134,7 +134,7 @@ class ManualFocusController:
 
         scores = []
         best_frame = None
-        best_score = None
+        best_score = -1
 
         # OBTIENE LOS VALORES DE SCORE
         for _ in range(samples):
@@ -207,9 +207,9 @@ class ManualFocusController:
             )
 
             results.append({
-                "focus": value,
-                "median_score": median_score,
-                "peak_score": peak_score,
+                "focus": int(value),
+                "median_score": int(median_score),
+                "peak_score": int(peak_score),
             })
 
             print(
@@ -218,8 +218,8 @@ class ManualFocusController:
             )
 
             if median_score > best_median_score:
-                best_median_score = median_score,
-                best_peak_score = peak_score,
+                best_median_score = median_score
+                best_peak_score = peak_score
                 best_value = value
 
         print(
@@ -264,7 +264,7 @@ class ManualFocusController:
         )
 
 
-        ok = median_score > min_score
+        ok = median_score >= min_score
 
         print(
             f"[FOCUS][VERIFY] focus={focus_value}, "
@@ -289,7 +289,7 @@ class ManualFocusController:
         self.set_autofocus(False)
         time.sleep(0.5)
 
-        course_values = self.make_range(
+        coarse_values = self.make_range(
             self.focus_min,
             self.focus_max,
             max(coarse_step, self.focus_step)
@@ -297,7 +297,7 @@ class ManualFocusController:
 
         coarse_best, coarse_median, coarse_peak, coarse_results = self.sweep_focus(
             roi=roi,
-            values=course_values,
+            values=coarse_values,
             label="grueso",
             settle=0.16,
             discard=4,
@@ -320,7 +320,7 @@ class ManualFocusController:
         
         # DEFINE EL RANGO Y VALORES PARA EL BARRINO FINO
         fine_start = max(self.focus_min, coarse_best - fine_span)
-        fine_stop = max(self.focus_max, coarse_best + fine_span)
+        fine_stop = min(self.focus_max, coarse_best + fine_span)
         fine_values = self.make_range(
             fine_start,
             fine_stop,
@@ -354,7 +354,7 @@ class ManualFocusController:
         
         # DEFINE EL RANGO Y LOS VALORES PARA EL BARRIDO FINO
         micro_start = max(self.focus_min, fine_best - fine_span)
-        micro_stop = max(self.focus_max, fine_best + fine_span)
+        micro_stop = min(self.focus_max, fine_best + fine_span)
         micro_values = self.make_range(
             micro_start,
             micro_stop,
