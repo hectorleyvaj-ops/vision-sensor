@@ -13,6 +13,10 @@ class CameraWorker(QObject):
     finished = Signal()
     recalibrate_request = Signal()
 
+    manual_focus_started = Signal()
+    manual_focus_finished = Signal(object)
+    manual_focus_failed = Signal(str)
+
     def __init__(self,camera_index=0, width=1920, height=1080, platform="other"):
         super().__init__()
         self.camera_index = camera_index
@@ -934,6 +938,78 @@ class CameraWorker(QObject):
         )
 
         return ok
+    
+    # CARGAR ENFOQUE DESDE RECETA MAS ADELANTE
+    @Slot()
+    def set_focus_from_recipe(self, focus_config):
+        if not isinstance(focus_config, dict):
+            return
+        
+        roi = focus_config.get("roi")
+        value = focus_config.get("value")
+        min_score = focus_config.get("min_score")
+
+
+        self.focus_roi = tuple(roi) if roi and len(roi) == 4 else None
+        self.focus_value = int(value) if value is not None else None
+        self.focus_min_score = int(min_score) if min_score is not None else self.min_focus_score_linux
+
+        print(
+            f"[CAMERA] Focus config cargada: "
+            f"roi={self.focus_roi}, value={self.focus_value}, min_score={self.focus_min_score}"
+        )
+    
+    # ESTE METODO PERMITE RECIBIR UN ROI DE LA VENTANA DE CALIBRACION:
+    # {
+    #   "roi": [833, 224, 1217, 577]
+    # }
+    @Slot()
+    def calibrate_focus_from_config(self, focus_config):
+        if self.calibrating:
+            self.manual_focus_failed.emit("Ya hay una calibracion en proceso.")
+            return
+        
+        if not self.is_linux():
+            self.manual_focus_failed.emit("Calibracion manua solo para linux")
+            return
+
+        if not self.focus_absolute_supported:
+            self.manual_focus_failed.emit("La camara no expone focus_absolute")
+            return
+        
+        try:
+            self.manual_focus_started.emit()
+
+            roi = None
+
+            if isinstance(focus_config, dict):
+                raw_roi = focus_config.get("roi")
+
+                if raw_roi and len(raw_roi) == 4:
+                    roi = tuple(raw_roi)
+
+            result = self.manual_focus_calibration_linux(roi=roi)
+
+            if result is None or not result.ok:
+                self.manual_focus_failed.emit("No se pudo calibrar el enfoque manual.")
+                return
+
+            result_data = {
+                "ok": True,
+                "roi": list(result.roi) if result.roi is not None else None,
+                "focus_value": int(result.focus_value),
+                "median_score": int(result.median_score),
+                "peak_score": int(result.peak_score),
+                "min_score": int(result.min_score),
+                "coarse_best": int(result.coarse_best) if result.coarse_best is not None else None,
+                "fine_best": int(result.fine_best) if result.fine_best is not None else None,
+                "micro_best": int(result.micro_best) if result.micro_best is not None else None,
+            }
+
+            self.manual_focus_finished.emit(result_data)
+
+        except Exception as e:
+            self.manual_focus_failed.emit(str(e))
 
     @Slot()
     def start(self):

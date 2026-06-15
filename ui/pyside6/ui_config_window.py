@@ -23,7 +23,7 @@ class Ui_Form(object):
     def setupUi(self, Form):
         if not Form.objectName():
             Form.setObjectName(u"Form")
-        Form.resize(480, 320)
+        Form.resize(827, 480)
         Form.setStyleSheet(u"background-color: rgb(11, 19, 43);")
         self.verticalLayout = QVBoxLayout(Form)
         self.verticalLayout.setSpacing(10)
@@ -36,7 +36,10 @@ class Ui_Form(object):
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.top_bar.sizePolicy().hasHeightForWidth())
         self.top_bar.setSizePolicy(sizePolicy)
-        self.top_bar.setMaximumSize(QSize(480, 30))
+        self.top_bar.setMaximumSize(QSize(800, 40))
+        font = QFont()
+        font.setPointSize(11)
+        self.top_bar.setFont(font)
         self.top_bar.setStyleSheet(u"")
         self.top_bar.setFrameShape(QFrame.StyledPanel)
         self.top_bar.setFrameShadow(QFrame.Raised)
@@ -49,12 +52,12 @@ class Ui_Form(object):
         sizePolicy1.setVerticalStretch(0)
         sizePolicy1.setHeightForWidth(self.lbl_tittle.sizePolicy().hasHeightForWidth())
         self.lbl_tittle.setSizePolicy(sizePolicy1)
-        self.lbl_tittle.setMinimumSize(QSize(200, 15))
-        self.lbl_tittle.setMaximumSize(QSize(350, 50))
-        font = QFont()
-        font.setPointSize(12)
-        font.setBold(True)
-        self.lbl_tittle.setFont(font)
+        self.lbl_tittle.setMinimumSize(QSize(300, 15))
+        self.lbl_tittle.setMaximumSize(QSize(500, 80))
+        font1 = QFont()
+        font1.setPointSize(15)
+        font1.setBold(True)
+        self.lbl_tittle.setFont(font1)
         self.lbl_tittle.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "background-color: transparent;")
         self.lbl_tittle.setAlignment(Qt.AlignCenter)
@@ -69,40 +72,60 @@ class Ui_Form(object):
         self.central_layout.setObjectName(u"central_layout")
         self.left_panel = QVBoxLayout()
         self.left_panel.setObjectName(u"left_panel")
+        self.horizontalLayout_6 = QHBoxLayout()
+        self.horizontalLayout_6.setObjectName(u"horizontalLayout_6")
         self.lbl_recipes = QLabel(Form)
         self.lbl_recipes.setObjectName(u"lbl_recipes")
-        sizePolicy1.setHeightForWidth(self.lbl_recipes.sizePolicy().hasHeightForWidth())
-        self.lbl_recipes.setSizePolicy(sizePolicy1)
+        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        sizePolicy2.setHorizontalStretch(0)
+        sizePolicy2.setVerticalStretch(0)
+        sizePolicy2.setHeightForWidth(self.lbl_recipes.sizePolicy().hasHeightForWidth())
+        self.lbl_recipes.setSizePolicy(sizePolicy2)
         self.lbl_recipes.setMaximumSize(QSize(200, 30))
-        font1 = QFont()
-        font1.setBold(True)
-        self.lbl_recipes.setFont(font1)
+        font2 = QFont()
+        font2.setPointSize(10)
+        font2.setBold(True)
+        self.lbl_recipes.setFont(font2)
         self.lbl_recipes.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "background-color: transparent;")
         self.lbl_recipes.setAlignment(Qt.AlignCenter)
 
-        self.left_panel.addWidget(self.lbl_recipes)
+        self.horizontalLayout_6.addWidget(self.lbl_recipes)
 
+
+        self.left_panel.addLayout(self.horizontalLayout_6)
+
+        self.horizontalLayout_7 = QHBoxLayout()
+        self.horizontalLayout_7.setObjectName(u"horizontalLayout_7")
         self.cmb_recipes = QComboBox(Form)
         self.cmb_recipes.setObjectName(u"cmb_recipes")
-        self.cmb_recipes.setMaximumSize(QSize(200, 25))
+        sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        sizePolicy3.setHorizontalStretch(0)
+        sizePolicy3.setVerticalStretch(0)
+        sizePolicy3.setHeightForWidth(self.cmb_recipes.sizePolicy().hasHeightForWidth())
+        self.cmb_recipes.setSizePolicy(sizePolicy3)
+        self.cmb_recipes.setMaximumSize(QSize(300, 30))
         self.cmb_recipes.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "border-radius: 3px;\n"
 "border: 2px solid;\n"
 "border-color: rgb(91, 192, 190);\n"
 "background-color: rgb(15, 27, 61);")
+        self.cmb_recipes.setEditable(False)
 
-        self.left_panel.addWidget(self.cmb_recipes)
+        self.horizontalLayout_7.addWidget(self.cmb_recipes)
+
+
+        self.left_panel.addLayout(self.horizontalLayout_7)
 
         self.horizontalLayout = QHBoxLayout()
         self.horizontalLayout.setObjectName(u"horizontalLayout")
         self.btn_add_r = QPushButton(Form)
         self.btn_add_r.setObjectName(u"btn_add_r")
-        sizePolicy1.setHeightForWidth(self.btn_add_r.sizePolicy().hasHeightForWidth())
-        self.btn_add_r.setSizePolicy(sizePolicy1)
-        self.btn_add_r.setMaximumSize(QSize(95, 25))
+        sizePolicy3.setHeightForWidth(self.btn_add_r.sizePolicy().hasHeightForWidth())
+        self.btn_add_r.setSizePolicy(sizePolicy3)
+        self.btn_add_r.setMaximumSize(QSize(130, 35))
         self.btn_add_r.setStyleSheet(u"color: rgb(234, 234, 234);\n"
-"border-radius: 10px;\n"
+"border-radius: 15px;\n"
 "border: 2px solid;\n"
 "border-color: rgb(91, 192, 190);\n"
 "background-color: rgb(15, 27, 61);")
@@ -111,11 +134,11 @@ class Ui_Form(object):
 
         self.btn_del_r = QPushButton(Form)
         self.btn_del_r.setObjectName(u"btn_del_r")
-        sizePolicy1.setHeightForWidth(self.btn_del_r.sizePolicy().hasHeightForWidth())
-        self.btn_del_r.setSizePolicy(sizePolicy1)
-        self.btn_del_r.setMaximumSize(QSize(95, 25))
+        sizePolicy3.setHeightForWidth(self.btn_del_r.sizePolicy().hasHeightForWidth())
+        self.btn_del_r.setSizePolicy(sizePolicy3)
+        self.btn_del_r.setMaximumSize(QSize(130, 35))
         self.btn_del_r.setStyleSheet(u"color: rgb(234, 234, 234);\n"
-"border-radius: 10px;\n"
+"border-radius: 15px;\n"
 "border: 2px solid;\n"
 "border-color: rgb(91, 192, 190);\n"
 "background-color: rgb(15, 27, 61);")
@@ -129,11 +152,11 @@ class Ui_Form(object):
         self.horizontalLayout_5.setObjectName(u"horizontalLayout_5")
         self.btn_select_r = QPushButton(Form)
         self.btn_select_r.setObjectName(u"btn_select_r")
-        sizePolicy1.setHeightForWidth(self.btn_select_r.sizePolicy().hasHeightForWidth())
-        self.btn_select_r.setSizePolicy(sizePolicy1)
-        self.btn_select_r.setMaximumSize(QSize(95, 25))
+        sizePolicy3.setHeightForWidth(self.btn_select_r.sizePolicy().hasHeightForWidth())
+        self.btn_select_r.setSizePolicy(sizePolicy3)
+        self.btn_select_r.setMaximumSize(QSize(160, 35))
         self.btn_select_r.setStyleSheet(u"color: rgb(234, 234, 234);\n"
-"border-radius: 10px;\n"
+"border-radius: 15px;\n"
 "border: 2px solid;\n"
 "border-color: rgb(91, 192, 190);\n"
 "background-color: rgb(15, 27, 61);")
@@ -143,11 +166,17 @@ class Ui_Form(object):
 
         self.left_panel.addLayout(self.horizontalLayout_5)
 
+        self.horizontalSpacer_3 = QSpacerItem(400, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+
+        self.left_panel.addItem(self.horizontalSpacer_3)
+
 
         self.central_layout.addLayout(self.left_panel)
 
         self.line = QFrame(Form)
         self.line.setObjectName(u"line")
+        self.line.setMinimumSize(QSize(3, 300))
+        self.line.setMaximumSize(QSize(16777215, 500))
         self.line.setStyleSheet(u"background-color: rgb(15, 27, 61);")
         self.line.setFrameShape(QFrame.Shape.VLine)
         self.line.setFrameShadow(QFrame.Shadow.Sunken)
@@ -155,75 +184,53 @@ class Ui_Form(object):
         self.central_layout.addWidget(self.line)
 
         self.right_panel = QVBoxLayout()
+        self.right_panel.setSpacing(12)
         self.right_panel.setObjectName(u"right_panel")
+        self.right_panel.setContentsMargins(8, -1, 8, -1)
+        self.horizontalLayout_9 = QHBoxLayout()
+        self.horizontalLayout_9.setObjectName(u"horizontalLayout_9")
         self.lbl_tools = QLabel(Form)
         self.lbl_tools.setObjectName(u"lbl_tools")
-        sizePolicy1.setHeightForWidth(self.lbl_tools.sizePolicy().hasHeightForWidth())
-        self.lbl_tools.setSizePolicy(sizePolicy1)
+        sizePolicy2.setHeightForWidth(self.lbl_tools.sizePolicy().hasHeightForWidth())
+        self.lbl_tools.setSizePolicy(sizePolicy2)
         self.lbl_tools.setMaximumSize(QSize(200, 30))
-        self.lbl_tools.setFont(font1)
+        self.lbl_tools.setFont(font2)
         self.lbl_tools.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "background-color: transparent;")
         self.lbl_tools.setAlignment(Qt.AlignCenter)
 
-        self.right_panel.addWidget(self.lbl_tools)
+        self.horizontalLayout_9.addWidget(self.lbl_tools)
 
+
+        self.right_panel.addLayout(self.horizontalLayout_9)
+
+        self.horizontalLayout_8 = QHBoxLayout()
+        self.horizontalLayout_8.setObjectName(u"horizontalLayout_8")
         self.cmb_tools = QComboBox(Form)
         self.cmb_tools.setObjectName(u"cmb_tools")
-        sizePolicy2 = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        sizePolicy2.setHorizontalStretch(0)
-        sizePolicy2.setVerticalStretch(0)
-        sizePolicy2.setHeightForWidth(self.cmb_tools.sizePolicy().hasHeightForWidth())
-        self.cmb_tools.setSizePolicy(sizePolicy2)
-        self.cmb_tools.setMaximumSize(QSize(200, 25))
+        sizePolicy3.setHeightForWidth(self.cmb_tools.sizePolicy().hasHeightForWidth())
+        self.cmb_tools.setSizePolicy(sizePolicy3)
+        self.cmb_tools.setMaximumSize(QSize(300, 30))
         self.cmb_tools.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "border-radius: 3px;\n"
 "border: 2px solid;\n"
 "border-color: rgb(91, 192, 190);\n"
 "background-color: rgb(15, 27, 61);")
 
-        self.right_panel.addWidget(self.cmb_tools)
-
-        self.horizontalLayout_2 = QHBoxLayout()
-        self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
-        self.btn_add_t = QPushButton(Form)
-        self.btn_add_t.setObjectName(u"btn_add_t")
-        sizePolicy1.setHeightForWidth(self.btn_add_t.sizePolicy().hasHeightForWidth())
-        self.btn_add_t.setSizePolicy(sizePolicy1)
-        self.btn_add_t.setMaximumSize(QSize(95, 25))
-        self.btn_add_t.setStyleSheet(u"color: rgb(234, 234, 234);\n"
-"border-radius: 10px;\n"
-"border: 2px solid;\n"
-"border-color: rgb(91, 192, 190);\n"
-"background-color: rgb(15, 27, 61);")
-
-        self.horizontalLayout_2.addWidget(self.btn_add_t)
-
-        self.btn_del_t = QPushButton(Form)
-        self.btn_del_t.setObjectName(u"btn_del_t")
-        sizePolicy1.setHeightForWidth(self.btn_del_t.sizePolicy().hasHeightForWidth())
-        self.btn_del_t.setSizePolicy(sizePolicy1)
-        self.btn_del_t.setMaximumSize(QSize(95, 25))
-        self.btn_del_t.setStyleSheet(u"color: rgb(234, 234, 234);\n"
-"border-radius: 10px;\n"
-"border: 2px solid;\n"
-"border-color: rgb(91, 192, 190);\n"
-"background-color: rgb(15, 27, 61);")
-
-        self.horizontalLayout_2.addWidget(self.btn_del_t)
+        self.horizontalLayout_8.addWidget(self.cmb_tools)
 
 
-        self.right_panel.addLayout(self.horizontalLayout_2)
+        self.right_panel.addLayout(self.horizontalLayout_8)
 
         self.horizontalLayout_3 = QHBoxLayout()
         self.horizontalLayout_3.setObjectName(u"horizontalLayout_3")
         self.btn_edit_t = QPushButton(Form)
         self.btn_edit_t.setObjectName(u"btn_edit_t")
-        sizePolicy1.setHeightForWidth(self.btn_edit_t.sizePolicy().hasHeightForWidth())
-        self.btn_edit_t.setSizePolicy(sizePolicy1)
-        self.btn_edit_t.setMaximumSize(QSize(95, 25))
+        sizePolicy3.setHeightForWidth(self.btn_edit_t.sizePolicy().hasHeightForWidth())
+        self.btn_edit_t.setSizePolicy(sizePolicy3)
+        self.btn_edit_t.setMaximumSize(QSize(150, 35))
         self.btn_edit_t.setStyleSheet(u"color: rgb(234, 234, 234);\n"
-"border-radius: 10px;\n"
+"border-radius: 15px;\n"
 "border: 2px solid;\n"
 "border-color: rgb(91, 192, 190);\n"
 "background-color: rgb(15, 27, 61);")
@@ -233,6 +240,86 @@ class Ui_Form(object):
 
         self.right_panel.addLayout(self.horizontalLayout_3)
 
+        self.horizontalLayout_2 = QHBoxLayout()
+        self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
+        self.btn_add_t = QPushButton(Form)
+        self.btn_add_t.setObjectName(u"btn_add_t")
+        sizePolicy3.setHeightForWidth(self.btn_add_t.sizePolicy().hasHeightForWidth())
+        self.btn_add_t.setSizePolicy(sizePolicy3)
+        self.btn_add_t.setMaximumSize(QSize(120, 35))
+        self.btn_add_t.setStyleSheet(u"color: rgb(234, 234, 234);\n"
+"border-radius: 15px;\n"
+"border: 2px solid;\n"
+"border-color: rgb(91, 192, 190);\n"
+"background-color: rgb(15, 27, 61);")
+
+        self.horizontalLayout_2.addWidget(self.btn_add_t)
+
+        self.btn_del_t = QPushButton(Form)
+        self.btn_del_t.setObjectName(u"btn_del_t")
+        sizePolicy3.setHeightForWidth(self.btn_del_t.sizePolicy().hasHeightForWidth())
+        self.btn_del_t.setSizePolicy(sizePolicy3)
+        self.btn_del_t.setMaximumSize(QSize(120, 35))
+        self.btn_del_t.setStyleSheet(u"color: rgb(234, 234, 234);\n"
+"border-radius: 15px;\n"
+"border: 2px solid;\n"
+"border-color: rgb(91, 192, 190);\n"
+"background-color: rgb(15, 27, 61);")
+
+        self.horizontalLayout_2.addWidget(self.btn_del_t)
+
+
+        self.right_panel.addLayout(self.horizontalLayout_2)
+
+        self.line_2 = QFrame(Form)
+        self.line_2.setObjectName(u"line_2")
+        sizePolicy4 = QSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        sizePolicy4.setHorizontalStretch(0)
+        sizePolicy4.setVerticalStretch(0)
+        sizePolicy4.setHeightForWidth(self.line_2.sizePolicy().hasHeightForWidth())
+        self.line_2.setSizePolicy(sizePolicy4)
+        self.line_2.setMinimumSize(QSize(360, 0))
+        self.line_2.setMaximumSize(QSize(400, 3))
+        self.line_2.setStyleSheet(u"background-color: rgb(15, 27, 61);")
+        self.line_2.setFrameShape(QFrame.Shape.HLine)
+        self.line_2.setFrameShadow(QFrame.Shadow.Sunken)
+
+        self.right_panel.addWidget(self.line_2)
+
+        self.horizontalLayout_11 = QHBoxLayout()
+        self.horizontalLayout_11.setObjectName(u"horizontalLayout_11")
+        self.lbl_focus = QLabel(Form)
+        self.lbl_focus.setObjectName(u"lbl_focus")
+        sizePolicy2.setHeightForWidth(self.lbl_focus.sizePolicy().hasHeightForWidth())
+        self.lbl_focus.setSizePolicy(sizePolicy2)
+        self.lbl_focus.setFont(font2)
+        self.lbl_focus.setStyleSheet(u"color: rgb(234, 234, 234);\n"
+"background-color: transparent;")
+        self.lbl_focus.setAlignment(Qt.AlignCenter)
+
+        self.horizontalLayout_11.addWidget(self.lbl_focus)
+
+
+        self.right_panel.addLayout(self.horizontalLayout_11)
+
+        self.horizontalLayout_10 = QHBoxLayout()
+        self.horizontalLayout_10.setObjectName(u"horizontalLayout_10")
+        self.btn_focus_config = QPushButton(Form)
+        self.btn_focus_config.setObjectName(u"btn_focus_config")
+        sizePolicy3.setHeightForWidth(self.btn_focus_config.sizePolicy().hasHeightForWidth())
+        self.btn_focus_config.setSizePolicy(sizePolicy3)
+        self.btn_focus_config.setMaximumSize(QSize(160, 35))
+        self.btn_focus_config.setStyleSheet(u"color: rgb(234, 234, 234);\n"
+"border-radius: 15px;\n"
+"border: 2px solid;\n"
+"border-color: rgb(91, 192, 190);\n"
+"background-color: rgb(15, 27, 61);")
+
+        self.horizontalLayout_10.addWidget(self.btn_focus_config)
+
+
+        self.right_panel.addLayout(self.horizontalLayout_10)
+
 
         self.central_layout.addLayout(self.right_panel)
 
@@ -240,19 +327,20 @@ class Ui_Form(object):
         self.verticalLayout.addLayout(self.central_layout)
 
         self.bttm_layout = QHBoxLayout()
-        self.bttm_layout.setSpacing(10)
+        self.bttm_layout.setSpacing(40)
         self.bttm_layout.setObjectName(u"bttm_layout")
+        self.bttm_layout.setContentsMargins(-1, 20, -1, 30)
         self.horizontalSpacer = QSpacerItem(50, 30, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.bttm_layout.addItem(self.horizontalSpacer)
 
         self.btn_save = QPushButton(Form)
         self.btn_save.setObjectName(u"btn_save")
-        sizePolicy1.setHeightForWidth(self.btn_save.sizePolicy().hasHeightForWidth())
-        self.btn_save.setSizePolicy(sizePolicy1)
-        self.btn_save.setMaximumSize(QSize(120, 30))
+        sizePolicy3.setHeightForWidth(self.btn_save.sizePolicy().hasHeightForWidth())
+        self.btn_save.setSizePolicy(sizePolicy3)
+        self.btn_save.setMaximumSize(QSize(160, 35))
         self.btn_save.setStyleSheet(u"color: rgb(234, 234, 234);\n"
-"border-radius: 10px;\n"
+"border-radius: 15px;\n"
 "border: 2px solid;\n"
 "border-color: rgb(91, 192, 190);\n"
 "background-color: rgb(15, 27, 61);")
@@ -261,14 +349,17 @@ class Ui_Form(object):
 
         self.btn_out = QPushButton(Form)
         self.btn_out.setObjectName(u"btn_out")
-        sizePolicy1.setHeightForWidth(self.btn_out.sizePolicy().hasHeightForWidth())
-        self.btn_out.setSizePolicy(sizePolicy1)
-        self.btn_out.setMaximumSize(QSize(120, 30))
+        sizePolicy3.setHeightForWidth(self.btn_out.sizePolicy().hasHeightForWidth())
+        self.btn_out.setSizePolicy(sizePolicy3)
+        self.btn_out.setMaximumSize(QSize(160, 35))
         self.btn_out.setStyleSheet(u"color: rgb(234, 234, 234);\n"
-"border-radius: 10px;\n"
+"border-radius: 15px;\n"
 "border: 2px solid;\n"
 "border-color: rgb(91, 192, 190);\n"
 "background-color: rgb(15, 27, 61);")
+        self.btn_out.setCheckable(False)
+        self.btn_out.setChecked(False)
+        self.btn_out.setAutoDefault(True)
 
         self.bttm_layout.addWidget(self.btn_out)
 
@@ -282,6 +373,9 @@ class Ui_Form(object):
 
         self.retranslateUi(Form)
 
+        self.btn_out.setDefault(True)
+
+
         QMetaObject.connectSlotsByName(Form)
     # setupUi
 
@@ -293,9 +387,11 @@ class Ui_Form(object):
         self.btn_del_r.setText(QCoreApplication.translate("Form", u"ELIMINAR", None))
         self.btn_select_r.setText(QCoreApplication.translate("Form", u"SELECCIONAR", None))
         self.lbl_tools.setText(QCoreApplication.translate("Form", u"HERRAMIENTAS", None))
+        self.btn_edit_t.setText(QCoreApplication.translate("Form", u"EDITAR", None))
         self.btn_add_t.setText(QCoreApplication.translate("Form", u"AGREGAR", None))
         self.btn_del_t.setText(QCoreApplication.translate("Form", u"ELIMINAR", None))
-        self.btn_edit_t.setText(QCoreApplication.translate("Form", u"EDITAR", None))
+        self.lbl_focus.setText(QCoreApplication.translate("Form", u"ENFOQUE DE CAMARA", None))
+        self.btn_focus_config.setText(QCoreApplication.translate("Form", u"FOCUS CONFIG", None))
         self.btn_save.setText(QCoreApplication.translate("Form", u"GUARDAR", None))
         self.btn_out.setText(QCoreApplication.translate("Form", u"SALIR", None))
     # retranslateUi

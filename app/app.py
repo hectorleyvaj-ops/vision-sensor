@@ -299,7 +299,8 @@ class MainWindow(QMainWindow):
             recipe_manager=self.recipe_manager,
             get_frame_callback=self.get_current_frame,
             state_manager=self.state_manager,
-            platform=self.platform
+            platform=self.platform,
+            camera_worker=self.camera_worker
         )
         # CONECTAR SIGNALS DESDE CONFIG WINDOW
         self.config_window.update_rois.connect(self.apply_rois_from_recipe, Qt.UniqueConnection)

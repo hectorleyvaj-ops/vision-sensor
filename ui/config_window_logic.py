@@ -3,14 +3,15 @@ from utils.qt_compat import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea
 )
-from ui.ui_config_window import Ui_Form
+from ui.pyside6.ui_config_window import Ui_Form
 from ui.tool_editor import ToolEditor
 from ui.schemas.schemas import TOOL_SCHEMAS
+from ui.focus_config_dialog import FocusConfigDialog
 import shutil
 
 class ConfigWindow(QWidget):
     update_rois = Signal()
-    def __init__(self, recipe_manager, get_frame_callback, state_manager, platform):
+    def __init__(self, recipe_manager, get_frame_callback, state_manager, platform, camera_worker=None):
         super().__init__()
 
         self.ui = Ui_Form()
@@ -23,6 +24,7 @@ class ConfigWindow(QWidget):
         self.get_frame = get_frame_callback
         self.state_manager = state_manager
         self.platform = platform
+        self.camera_worker = camera_worker
 
         self.current_recipe = None
 
@@ -220,6 +222,7 @@ class ConfigWindow(QWidget):
             self.ui.btn_edit_t,
             self.ui.btn_out,
             self.ui.btn_save,
+            self.ui.btn_focus_config,
         ]
 
         for btn in buttons:
@@ -255,6 +258,57 @@ class ConfigWindow(QWidget):
         self.ui.btn_del_r.clicked.connect(self.delete_recipe)
         self.ui.btn_select_r.clicked.connect(self.select_recipe)
         self.ui.btn_out.clicked.connect(self.close)
+        self.ui.btn_focus_config.clicked.connect(self.open_focus_config)
+
+    def open_focus_config(self):
+        # REQUIERE TENER UNA RECETA ACTIVA PARA CONFIGURAR EL ENFOQUE
+        if not self.current_recipe:
+            print("[CONFIG] No hay receta seleccionada para cofigurar enfoque")
+            return
+        
+        dialog = FocusConfigDialog(
+            recipe=self.current_recipe,
+            get_frame_callback=self.get_frame,
+            platform=self.platform,
+            parent=self
+        )
+
+
+        if self.camera_worker is not None:
+            dialog.calibration_requested.connect(self.camera_worker.calibrate_focus_from_config)
+            self.camera_worker.manual_focus_finished.connect(dialog.on_calibration_finished)
+            self.camera_worker.manual_focus_failed.connect(dialog.on_calibration_failed)
+
+        screen_size = self.get_screen_size()
+        sw, sh = screen_size
+
+        if self.platform == "linux":
+            dialog.setMinimumSize(sw, sh)
+            dialog.showFullScreen()
+        else:
+            dialog.resize(800, 600)
+
+        if hasattr(dialog, "exec"):
+            result = dialog.exec()
+        else:
+            result = dialog.exec_()
+
+        if result:
+            self.recipe_manager.save(self.current_recipe)
+
+            focus = self.current_recipe.get("focus", {})
+
+            if self.camera_worker is not None:
+                self.camera_worker.set_focus_from_recipe(focus)
+
+            print(f"[CONFIG] Focus guardado en receta: {focus}")
+
+        if self.camera_worker is not None:
+            try:
+                self.camera_worker.manual_focus_finished.disconnect(dialog.on_calibration_finished)
+                self.camera_worker.manual_focus_failed.disconnect(dialog.on_calibration_failed)
+            except Exception:
+                pass
 
     def load_recipes(self):
         self.ui.cmb_recipes.clear()
