@@ -66,7 +66,7 @@ class FocusConfigDialog(QDialog):
         for btn in buttons:
             btn.setCursor(Qt.PointingHandCursor)
             btn.setMinimumHeight(36)
-            btn.sizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         buttons_top = QHBoxLayout()
         buttons_top.setContentsMargins(0, 4, 0, 4)
