@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>480</width>
-    <height>320</height>
+    <width>800</width>
+    <height>400</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -18,8 +18,8 @@
   </property>
   <property name="maximumSize">
    <size>
-    <width>480</width>
-    <height>320</height>
+    <width>800</width>
+    <height>400</height>
    </size>
   </property>
   <property name="windowTitle">
@@ -43,13 +43,13 @@
    </property>
    <property name="maximumSize">
     <size>
-     <width>480</width>
-     <height>320</height>
+     <width>800</width>
+     <height>400</height>
     </size>
    </property>
    <layout class="QVBoxLayout" name="verticalLayout_3">
     <property name="spacing">
-     <number>10</number>
+     <number>5</number>
     </property>
     <property name="leftMargin">
      <number>9</number>
@@ -73,8 +73,8 @@
       </property>
       <property name="maximumSize">
        <size>
-        <width>480</width>
-        <height>30</height>
+        <width>800</width>
+        <height>35</height>
        </size>
       </property>
       <property name="frameShape">
@@ -84,16 +84,22 @@
        <enum>QFrame::Raised</enum>
       </property>
       <layout class="QHBoxLayout" name="horizontalLayout_5">
+       <property name="spacing">
+        <number>0</number>
+       </property>
        <property name="leftMargin">
-        <number>50</number>
+        <number>80</number>
        </property>
        <property name="topMargin">
         <number>3</number>
        </property>
+       <property name="bottomMargin">
+        <number>5</number>
+       </property>
        <item>
         <widget class="QLabel" name="lbl_tittle">
          <property name="sizePolicy">
-          <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+          <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
            <horstretch>0</horstretch>
            <verstretch>0</verstretch>
           </sizepolicy>
@@ -106,13 +112,13 @@
          </property>
          <property name="maximumSize">
           <size>
-           <width>350</width>
+           <width>550</width>
            <height>50</height>
           </size>
          </property>
          <property name="font">
           <font>
-           <pointsize>12</pointsize>
+           <pointsize>14</pointsize>
            <weight>75</weight>
            <bold>true</bold>
           </font>
@@ -155,7 +161,8 @@ border: none;
 color: #EAEAEA;
 font-size: 16px;
 padding: 5px 10px;
-background-color: rgb(28, 37, 65);</string>
+background-color: rgb(28, 37, 65);
+border-radius: 5px;</string>
          </property>
          <property name="text">
           <string>-</string>
@@ -186,7 +193,8 @@ background-color: rgb(28, 37, 65);</string>
           <string notr="true">border: none;
 color: #EAEAEA;
 background-color: rgb(28, 37, 65);
-background-color: rgb(255, 77, 79);</string>
+background-color: rgb(255, 77, 79);
+border-radius: 5px;</string>
          </property>
          <property name="text">
           <string>X</string>
@@ -213,7 +221,7 @@ background-color: rgb(255, 77, 79);</string>
          <number>5</number>
         </property>
         <property name="bottomMargin">
-         <number>10</number>
+         <number>5</number>
         </property>
         <item>
          <widget class="QLabel" name="lbl_cam">
@@ -225,7 +233,7 @@ background-color: rgb(255, 77, 79);</string>
           </property>
           <property name="maximumSize">
            <size>
-            <width>300</width>
+            <width>400</width>
             <height>20</height>
            </size>
           </property>
@@ -266,8 +274,8 @@ background-color: transparent;</string>
             </property>
             <property name="maximumSize">
              <size>
-              <width>235</width>
-              <height>180</height>
+              <width>400</width>
+              <height>250</height>
              </size>
             </property>
             <property name="sizeIncrement">
@@ -330,91 +338,105 @@ border-color: rgb(94, 192, 190);
          </spacer>
         </item>
         <item>
-         <widget class="QLabel" name="lbl_model">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="minimumSize">
-           <size>
-            <width>180</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>180</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="font">
-           <font>
-            <weight>75</weight>
-            <bold>true</bold>
-           </font>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">color: rgb(234, 234, 234);
-border-radius: 10px;
-border: 2px solid;
-border-color: rgb(91, 192, 190);
-background-color: rgb(15, 27, 61);</string>
-          </property>
-          <property name="text">
-           <string>MODELO A</string>
-          </property>
-          <property name="alignment">
-           <set>Qt::AlignCenter</set>
-          </property>
-         </widget>
+         <layout class="QHBoxLayout" name="horizontalLayout_2">
+          <item>
+           <widget class="QLabel" name="lbl_model">
+            <property name="minimumSize">
+             <size>
+              <width>200</width>
+              <height>20</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>400</width>
+              <height>20</height>
+             </size>
+            </property>
+            <property name="font">
+             <font>
+              <pointsize>11</pointsize>
+              <weight>75</weight>
+              <bold>true</bold>
+             </font>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: rgb(234, 234, 234);
+background-color: transparent;</string>
+            </property>
+            <property name="text">
+             <string>MODELO DE PIEZA: A</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </item>
         <item>
-         <widget class="QPushButton" name="btn_config">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="minimumSize">
-           <size>
-            <width>180</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>180</width>
-            <height>30</height>
-           </size>
-          </property>
-          <property name="font">
-           <font>
-            <weight>75</weight>
-            <bold>true</bold>
-           </font>
-          </property>
-          <property name="styleSheet">
-           <string notr="true">color: rgb(234, 234, 234);
-border-radius: 10px;
+         <layout class="QHBoxLayout" name="horizontalLayout">
+          <item>
+           <widget class="QPushButton" name="btn_config">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>220</width>
+              <height>35</height>
+             </size>
+            </property>
+            <property name="maximumSize">
+             <size>
+              <width>225</width>
+              <height>40</height>
+             </size>
+            </property>
+            <property name="font">
+             <font>
+              <pointsize>11</pointsize>
+              <weight>75</weight>
+              <bold>true</bold>
+             </font>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: rgb(234, 234, 234);
+border-radius: 15px;
 border: 2px solid;
 border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
+            </property>
+            <property name="text">
+             <string>CONFIGURACIÓN</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <spacer name="horizontalSpacer">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
           </property>
-          <property name="text">
-           <string>CONFIGURACIÓN</string>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>372</width>
+            <height>10</height>
+           </size>
           </property>
-         </widget>
+         </spacer>
         </item>
         <item>
          <layout class="QHBoxLayout" name="status_1" stretch="0,0">
           <property name="spacing">
-           <number>5</number>
+           <number>0</number>
           </property>
           <property name="leftMargin">
-           <number>0</number>
+           <number>50</number>
           </property>
           <item>
            <widget class="QPushButton" name="indicator_1">
@@ -435,17 +457,18 @@ background-color: rgb(15, 27, 61);</string>
             </property>
             <property name="maximumSize">
              <size>
-              <width>35</width>
-              <height>35</height>
+              <width>45</width>
+              <height>45</height>
              </size>
             </property>
             <property name="styleSheet">
              <string notr="true">border: 2px solid;
 font-size: 16px;
-border-radius: 17px;
+border-radius: 22px;
 border-color: rgb(46, 196, 182);
 color: rgb(46, 196, 182);
-background-color: rgb(15, 27, 61);</string>
+background-color: rgb(15, 27, 61);
+</string>
             </property>
             <property name="text">
              <string>✔</string>
@@ -454,6 +477,12 @@ background-color: rgb(15, 27, 61);</string>
           </item>
           <item>
            <widget class="QLabel" name="lbl_indicator_1">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
             <property name="minimumSize">
              <size>
               <width>100</width>
@@ -462,12 +491,13 @@ background-color: rgb(15, 27, 61);</string>
             </property>
             <property name="maximumSize">
              <size>
-              <width>110</width>
+              <width>200</width>
               <height>50</height>
              </size>
             </property>
             <property name="font">
              <font>
+              <pointsize>11</pointsize>
               <weight>75</weight>
               <bold>true</bold>
              </font>
@@ -477,7 +507,7 @@ background-color: rgb(15, 27, 61);</string>
 background-color: transparent;</string>
             </property>
             <property name="text">
-             <string>INSPECCIÓN OK/NG</string>
+             <string>INSPECCION</string>
             </property>
            </widget>
           </item>
@@ -519,9 +549,14 @@ background-color: transparent;</string>
       </property>
       <property name="maximumSize">
        <size>
-        <width>470</width>
-        <height>30</height>
+        <width>800</width>
+        <height>40</height>
        </size>
+      </property>
+      <property name="font">
+       <font>
+        <pointsize>10</pointsize>
+       </font>
       </property>
       <property name="styleSheet">
        <string notr="true">background-color: rgb(28, 37, 65);
@@ -538,10 +573,10 @@ border-radius: 10px;</string>
         <number>9</number>
        </property>
        <property name="topMargin">
-        <number>6</number>
+        <number>0</number>
        </property>
        <property name="bottomMargin">
-        <number>5</number>
+        <number>0</number>
        </property>
        <item>
         <widget class="QListWidget" name="list_log">
@@ -553,14 +588,14 @@ border-radius: 10px;</string>
          </property>
          <property name="maximumSize">
           <size>
-           <width>445</width>
-           <height>20</height>
+           <width>800</width>
+           <height>25</height>
           </size>
          </property>
          <property name="font">
           <font>
            <family>MS Shell Dlg 2</family>
-           <pointsize>9</pointsize>
+           <pointsize>10</pointsize>
           </font>
          </property>
         </widget>

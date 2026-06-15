@@ -3,7 +3,7 @@ import cv2
 # IMPORTS DE QT
 from utils.qt_compat import load_ui, QT_LIB, QThread, QImage, QPixmap, QMainWindow, QMetaObject, Qt, QTimer
 # IMPORTS DE UI
-from ui.ui_main_window import Ui_MainWindow
+from ui.pyside6.ui_main_window import Ui_MainWindow
 from ui.config_window_logic import ConfigWindow
 # IMPORTS DE HERRAMIENTAS, SERVICIOS Y LOGICA
 from tools.compare_img_hist import CompareImgHistTool
@@ -53,7 +53,7 @@ class MainWindow(QMainWindow):
         self.BASE_STYLE = """
         border: 2px solid;
         font-size: 16px;
-        border-radius: 17px;
+        border-radius: 22px;
         border-color: rgb(46, 196, 182);
         color: rgb(46, 196, 182);
         background-color: rgb(15, 27, 61);
@@ -62,19 +62,19 @@ class MainWindow(QMainWindow):
         self.OK_STYLE = """
         border: 2px solid;
         font-size: 16px;
-        border-radius: 17px;
-        border-color: rgb(0, 200, 0);
-        color: rgb(0, 200, 0);
-        background-color: rgb(15, 27, 61);
+        border-radius: 22px;
+        border-color: rgb(82, 183, 136);
+        color: white;
+        background-color: rgb(46, 125, 50);
         """
 
         self.NG_STYLE = """
         border: 2px solid;
         font-size: 16px;
-        border-radius: 17px;
-        border-color: rgb(220, 50, 50);
-        color: rgb(220, 50, 50);
-        background-color: rgb(15, 27, 61);
+        border-radius: 22px;
+        border-color: rgb(230, 57, 70);
+        color: white;
+        background-color: rgb(183, 28, 28);
         """
 
         self.lbl_video.setStyleSheet("""
