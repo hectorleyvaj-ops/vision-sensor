@@ -26,7 +26,7 @@ class FocusConfigDialog(QDialog):
     def build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
-        layout.spacing(14)
+        layout.setSpacing(14)
 
         self.lbl_status = QLabel("Selecciona una ROI de enfoque o usa la existente")
         self.lbl_status.setAlignment(Qt.AlignCenter)
