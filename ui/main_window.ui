@@ -68,13 +68,13 @@
       <property name="minimumSize">
        <size>
         <width>480</width>
-        <height>30</height>
+        <height>45</height>
        </size>
       </property>
       <property name="maximumSize">
        <size>
         <width>800</width>
-        <height>35</height>
+        <height>45</height>
        </size>
       </property>
       <property name="frameShape">
@@ -145,15 +145,22 @@ background-color: transparent;</string>
          </property>
          <property name="minimumSize">
           <size>
-           <width>15</width>
-           <height>15</height>
+           <width>35</width>
+           <height>35</height>
           </size>
          </property>
          <property name="maximumSize">
           <size>
-           <width>25</width>
-           <height>25</height>
+           <width>35</width>
+           <height>35</height>
           </size>
+         </property>
+         <property name="font">
+          <font>
+           <pointsize>-1</pointsize>
+           <weight>75</weight>
+           <bold>true</bold>
+          </font>
          </property>
          <property name="styleSheet">
           <string notr="true">background-color: rgb(58, 80, 107);
@@ -162,7 +169,7 @@ color: #EAEAEA;
 font-size: 16px;
 padding: 5px 10px;
 background-color: rgb(28, 37, 65);
-border-radius: 5px;</string>
+border-radius: 8px;</string>
          </property>
          <property name="text">
           <string>-</string>
@@ -179,22 +186,29 @@ border-radius: 5px;</string>
          </property>
          <property name="minimumSize">
           <size>
-           <width>15</width>
-           <height>15</height>
+           <width>35</width>
+           <height>35</height>
           </size>
          </property>
          <property name="maximumSize">
           <size>
-           <width>25</width>
-           <height>25</height>
+           <width>35</width>
+           <height>35</height>
           </size>
+         </property>
+         <property name="font">
+          <font>
+           <pointsize>10</pointsize>
+           <weight>75</weight>
+           <bold>true</bold>
+          </font>
          </property>
          <property name="styleSheet">
           <string notr="true">border: none;
 color: #EAEAEA;
 background-color: rgb(28, 37, 65);
 background-color: rgb(255, 77, 79);
-border-radius: 5px;</string>
+border-radius: 8px;</string>
          </property>
          <property name="text">
           <string>X</string>
@@ -387,13 +401,13 @@ background-color: transparent;</string>
             <property name="minimumSize">
              <size>
               <width>225</width>
-              <height>40</height>
+              <height>45</height>
              </size>
             </property>
             <property name="maximumSize">
              <size>
               <width>225</width>
-              <height>40</height>
+              <height>45</height>
              </size>
             </property>
             <property name="font">
@@ -451,20 +465,20 @@ background-color: rgb(15, 27, 61);</string>
             </property>
             <property name="minimumSize">
              <size>
-              <width>45</width>
-              <height>45</height>
+              <width>60</width>
+              <height>60</height>
              </size>
             </property>
             <property name="maximumSize">
              <size>
-              <width>45</width>
-              <height>45</height>
+              <width>60</width>
+              <height>60</height>
              </size>
             </property>
             <property name="styleSheet">
              <string notr="true">border: 2px solid;
 font-size: 16px;
-border-radius: 22px;
+border-radius: 30px;
 border-color: rgb(46, 196, 182);
 color: rgb(46, 196, 182);
 background-color: rgb(15, 27, 61);
@@ -497,7 +511,7 @@ background-color: rgb(15, 27, 61);
             </property>
             <property name="font">
              <font>
-              <pointsize>11</pointsize>
+              <pointsize>12</pointsize>
               <weight>75</weight>
               <bold>true</bold>
              </font>
@@ -524,7 +538,7 @@ background-color: transparent;</string>
           <property name="sizeHint" stdset="0">
            <size>
             <width>100</width>
-            <height>30</height>
+            <height>50</height>
            </size>
           </property>
          </spacer>

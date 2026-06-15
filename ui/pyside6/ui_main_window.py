@@ -44,8 +44,8 @@ class Ui_MainWindow(object):
         self.verticalLayout_3.setContentsMargins(9, 5, 9, 15)
         self.top_bar = QFrame(self.centralwidget)
         self.top_bar.setObjectName(u"top_bar")
-        self.top_bar.setMinimumSize(QSize(480, 30))
-        self.top_bar.setMaximumSize(QSize(800, 35))
+        self.top_bar.setMinimumSize(QSize(480, 45))
+        self.top_bar.setMaximumSize(QSize(800, 45))
         self.top_bar.setFrameShape(QFrame.StyledPanel)
         self.top_bar.setFrameShadow(QFrame.Raised)
         self.horizontalLayout_5 = QHBoxLayout(self.top_bar)
@@ -78,15 +78,18 @@ class Ui_MainWindow(object):
         sizePolicy2.setVerticalStretch(0)
         sizePolicy2.setHeightForWidth(self.btn_minimizar.sizePolicy().hasHeightForWidth())
         self.btn_minimizar.setSizePolicy(sizePolicy2)
-        self.btn_minimizar.setMinimumSize(QSize(15, 15))
-        self.btn_minimizar.setMaximumSize(QSize(25, 25))
+        self.btn_minimizar.setMinimumSize(QSize(35, 35))
+        self.btn_minimizar.setMaximumSize(QSize(35, 35))
+        font1 = QFont()
+        font1.setBold(True)
+        self.btn_minimizar.setFont(font1)
         self.btn_minimizar.setStyleSheet(u"background-color: rgb(58, 80, 107);\n"
 "border: none;\n"
 "color: #EAEAEA;\n"
 "font-size: 16px;\n"
 "padding: 5px 10px;\n"
 "background-color: rgb(28, 37, 65);\n"
-"border-radius: 5px;")
+"border-radius: 8px;")
 
         self.horizontalLayout_5.addWidget(self.btn_minimizar)
 
@@ -94,13 +97,17 @@ class Ui_MainWindow(object):
         self.btn_cerrar.setObjectName(u"btn_cerrar")
         sizePolicy2.setHeightForWidth(self.btn_cerrar.sizePolicy().hasHeightForWidth())
         self.btn_cerrar.setSizePolicy(sizePolicy2)
-        self.btn_cerrar.setMinimumSize(QSize(15, 15))
-        self.btn_cerrar.setMaximumSize(QSize(25, 25))
+        self.btn_cerrar.setMinimumSize(QSize(35, 35))
+        self.btn_cerrar.setMaximumSize(QSize(35, 35))
+        font2 = QFont()
+        font2.setPointSize(10)
+        font2.setBold(True)
+        self.btn_cerrar.setFont(font2)
         self.btn_cerrar.setStyleSheet(u"border: none;\n"
 "color: #EAEAEA;\n"
 "background-color: rgb(28, 37, 65);\n"
 "background-color: rgb(255, 77, 79);\n"
-"border-radius: 5px;")
+"border-radius: 8px;")
 
         self.horizontalLayout_5.addWidget(self.btn_cerrar)
 
@@ -117,10 +124,10 @@ class Ui_MainWindow(object):
         self.lbl_cam.setObjectName(u"lbl_cam")
         self.lbl_cam.setMinimumSize(QSize(200, 20))
         self.lbl_cam.setMaximumSize(QSize(400, 20))
-        font1 = QFont()
-        font1.setPointSize(12)
-        font1.setBold(True)
-        self.lbl_cam.setFont(font1)
+        font3 = QFont()
+        font3.setPointSize(12)
+        font3.setBold(True)
+        self.lbl_cam.setFont(font3)
         self.lbl_cam.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "background-color: transparent;")
         self.lbl_cam.setAlignment(Qt.AlignCenter)
@@ -169,10 +176,10 @@ class Ui_MainWindow(object):
         self.lbl_model.setObjectName(u"lbl_model")
         self.lbl_model.setMinimumSize(QSize(350, 20))
         self.lbl_model.setMaximumSize(QSize(400, 20))
-        font2 = QFont()
-        font2.setPointSize(11)
-        font2.setBold(True)
-        self.lbl_model.setFont(font2)
+        font4 = QFont()
+        font4.setPointSize(11)
+        font4.setBold(True)
+        self.lbl_model.setFont(font4)
         self.lbl_model.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "background-color: transparent;")
         self.lbl_model.setAlignment(Qt.AlignCenter)
@@ -188,9 +195,9 @@ class Ui_MainWindow(object):
         self.btn_config.setObjectName(u"btn_config")
         sizePolicy1.setHeightForWidth(self.btn_config.sizePolicy().hasHeightForWidth())
         self.btn_config.setSizePolicy(sizePolicy1)
-        self.btn_config.setMinimumSize(QSize(225, 40))
-        self.btn_config.setMaximumSize(QSize(225, 40))
-        self.btn_config.setFont(font2)
+        self.btn_config.setMinimumSize(QSize(225, 45))
+        self.btn_config.setMaximumSize(QSize(225, 45))
+        self.btn_config.setFont(font4)
         self.btn_config.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "border-radius: 15px;\n"
 "border: 2px solid;\n"
@@ -215,11 +222,11 @@ class Ui_MainWindow(object):
         self.indicator_1.setEnabled(True)
         sizePolicy2.setHeightForWidth(self.indicator_1.sizePolicy().hasHeightForWidth())
         self.indicator_1.setSizePolicy(sizePolicy2)
-        self.indicator_1.setMinimumSize(QSize(45, 45))
-        self.indicator_1.setMaximumSize(QSize(45, 45))
+        self.indicator_1.setMinimumSize(QSize(60, 60))
+        self.indicator_1.setMaximumSize(QSize(60, 60))
         self.indicator_1.setStyleSheet(u"border: 2px solid;\n"
 "font-size: 16px;\n"
-"border-radius: 22px;\n"
+"border-radius: 30px;\n"
 "border-color: rgb(46, 196, 182);\n"
 "color: rgb(46, 196, 182);\n"
 "background-color: rgb(15, 27, 61);\n"
@@ -233,7 +240,7 @@ class Ui_MainWindow(object):
         self.lbl_indicator_1.setSizePolicy(sizePolicy1)
         self.lbl_indicator_1.setMinimumSize(QSize(100, 45))
         self.lbl_indicator_1.setMaximumSize(QSize(200, 50))
-        self.lbl_indicator_1.setFont(font2)
+        self.lbl_indicator_1.setFont(font3)
         self.lbl_indicator_1.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "background-color: transparent;")
 
@@ -242,7 +249,7 @@ class Ui_MainWindow(object):
 
         self.right_panel.addLayout(self.status_1)
 
-        self.verticalSpacer_2 = QSpacerItem(100, 30, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Maximum)
+        self.verticalSpacer_2 = QSpacerItem(100, 50, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Maximum)
 
         self.right_panel.addItem(self.verticalSpacer_2)
 
@@ -258,9 +265,9 @@ class Ui_MainWindow(object):
         self.bttm_bar.setSizePolicy(sizePolicy3)
         self.bttm_bar.setMinimumSize(QSize(780, 40))
         self.bttm_bar.setMaximumSize(QSize(800, 45))
-        font3 = QFont()
-        font3.setPointSize(10)
-        self.bttm_bar.setFont(font3)
+        font5 = QFont()
+        font5.setPointSize(10)
+        self.bttm_bar.setFont(font5)
         self.bttm_bar.setStyleSheet(u"background-color: rgb(28, 37, 65);\n"
 "border-radius: 10px;")
         self.bttm_bar.setFrameShape(QFrame.StyledPanel)
@@ -272,10 +279,10 @@ class Ui_MainWindow(object):
         self.list_log.setObjectName(u"list_log")
         self.list_log.setMinimumSize(QSize(750, 30))
         self.list_log.setMaximumSize(QSize(800, 30))
-        font4 = QFont()
-        font4.setFamilies([u"MS Shell Dlg 2"])
-        font4.setPointSize(10)
-        self.list_log.setFont(font4)
+        font6 = QFont()
+        font6.setFamilies([u"MS Shell Dlg 2"])
+        font6.setPointSize(10)
+        self.list_log.setFont(font6)
 
         self.horizontalLayout_3.addWidget(self.list_log)
 
