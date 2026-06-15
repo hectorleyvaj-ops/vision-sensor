@@ -18,6 +18,10 @@ class CameraWorker(QObject):
     manual_focus_finished = Signal(object)
     manual_focus_failed = Signal(str)
 
+    focus_check_started = Signal()
+    focus_check_finished = Signal(object)
+    focus_check_failed = Signal(str)
+
     def __init__(self,camera_index=0, width=1920, height=1080, platform="other"):
         super().__init__()
         self.camera_index = camera_index
@@ -68,6 +72,11 @@ class CameraWorker(QObject):
 
         self.focus_request_lock = threading.Lock()
         self.pending_focus_config = None
+
+        self.pending_focus_check_config = None
+        self.focus_reference_score = None
+        self.focus_peak_score = None
+        self.focus_verify_ratio = 0.70  # UMBRAL DE VALIDACION DE SCORE
 
         self.recalibrate_request.connect(self.recalibrate_focus)
     
@@ -772,33 +781,9 @@ class CameraWorker(QObject):
         if self.autofocus_supported:
             self.set_autofocus_linux(False)
 
-        # PRIMERA INTEGRACION:
-        # SI TODAVIA NO TENEMOS FOCUS_VALUE GUARDADO DESDE RECETA CALIBRAMOS AL INICIAR
+        print("[CAMERA] Linux: enfoque manual listo. La verificación se hará en el primer trigger.")
+        return
 
-        if self.focus_value is not None:
-            if self.verify_manual_focus_linux(
-                focus_value=self.focus_value,
-                roi=self.focus_roi,
-                min_score=self.focus_min_score,
-                apply_value=True,
-            ):
-                print(f"[CAMERA] Foco manual previo válido: {self.focus_value}")
-                return
-            
-            print("[CAMERA][WARNING] Foco manual previo no paso verificacion. Recalibrando...")
-
-        result = self.manual_focus_calibration_linux(roi=self.focus_roi)
-
-        if result is None or not result.ok:
-            print("[CAMERA][ERROR] Linux: no se pudo calibrar foco manual.")
-            return
-
-        print(
-            f"[CAMERA] FOCUS MANUAL CALIBRADO OK "
-            f"FOCUS: {result.focus_value}, "
-            f"SCORE: {result.median_score}, "
-            f"MIN_SCORE: {result.min_score}"
-        )
 
     # NUEVA INTEGRACION DE METODOS PARA MANUAL_FOCUS_CONTROLLER
     def parse_focus_absolute_range(self, list_ctrls_output):
@@ -946,22 +931,76 @@ class CameraWorker(QObject):
     # CARGAR ENFOQUE DESDE RECETA MAS ADELANTE
     @Slot()
     def set_focus_from_recipe(self, focus_config):
-        if not isinstance(focus_config, dict):
+        if not isinstance(focus_config, dict) or not focus_config.get("enabled", False):
+            self.focus_roi = None
+            self.focus_value = None
+            self.focus_min_score = self.min_focus_score_linux
+            self.focus_reference_score = None
+            self.focus_peak_score = None
+            print("[CAMERA] Receta sin configuración de enfoque habilitada")
             return
         
         roi = focus_config.get("roi")
         value = focus_config.get("value")
         min_score = focus_config.get("min_score")
-
+        median_score = focus_config.get("median_score")
+        peak_score = focus_config.get("peak_score")
 
         self.focus_roi = tuple(roi) if roi and len(roi) == 4 else None
         self.focus_value = int(value) if value is not None else None
         self.focus_min_score = int(min_score) if min_score is not None else self.min_focus_score_linux
+        self.focus_reference_score = int(median_score) if median_score is not None else None
+        self.focus_peak_score = int(peak_score) if peak_score is not None else None
 
         print(
             f"[CAMERA] Focus config cargada: "
-            f"roi={self.focus_roi}, value={self.focus_value}, min_score={self.focus_min_score}"
+            f"roi={self.focus_roi}, value={self.focus_value}, "
+            f"min_score={self.focus_min_score}, "
+            f"reference_score={self.focus_reference_score}, "
+            f"peak_score={self.focus_peak_score}"
         )
+
+    def get_focus_required_score(self):
+        candidates = [self.min_focus_score_linux]
+
+        if self.focus_min_score is not None:
+            candidates.append(int(self.focus_min_score))
+
+        if self.focus_reference_score is not None:
+            candidates.append(int(self.focus_reference_score * self.focus_verify_ratio))
+
+        required = max(candidates)
+
+        print(
+            f"[CAMERA] Umbral enfoque requerido: {required} "
+            f"(min_score={self.focus_min_score}, "
+            f"reference_score={self.focus_reference_score}, "
+            f"ratio={self.focus_verify_ratio})"
+        )
+
+        return required
+    
+    def request_focus_check_before_trigger(self, focus_config=None):
+        print(f"[CAMERA] Solicitud de verificación de enfoque encolada: {focus_config}")
+
+        with self.focus_request_lock:
+            self.pending_focus_check_config = focus_config
+
+    def consume_pending_focus_check_config(self):
+        with self.focus_request_lock:
+            config = self.pending_focus_check_config
+            self.pending_focus_check_config = None
+
+        return config
+    
+    def process_pending_focus_check_request(self):
+        focus_config = self.consume_pending_focus_check_config()
+
+        if focus_config is None:
+            return
+        
+        print(f"[CAMERA] Procesando verificación de enfoque desde loop: {focus_config}")
+        self.ensure_focus_ready_for_trigger(focus_config)
 
     def request_manual_focus_from_config(self, focus_config):
         print(f"[CAMERA] Solicitud manual focus encolada: {focus_config}")
@@ -1043,6 +1082,104 @@ class CameraWorker(QObject):
             print(f"[CAMERA][ERROR] calibrate_focus_from_config: {e}")
             self.manual_focus_failed.emit(str(e))
 
+    def ensure_focus_ready_for_trigger(self, focus_config=None):
+        if self.calibrating:
+            self.focus_check_failed.emit("Ya hay una calibracion en proceso")
+            return
+        
+        if not self.is_linux():
+            self.focus_check_finished.emit({
+                "ok": True,
+                "skipped": True,
+                "reason": "Verificación manual omitida fuera de Linux"
+            })
+            return
+    
+        if not self.focus_absolute_supported:
+            self.focus_check_failed.emit("La camara no expone focus_absolute")
+            return
+        
+        try:
+            self.focus_check_started.emit()
+
+            if isinstance(focus_config, dict):
+                self.set_focus_from_recipe(focus_config)
+
+            verified_score = None
+            verified_peak = None
+
+            if self.focus_value is not None:
+                required_score = self.get_focus_required_score()
+                controller = self.get_manual_focus_controller()
+
+                if controller is None:
+                    self.focus_check_failed.emit("No se pudo crear ManualFocusController")
+                    return
+                
+                ok, median_score, peak_score = controller.verify_focus(
+                    focus_value=self.focus_value,
+                    roi=self.focus_roi,
+                    min_score=required_score,
+                    samples=12,
+                    delay=0.04,
+                    apply_value=True,
+                )
+
+                verified_score = median_score
+                verified_peak = peak_score
+
+                print(
+                    f"[CAMERA] Verificación previa al trigger: "
+                    f"ok={ok}, focus={self.focus_value}, "
+                    f"score={median_score}, peak={peak_score}, "
+                    f"required={required_score}"
+                )
+                
+                if ok:
+                    self.focus_check_finished.emit({
+                        "ok": True,
+                        "focus_updated": False,
+                        "focus_value": self.focus_value,
+                        "roi": list(self.focus_roi) if self.focus_roi is not None else None,
+                        "median_score": median_score,
+                        "peak_score": peak_score,
+                        "min_score": required_score,
+                    })
+                    return
+                print("[CAMERA][WARNING] Score bajo. Recalibrando enfoque manual...")
+
+            else:
+                print("[CAMERA][WARNING] No hay focus_value guardado. Recalibrando antes del trigger...")
+
+            result = self.manual_focus_calibration_linux(roi=self.focus_roi)
+
+            if result is None or not result.ok:
+                self.focus_check_failed.emit("No se pudo verificar ni recalibrar el enfoque.")
+                return
+
+            result_data = {
+                "ok": True,
+                "focus_updated": True,
+                "roi": list(result.roi) if result.roi is not None else None,
+                "focus_value": int(result.focus_value),
+                "median_score": int(result.median_score),
+                "peak_score": int(result.peak_score),
+                "min_score": int(result.min_score),
+                "coarse_best": int(result.coarse_best) if result.coarse_best is not None else None,
+                "fine_best": int(result.fine_best) if result.fine_best is not None else None,
+                "micro_best": int(result.micro_best) if result.micro_best is not None else None,
+                "previous_score": verified_score,
+                "previous_peak_score": verified_peak,
+            }
+
+            print(f"[CAMERA] Enfoque listo para trigger: {result_data}")
+            self.focus_check_finished.emit(result_data)
+
+        except Exception as e:
+            print(f"[CAMERA][ERROR] ensure_focus_ready_for_trigger: {e}")
+            self.focus_check_failed.emit(str(e))
+
+
     @Slot()
     def start(self):
         # LOOP PRINCIPAL DE CAPTURA
@@ -1064,6 +1201,7 @@ class CameraWorker(QObject):
 
             while self._running:
                 self.process_pending_focus_request()
+                self.process_pending_focus_check_request()
 
                 if self.calibrating:
                     time.sleep(0.01)

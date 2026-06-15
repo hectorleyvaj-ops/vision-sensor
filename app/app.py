@@ -44,7 +44,11 @@ class MainWindow(QMainWindow):
         self.selected_recipe = None
         self.rois_to_apply = []
 
+        # BANDERAS
         self.fsm_busy = False
+        self.focus_ready_for_active_recipe = False
+        self.focus_check_busy = False
+        self.pending_trigger_after_focus = False
 
         self.BASE_STYLE = """
         border: 2px solid;
@@ -168,6 +172,8 @@ class MainWindow(QMainWindow):
         self.camera_worker.frame_ready.connect(self.update_frame)
         self.camera_worker.finished.connect(self.camera_thread.quit)
         self.camera_worker.finished.connect(self.camera_worker.deleteLater)
+        self.camera_worker.focus_check_finished.connect(self.on_focus_check_finished)
+        self.camera_worker.focus_check_failed.connect(self.on_focus_check_failed)
 
         self.camera_thread.start()
 
@@ -185,6 +191,22 @@ class MainWindow(QMainWindow):
                     x1, y1, x2, y2 = roi
                     self.rois_to_apply.append((x1, y1, x2, y2))
             self.lbl_video.set_rois(self.rois_to_apply)
+
+        self.apply_focus_from_recipe(self.selected_recipe)
+
+    def apply_focus_from_recipe(self, recipe):
+        self.focus_ready_for_active_recipe = False
+
+        if not recipe:
+            print(f"[APP] No hay receta activa para cargar enfoque")
+            self.camera_worker.set_focus_from_recipe({})
+            return
+        
+        focus = self.recipe_manager.get_focus(recipe["name"])
+
+        print(f"[APP] Cargando enfoque desde receta {recipe['name']}: {focus}")
+
+        self.camera_worker.set_focus_from_recipe(focus)
 
     def setup_serial(self):
         puerto = None
@@ -262,6 +284,10 @@ class MainWindow(QMainWindow):
             print("[FSM] Ciclo ocupado, trigger ignorado")
             return
         
+        if self.focus_check_busy:
+            print("[FOCUS] Verificacion de enfoque en proceso, trigger ignorado")
+            return
+        
         if not self.state_thread.isRunning():
             print("[FSM] State thread no esta corriendo")
             return
@@ -270,6 +296,35 @@ class MainWindow(QMainWindow):
             print(f"[FSM] Ocupada en estado {self.state_manager.state}, trigger ignorado")
             return
         
+        if self.platform == "linux" and not self.focus_ready_for_active_recipe:
+            print("[FOCUS] Primer trigger: verificando enfoque antes de inspeccionar...")
+
+            self.focus_check_busy = True
+            self.pending_trigger_after_focus = True
+
+            focus = {}
+
+            if self.selected_recipe:
+                focus = self.recipe_manager.get_focus(self.selected_recipe["name"])
+
+            self.camera_worker.request_focus_check_before_trigger(focus)
+            return
+        
+        self.start_fsm_cycle()
+
+    def start_fsm_cycle(self):
+        if self.fsm_busy:
+            print("[FSM] Ciclo ocupado, trigger ignorado")
+            return
+        
+        if not self.state_thread.isRunning():
+            print("[FSM] State thread no esta corriendo")
+            return
+        
+        if self.state_manager.state != "IDLE":
+            print(f"[FSM] Ocupada en estado {self.state_manager.state}, trigger ignorado")
+            return
+    
         self.fsm_busy = True
         
         if self.state_thread.isRunning():
@@ -288,10 +343,18 @@ class MainWindow(QMainWindow):
     def on_model_changed(self, model_name):
         if not model_name:
             print("[SERIAL] Modelo vacio, cambio ignorado")
+            return
             
         print(f"Cambiando receta a modelo: {model_name}")
+
+        self.recipe_manager.set_selected(model_name)
         self.state_manager.set_active_recipe(model_name)
+
+        self.selected_recipe = self.recipe_manager.get(model_name)
+
         self.apply_rois_from_recipe()
+        self.apply_focus_from_recipe(self.selected_recipe)
+
         self.ui.lbl_model.setText(model_name)
 
     def open_config(self):
@@ -327,6 +390,46 @@ class MainWindow(QMainWindow):
             return
 
         self.camera_worker.request_manual_focus_from_config(focus_config)
+
+    def on_focus_check_finished(self, result):
+        print(f"[APP] Resultado verificación enfoque: {result}")
+
+        self.focus_check_busy = False
+
+        if not isinstance(result, dict) or not result.get("ok"):
+            print("[APP][ERROR] Verificación de enfoque no válida")
+            self.pending_trigger_after_focus = False
+            return
+
+        self.focus_ready_for_active_recipe = True
+
+        if result.get("focus_updated") and self.selected_recipe:
+            focus_data = {
+                "enabled": True,
+                "roi": result.get("roi"),
+                "value": result.get("focus_value"),
+                "min_score": result.get("min_score"),
+                "median_score": result.get("median_score"),
+                "peak_score": result.get("peak_score"),
+                "verify_on_first_trigger": True,
+                "auto_refocus_if_failed": True,
+            }
+
+            self.recipe_manager.update_focus(self.selected_recipe["name"], focus_data)
+            self.selected_recipe = self.recipe_manager.get(self.selected_recipe["name"])
+
+            print(f"[APP] Receta actualizada con nuevo enfoque: {focus_data}")
+
+        if self.pending_trigger_after_focus:
+            self.pending_trigger_after_focus = False
+            self.start_fsm_cycle()
+
+    def on_focus_check_failed(self, message):
+        print(f"[APP][ERROR] Verificación de enfoque falló: {message}")
+
+        self.focus_check_busy = False
+        self.pending_trigger_after_focus = False
+        self.focus_ready_for_active_recipe = False
 
     def shutdown_thread(self,thread, worker, name="thread"):
         # DETENER WORKERS

@@ -43,7 +43,12 @@ class RecipeManager:
                 r["selected"] = False
                 upadated = True
 
+            # ASEGURAR FOCUS
+            if self.ensure_focus(r):
+                upadated = True
+
         selected_found = False
+
         for r in recipes:
             if r.get("selected"):
                 if not selected_found:
@@ -54,8 +59,7 @@ class RecipeManager:
 
         # GUARDAR LOS CAMBIOS
         if upadated:
-            with open(self.path, "w") as f:
-                json.dump(recipes, f, indent=4)
+            self._save_file({"recipes": recipes})
 
         return recipes
     
@@ -115,7 +119,8 @@ class RecipeManager:
         new_recipe = {
             "name": name,
             "selected": selected,
-            "steps": []
+            "steps": [],
+            "focus": self.default_focus_config()
         }
 
         self.save(new_recipe)
@@ -168,5 +173,71 @@ class RecipeManager:
         self.save(default_recipe)
         return default_recipe
         
+    def default_focus_config(self):
+        return{
+            "enabled": False,
+            "roi": None,
+            "value": None,
+            "min_score": None,
+            "median_score": None,
+            "peak_score": None,
+            "verify_on_first_trigger": True,
+            "auto_refocus_if_failed": True,
+        }
+    
+    def ensure_focus(self, recipe):
+        if "focus" not in recipe or not isinstance(recipe["focus"], dict):
+            recipe["focus"] = self.default_focus_config()
+            return True
+        
+        default = self.default_focus_config()
+        updated = False
 
+        for key, value in default.items():
+            if key not in recipe["focus"]:
+                recipe["focus"][key] = value
+                updated = True
+
+        return updated
+    
+    def get_focus(self, recipe_name):
+        recipe = self.get(recipe_name)
+
+        if not recipe:
+            return self.default_focus_config()
+        
+        self.ensure_focus(recipe)
+        return recipe.get("focus", self.default_focus_config())
+    
+    def get_selected_focus(self):
+        recipe = self.get_selected()
+
+        if not recipe:
+            return self.default_focus_config()
+        
+        self.ensure_focus(recipe)
+        return recipe.get("focus", self.default_focus_config())
+    
+    def update_focus(self, recipe_name, focus_config):
+        recipe = self.get(recipe_name)
+
+        if not recipe:
+            print(f"[RECIPE][ERROR] No se encontro receta para actualizar enfoque: {recipe_name}")
+            return False
+        
+        self.ensure_focus(recipe)
+
+        recipe["focus"].update({
+            "enabled": bool(focus_config.get("enabled", True)),
+            "roi": focus_config.get("roi"),
+            "value": focus_config.get("value"),
+            "min_score": focus_config.get("min_score"),
+            "median_score": focus_config.get("median_score"),
+            "peak_score": focus_config.get("peak_score"),
+            "verify_on_first_trigger": bool(focus_config.get("verify_on_first_trigger", True)),
+            "auto_refocus_if_failed": bool(focus_config.get("auto_refocus_if_failed", True)),
+        })
+
+        self.save(recipe)
+        return True
     
