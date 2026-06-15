@@ -25,9 +25,9 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(800, 400)
-        MainWindow.setMinimumSize(QSize(0, 320))
-        MainWindow.setMaximumSize(QSize(800, 400))
+        MainWindow.resize(800, 480)
+        MainWindow.setMinimumSize(QSize(800, 480))
+        MainWindow.setMaximumSize(QSize(800, 480))
         MainWindow.setStyleSheet(u"background-color: rgb(11, 19, 43);")
         self.centralwidget = QWidget(MainWindow)
         self.centralwidget.setObjectName(u"centralwidget")
@@ -37,9 +37,9 @@ class Ui_MainWindow(object):
         sizePolicy.setHeightForWidth(self.centralwidget.sizePolicy().hasHeightForWidth())
         self.centralwidget.setSizePolicy(sizePolicy)
         self.centralwidget.setMinimumSize(QSize(480, 320))
-        self.centralwidget.setMaximumSize(QSize(800, 400))
+        self.centralwidget.setMaximumSize(QSize(800, 480))
         self.verticalLayout_3 = QVBoxLayout(self.centralwidget)
-        self.verticalLayout_3.setSpacing(5)
+        self.verticalLayout_3.setSpacing(10)
         self.verticalLayout_3.setObjectName(u"verticalLayout_3")
         self.verticalLayout_3.setContentsMargins(9, 5, 9, 15)
         self.top_bar = QFrame(self.centralwidget)
@@ -137,7 +137,7 @@ class Ui_MainWindow(object):
         sizePolicy3.setHeightForWidth(self.lbl_video.sizePolicy().hasHeightForWidth())
         self.lbl_video.setSizePolicy(sizePolicy3)
         self.lbl_video.setMinimumSize(QSize(375, 250))
-        self.lbl_video.setMaximumSize(QSize(400, 250))
+        self.lbl_video.setMaximumSize(QSize(400, 300))
         self.lbl_video.setSizeIncrement(QSize(0, 0))
         self.lbl_video.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "border-radius: 15px;\n"
@@ -202,7 +202,7 @@ class Ui_MainWindow(object):
 
         self.right_panel.addLayout(self.horizontalLayout)
 
-        self.horizontalSpacer = QSpacerItem(372, 10, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.horizontalSpacer = QSpacerItem(372, 50, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.right_panel.addItem(self.horizontalSpacer)
 
@@ -257,7 +257,7 @@ class Ui_MainWindow(object):
         sizePolicy3.setHeightForWidth(self.bttm_bar.sizePolicy().hasHeightForWidth())
         self.bttm_bar.setSizePolicy(sizePolicy3)
         self.bttm_bar.setMinimumSize(QSize(780, 40))
-        self.bttm_bar.setMaximumSize(QSize(800, 40))
+        self.bttm_bar.setMaximumSize(QSize(800, 45))
         font3 = QFont()
         font3.setPointSize(10)
         self.bttm_bar.setFont(font3)
@@ -270,8 +270,8 @@ class Ui_MainWindow(object):
         self.horizontalLayout_3.setContentsMargins(9, 0, -1, 0)
         self.list_log = QListWidget(self.bttm_bar)
         self.list_log.setObjectName(u"list_log")
-        self.list_log.setMinimumSize(QSize(750, 25))
-        self.list_log.setMaximumSize(QSize(800, 25))
+        self.list_log.setMinimumSize(QSize(750, 30))
+        self.list_log.setMaximumSize(QSize(800, 30))
         font4 = QFont()
         font4.setFamilies([u"MS Shell Dlg 2"])
         font4.setPointSize(10)
