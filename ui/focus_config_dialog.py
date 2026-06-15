@@ -47,7 +47,7 @@ class FocusConfigDialog(QDialog):
             platform=self.platform,
             fill_mode="fit"
         )
-        self.video.sizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.video.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.btn_select_roi = QPushButton("SELECT ROI")
         self.btn_clear_roi = QPushButton("FRAME COMPLETO")
@@ -65,19 +65,19 @@ class FocusConfigDialog(QDialog):
 
         for btn in buttons:
             btn.setCursor(Qt.PointingHandCursor)
-            btn.minimumHeight(36)
+            btn.setMinimumHeight(36)
             btn.sizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         buttons_top = QHBoxLayout()
         buttons_top.setContentsMargins(0, 4, 0, 4)
-        buttons_top.spacing(12)
+        buttons_top.setSpacing(12)
         buttons_top.addWidget(self.btn_select_roi)
         buttons_top.addWidget(self.btn_clear_roi)
         buttons_top.addWidget(self.btn_calibrate)
 
         buttons_bott = QHBoxLayout()
         buttons_bott.setContentsMargins(0, 4, 0, 4)
-        buttons_bott.spacing(12)
+        buttons_bott.setSpacing(12)
         buttons_bott.addWidget(self.btn_cancel)
         buttons_bott.addWidget(self.btn_save)
 
