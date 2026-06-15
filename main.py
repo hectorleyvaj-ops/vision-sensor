@@ -7,6 +7,9 @@ if __name__ == "__main__":
 
 
     window = MainWindow()
-    window.show()
+    window.showFullScreen()
 
-    sys.exit(app.exec())
+    if hasattr(app, "exec"):
+        sys.exit(app.exec())
+    else:
+        sys.exit(app.exec_())
