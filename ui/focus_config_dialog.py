@@ -81,7 +81,7 @@ class FocusConfigDialog(QDialog):
         min_score = focus.get("min_score")
 
         if roi and len(roi) == 4:
-            self.video.set_rois(tuple(roi))
+            self.video.set_rois([tuple(roi)])
             roi_text = f"ROI actual: {roi}"
         else:
             roi_text = "ROI actual: frame completo"
@@ -105,14 +105,18 @@ class FocusConfigDialog(QDialog):
             "roi": list(roi) if roi is not None else None
         }
 
+        print(f"[FOCUS_DIALOG] Solicitud de calibración emitida: {focus_config}")
+
         self.btn_calibrate.setEnabled(False)
         self.btn_save.setEnabled(False)
         self.lbl_status.setText("Calibrando enfoque, espere un momento...")
 
         self.calibration_requested.emit(focus_config)
 
-    @Slot()
+    @Slot(object)
     def on_calibration_finished(self, result):
+        print(f"[FOCUS_FIALOG] Resultado recibido: {result}")
+
         self.btn_calibrate.setEnabled(True)
         self.btn_save.setEnabled(True)
 
@@ -135,8 +139,10 @@ class FocusConfigDialog(QDialog):
             f"Score: {median_score} | Min score: {min_score}"
         )
 
-    @Slot()
+    @Slot(str)
     def on_calibration_failed(self, message):
+        print(f"[FOCUS_DIALOG][ERROR] {message}")
+
         self.btn_calibrate.setEnabled(True)
         self.btn_save.setEnabled(True)
         self.lbl_status.setText(f"Error de calibracion: {message}")

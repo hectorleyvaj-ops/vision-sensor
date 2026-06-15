@@ -963,8 +963,10 @@ class CameraWorker(QObject):
     # {
     #   "roi": [833, 224, 1217, 577]
     # }
-    @Slot()
+    @Slot(object)
     def calibrate_focus_from_config(self, focus_config):
+        print(F"[CAMERA] Slot calibrate_focus_from_config recibido: {focus_config}")
+
         if self.calibrating:
             self.manual_focus_failed.emit("Ya hay una calibracion en proceso.")
             return
@@ -988,6 +990,7 @@ class CameraWorker(QObject):
                 if raw_roi and len(raw_roi) == 4:
                     roi = tuple(raw_roi)
 
+            print(f"[CAMERA] Iniciando calibración desde configuración con ROI: {roi}")
             result = self.manual_focus_calibration_linux(roi=roi)
 
             if result is None or not result.ok:
@@ -1006,9 +1009,11 @@ class CameraWorker(QObject):
                 "micro_best": int(result.micro_best) if result.micro_best is not None else None,
             }
 
+            print(f"[CAMERA] Calibración desde configuración terminada: {result_data}")
             self.manual_focus_finished.emit(result_data)
 
         except Exception as e:
+            print(f"[CAMERA][ERROR] calibrate_focus_from_config: {e}")
             self.manual_focus_failed.emit(str(e))
 
     @Slot()
