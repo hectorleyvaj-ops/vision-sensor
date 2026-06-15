@@ -11,6 +11,7 @@ import shutil
 
 class ConfigWindow(QWidget):
     update_rois = Signal()
+    focus_calibration_requested = Signal(object)
     def __init__(self, recipe_manager, get_frame_callback, state_manager, platform, camera_worker=None):
         super().__init__()
 
@@ -273,10 +274,9 @@ class ConfigWindow(QWidget):
             parent=self
         )
 
-
         if self.camera_worker is not None:
             print("[CONFIG] Conectando señales de calibración con CameraWorker")
-            dialog.calibration_requested.connect(self.camera_worker.request_manual_focus_from_config)
+            dialog.calibration_requested.connect(self.foward_focus_calibration_request)
             self.camera_worker.manual_focus_finished.connect(dialog.on_calibration_finished)
             self.camera_worker.manual_focus_failed.connect(dialog.on_calibration_failed)
         else:
@@ -310,11 +310,15 @@ class ConfigWindow(QWidget):
 
         if self.camera_worker is not None:
             try:
-                dialog.calibration_requested.disconnect(self.camera_worker.request_manual_focus_from_config)
+                dialog.calibration_requested.disconnect(self.foward_focus_calibration_request)
                 self.camera_worker.manual_focus_finished.disconnect(dialog.on_calibration_finished)
                 self.camera_worker.manual_focus_failed.disconnect(dialog.on_calibration_failed)
             except Exception:
                 pass
+
+    def foward_focus_calibration_request(self, focus_config):
+        print(f"[CONFIG] Redirigiendo solicitud de calibración a MainWindow: {focus_config}")
+        self.focus_calibration_requested.emit(focus_config)
 
     def load_recipes(self):
         self.ui.cmb_recipes.clear()
@@ -652,7 +656,3 @@ class ConfigWindow(QWidget):
 
     def closeEvent(self, event):
         event.accept()
-
-        
-
-    

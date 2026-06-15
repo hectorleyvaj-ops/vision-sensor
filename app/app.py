@@ -303,13 +303,30 @@ class MainWindow(QMainWindow):
             camera_worker=self.camera_worker
         )
         # CONECTAR SIGNALS DESDE CONFIG WINDOW
-        self.config_window.update_rois.connect(self.apply_rois_from_recipe, Qt.UniqueConnection)
+        self.config_window.update_rois.connect(
+            self.apply_rois_from_recipe, 
+            Qt.UniqueConnection
+        )
+
+        self.config_window.focus_calibration_requested.connect(
+            self.request_camera_focus_from_config,
+            Qt.DirectConnection
+        )
 
         if self.platform == "linux": 
             self.config_window.showFullScreen()
         else:
             self.config_window.resize(480, 320)
             self.config_window.show()
+
+    def request_camera_focus_from_config(self, focus_config):
+        print(f"[APP] Solicitud de calibración recibida desde ConfigWindow: {focus_config}")
+
+        if not hasattr(self, "camera_worker") or self.camera_worker is None:
+            print("[APP][ERROR] camera_worker no disponible")
+            return
+
+        self.camera_worker.request_manual_focus_from_config(focus_config)
 
     def shutdown_thread(self,thread, worker, name="thread"):
         # DETENER WORKERS

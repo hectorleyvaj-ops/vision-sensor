@@ -992,7 +992,7 @@ class CameraWorker(QObject):
     # }
     @Slot(object)
     def calibrate_focus_from_config(self, focus_config):
-        print(F"[CAMERA] Slot calibrate_focus_from_config recibido: {focus_config}")
+        print(f"[CAMERA] Slot calibrate_focus_from_config recibido: {focus_config}")
 
         if self.calibrating:
             self.manual_focus_failed.emit("Ya hay una calibracion en proceso.")
@@ -1064,7 +1064,7 @@ class CameraWorker(QObject):
 
             while self._running:
                 self.process_pending_focus_request()
-                
+
                 if self.calibrating:
                     time.sleep(0.01)
                     continue
