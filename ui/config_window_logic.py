@@ -229,6 +229,72 @@ class ConfigWindow(QWidget):
         for btn in buttons:
             self.add_button_feedback(btn)
 
+    def apply_scrollbar_style(self, scroll):
+        scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: rgb(11, 19, 43);
+            }
+
+            QScrollBar:vertical {
+                background-color: rgb(15, 27, 61);
+                width: 22px;
+                margin: 0px;
+                border-radius: 8px;
+            }
+
+            QScrollBar::handle:vertical {
+                background-color: rgb(91, 192, 190);
+                min-height: 36px;
+                border-radius: 8px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background-color: rgb(46, 196, 182);
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+                background: none;
+                border: none;
+            }
+
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: transparent;
+            }
+
+            QScrollBar:horizontal {
+                background-color: rgb(15, 27, 61);
+                height: 18px;
+                margin: 0px;
+                border-radius: 8px;
+            }
+
+            QScrollBar::handle:horizontal {
+                background-color: rgb(91, 192, 190);
+                min-width: 36px;
+                border-radius: 8px;
+            }
+
+            QScrollBar::handle:horizontal:hover {
+                background-color: rgb(46, 196, 182);
+            }
+
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {
+                width: 0px;
+                background: none;
+                border: none;
+            }
+
+            QScrollBar::add-page:horizontal,
+            QScrollBar::sub-page:horizontal {
+                background: transparent;
+            }
+        """)
+
     def get_screen_size(self):
         screen = self.screen()
 
@@ -388,6 +454,7 @@ class ConfigWindow(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(editor)
+        self.apply_scrollbar_style(scroll)
 
         btn_save = QPushButton("Guardar")
         btn_cancel = QPushButton("Cancelar")
@@ -471,7 +538,8 @@ class ConfigWindow(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setWidget(layout)
+        scroll.setWidget(editor)
+        self.apply_scrollbar_style(scroll)
 
         btn_cancel = QPushButton("Cancelar")
         btn_save = QPushButton("Guardar")

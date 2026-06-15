@@ -1,6 +1,6 @@
 from utils.qt_compat import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, Qt, Signal, Slot
+    QLabel, Qt, Signal, Slot, QSizePolicy
 )
 
 from ui.widgets.video_widget import VideoWidget
@@ -25,9 +25,21 @@ class FocusConfigDialog(QDialog):
 
     def build_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.spacing(14)
 
         self.lbl_status = QLabel("Selecciona una ROI de enfoque o usa la existente")
         self.lbl_status.setAlignment(Qt.AlignCenter)
+        self.lbl_status.setWordWrap(True)
+        self.lbl_status.setMinimumHeight(38)
+        self.lbl_status.setStyleSheet("""
+            QLabel {
+                padding: 8px;
+                border-radius: 8px;
+                background-color: rgb(15, 27, 61);
+                border: 1px solid rgb(91, 192, 190);
+            }
+        """)
 
         self.video = VideoWidget(
             get_frame_callback=self.get_frame,
@@ -35,6 +47,7 @@ class FocusConfigDialog(QDialog):
             platform=self.platform,
             fill_mode="fit"
         )
+        self.video.sizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.btn_select_roi = QPushButton("SELECT ROI")
         self.btn_clear_roi = QPushButton("FRAME COMPLETO")
@@ -52,18 +65,25 @@ class FocusConfigDialog(QDialog):
 
         for btn in buttons:
             btn.setCursor(Qt.PointingHandCursor)
+            btn.minimumHeight(36)
+            btn.sizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         buttons_top = QHBoxLayout()
+        buttons_top.setContentsMargins(0, 4, 0, 4)
+        buttons_top.spacing(12)
         buttons_top.addWidget(self.btn_select_roi)
         buttons_top.addWidget(self.btn_clear_roi)
         buttons_top.addWidget(self.btn_calibrate)
 
         buttons_bott = QHBoxLayout()
+        buttons_bott.setContentsMargins(0, 4, 0, 4)
+        buttons_bott.spacing(12)
         buttons_bott.addWidget(self.btn_cancel)
         buttons_bott.addWidget(self.btn_save)
 
         layout.addWidget(self.lbl_status)
-        layout.addWidget(self.video)
+        layout.addWidget(self.video, stretch=1)
+        layout.addSpacing(6)
         layout.addLayout(buttons_top)
         layout.addLayout(buttons_bott)
 
@@ -115,7 +135,7 @@ class FocusConfigDialog(QDialog):
 
     @Slot(object)
     def on_calibration_finished(self, result):
-        print(f"[FOCUS_FIALOG] Resultado recibido: {result}")
+        print(f"[FOCUS_DIALOG] Resultado recibido: {result}")
 
         self.btn_calibrate.setEnabled(True)
         self.btn_save.setEnabled(True)

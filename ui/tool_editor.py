@@ -21,9 +21,9 @@ class ToolEditor(QWidget):
         self.fields = {}
 
         self.form = QFormLayout()
-        self.form.setContentsMargins(8,8,8,8)
-        self.form.setHorizontalSpacing(18)
-        self.form.setVerticalSpacing(12)
+        self.form.setContentsMargins(14, 14, 14, 14)
+        self.form.setHorizontalSpacing(22)
+        self.form.setVerticalSpacing(16)
         self.form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.setLayout(self.form)
 
@@ -60,7 +60,9 @@ class ToolEditor(QWidget):
         t = config["type"]
 
         if t == "str":
-            return QLineEdit()
+            w = QLineEdit()
+            w.setMinimumHeight(34)
+            return w
         
         elif t == "float":
             w = QDoubleSpinBox()
@@ -68,6 +70,7 @@ class ToolEditor(QWidget):
             w.setDecimals(1)
             w.setCursor(Qt.ArrowCursor)
             w.setKeyboardTracking(False)
+            w.setMinimumHeight(34)
             return w
         
         elif t == "int":
@@ -76,6 +79,7 @@ class ToolEditor(QWidget):
             w.setDecimals(0)
             w.setCursor(Qt.ArrowCursor)
             w.setKeyboardTracking(False)
+            w.setMinimumHeight(34)
             return w
         
         elif t == "bool":
@@ -84,11 +88,14 @@ class ToolEditor(QWidget):
         elif t == "choice":
             w = QComboBox()
             w.addItems(config["options"])
+            w.setMinimumHeight(34)
             return w
         
         elif t == "roi":
             # POR SIMPLICIDAD, USAREMOS UN BOTON PARA CAPTURAR EL ROI ACTUAL
             btn = QPushButton("Seleccionar ROI")
+            btn.setMinimumHeight(34)
+            btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda: self.select_roi(key))
             return btn
         
