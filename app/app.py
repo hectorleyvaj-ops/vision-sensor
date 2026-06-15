@@ -39,6 +39,7 @@ class MainWindow(QMainWindow):
         # CONECTAR WIDGETS
         self.btn_trigger.clicked.connect(self.run_fsm)
         self.btn_config.clicked.connect(self.open_config)
+        self.ui.btn_cerrar.clicked.connect(self.close)
 
         self.current_frame = None
         self.selected_recipe = None
