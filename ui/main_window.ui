@@ -268,8 +268,8 @@ background-color: transparent;</string>
             </property>
             <property name="minimumSize">
              <size>
-              <width>180</width>
-              <height>160</height>
+              <width>375</width>
+              <height>250</height>
              </size>
             </property>
             <property name="maximumSize">
@@ -343,7 +343,7 @@ border-color: rgb(94, 192, 190);
            <widget class="QLabel" name="lbl_model">
             <property name="minimumSize">
              <size>
-              <width>200</width>
+              <width>350</width>
               <height>20</height>
              </size>
             </property>
@@ -386,8 +386,8 @@ background-color: transparent;</string>
             </property>
             <property name="minimumSize">
              <size>
-              <width>220</width>
-              <height>35</height>
+              <width>225</width>
+              <height>40</height>
              </size>
             </property>
             <property name="maximumSize">
@@ -451,8 +451,8 @@ background-color: rgb(15, 27, 61);</string>
             </property>
             <property name="minimumSize">
              <size>
-              <width>35</width>
-              <height>35</height>
+              <width>45</width>
+              <height>45</height>
              </size>
             </property>
             <property name="maximumSize">
@@ -486,7 +486,7 @@ background-color: rgb(15, 27, 61);
             <property name="minimumSize">
              <size>
               <width>100</width>
-              <height>20</height>
+              <height>45</height>
              </size>
             </property>
             <property name="maximumSize">
@@ -543,8 +543,8 @@ background-color: transparent;</string>
       </property>
       <property name="minimumSize">
        <size>
-        <width>460</width>
-        <height>30</height>
+        <width>780</width>
+        <height>40</height>
        </size>
       </property>
       <property name="maximumSize">
@@ -582,8 +582,8 @@ border-radius: 10px;</string>
         <widget class="QListWidget" name="list_log">
          <property name="minimumSize">
           <size>
-           <width>440</width>
-           <height>19</height>
+           <width>750</width>
+           <height>25</height>
           </size>
          </property>
          <property name="maximumSize">

@@ -136,7 +136,7 @@ class Ui_MainWindow(object):
         sizePolicy3.setVerticalStretch(0)
         sizePolicy3.setHeightForWidth(self.lbl_video.sizePolicy().hasHeightForWidth())
         self.lbl_video.setSizePolicy(sizePolicy3)
-        self.lbl_video.setMinimumSize(QSize(180, 160))
+        self.lbl_video.setMinimumSize(QSize(375, 250))
         self.lbl_video.setMaximumSize(QSize(400, 250))
         self.lbl_video.setSizeIncrement(QSize(0, 0))
         self.lbl_video.setStyleSheet(u"color: rgb(234, 234, 234);\n"
@@ -167,7 +167,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
         self.lbl_model = QLabel(self.centralwidget)
         self.lbl_model.setObjectName(u"lbl_model")
-        self.lbl_model.setMinimumSize(QSize(200, 20))
+        self.lbl_model.setMinimumSize(QSize(350, 20))
         self.lbl_model.setMaximumSize(QSize(400, 20))
         font2 = QFont()
         font2.setPointSize(11)
@@ -188,7 +188,7 @@ class Ui_MainWindow(object):
         self.btn_config.setObjectName(u"btn_config")
         sizePolicy1.setHeightForWidth(self.btn_config.sizePolicy().hasHeightForWidth())
         self.btn_config.setSizePolicy(sizePolicy1)
-        self.btn_config.setMinimumSize(QSize(220, 35))
+        self.btn_config.setMinimumSize(QSize(225, 40))
         self.btn_config.setMaximumSize(QSize(225, 40))
         self.btn_config.setFont(font2)
         self.btn_config.setStyleSheet(u"color: rgb(234, 234, 234);\n"
@@ -215,7 +215,7 @@ class Ui_MainWindow(object):
         self.indicator_1.setEnabled(True)
         sizePolicy2.setHeightForWidth(self.indicator_1.sizePolicy().hasHeightForWidth())
         self.indicator_1.setSizePolicy(sizePolicy2)
-        self.indicator_1.setMinimumSize(QSize(35, 35))
+        self.indicator_1.setMinimumSize(QSize(45, 45))
         self.indicator_1.setMaximumSize(QSize(45, 45))
         self.indicator_1.setStyleSheet(u"border: 2px solid;\n"
 "font-size: 16px;\n"
@@ -231,7 +231,7 @@ class Ui_MainWindow(object):
         self.lbl_indicator_1.setObjectName(u"lbl_indicator_1")
         sizePolicy1.setHeightForWidth(self.lbl_indicator_1.sizePolicy().hasHeightForWidth())
         self.lbl_indicator_1.setSizePolicy(sizePolicy1)
-        self.lbl_indicator_1.setMinimumSize(QSize(100, 20))
+        self.lbl_indicator_1.setMinimumSize(QSize(100, 45))
         self.lbl_indicator_1.setMaximumSize(QSize(200, 50))
         self.lbl_indicator_1.setFont(font2)
         self.lbl_indicator_1.setStyleSheet(u"color: rgb(234, 234, 234);\n"
@@ -256,7 +256,7 @@ class Ui_MainWindow(object):
         self.bttm_bar.setObjectName(u"bttm_bar")
         sizePolicy3.setHeightForWidth(self.bttm_bar.sizePolicy().hasHeightForWidth())
         self.bttm_bar.setSizePolicy(sizePolicy3)
-        self.bttm_bar.setMinimumSize(QSize(460, 30))
+        self.bttm_bar.setMinimumSize(QSize(780, 40))
         self.bttm_bar.setMaximumSize(QSize(800, 40))
         font3 = QFont()
         font3.setPointSize(10)
@@ -270,7 +270,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout_3.setContentsMargins(9, 0, -1, 0)
         self.list_log = QListWidget(self.bttm_bar)
         self.list_log.setObjectName(u"list_log")
-        self.list_log.setMinimumSize(QSize(440, 19))
+        self.list_log.setMinimumSize(QSize(750, 25))
         self.list_log.setMaximumSize(QSize(800, 25))
         font4 = QFont()
         font4.setFamilies([u"MS Shell Dlg 2"])
