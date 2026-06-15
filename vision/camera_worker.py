@@ -1103,12 +1103,27 @@ class CameraWorker(QObject):
             self.focus_check_started.emit()
 
             if isinstance(focus_config, dict):
+                print(f"[CAMERA] Focus config recibida para primer trigger: {focus_config}")
                 self.set_focus_from_recipe(focus_config)
+
+            print(
+                f"[CAMERA] Estado interno focus antes de verificar: "
+                f"enabled_config={focus_config.get('enabled') if isinstance(focus_config, dict) else None}, "
+                f"focus_value={self.focus_value}, "
+                f"focus_roi={self.focus_roi}, "
+                f"focus_min_score={self.focus_min_score}, "
+                f"focus_reference_score={self.focus_reference_score}"
+            )
 
             verified_score = None
             verified_peak = None
 
-            if self.focus_value is not None:
+            has_saved_focus = (
+                self.focus_value is not None
+                and isinstance(self.focus_value, int)
+            )
+
+            if has_saved_focus:
                 required_score = self.get_focus_required_score()
                 controller = self.get_manual_focus_controller()
 
@@ -1116,6 +1131,11 @@ class CameraWorker(QObject):
                     self.focus_check_failed.emit("No se pudo crear ManualFocusController")
                     return
                 
+                print(
+                    f"[CAMERA] Verificando foco guardado: "
+                    f"focus={self.focus_value}, roi={self.focus_roi}, required_score={required_score}"
+                )
+
                 ok, median_score, peak_score = controller.verify_focus(
                     focus_value=self.focus_value,
                     roi=self.focus_roi,
@@ -1149,7 +1169,10 @@ class CameraWorker(QObject):
                 print("[CAMERA][WARNING] Score bajo. Recalibrando enfoque manual...")
 
             else:
-                print("[CAMERA][WARNING] No hay focus_value guardado. Recalibrando antes del trigger...")
+                print(
+                    "[CAMERA][INFO] La receta no tiene focus_value válido. "
+                    "Se ejecutará calibración inicial antes del primer trigger."
+                )
 
             result = self.manual_focus_calibration_linux(roi=self.focus_roi)
 
