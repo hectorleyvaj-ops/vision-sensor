@@ -3,6 +3,7 @@ import time
 import re
 import shutil
 import subprocess
+import threading
 
 from utils.qt_compat import QObject, Signal, Slot
 from vision.manual_focus_controller import ManualFocusController
@@ -64,6 +65,9 @@ class CameraWorker(QObject):
         self.autofocus_supported = False
         self.focus_absolute_supported = False
         self.can_freeze_focus = False
+
+        self.focus_request_lock = threading.Lock()
+        self.pending_focus_config = None
 
         self.recalibrate_request.connect(self.recalibrate_focus)
     
@@ -958,6 +962,29 @@ class CameraWorker(QObject):
             f"[CAMERA] Focus config cargada: "
             f"roi={self.focus_roi}, value={self.focus_value}, min_score={self.focus_min_score}"
         )
+
+    def request_manual_focus_from_config(self, focus_config):
+        print(f"[CAMERA] Solicitud manual focus encolada: {focus_config}")
+
+        with self.focus_request_lock:
+            self.pending_focus_config = focus_config
+
+    def consume_pending_focus_config(self):
+        with self.focus_request_lock:
+            config = self.pending_focus_config
+            self.pending_focus_config = None
+
+        return config
+    
+    def process_pending_focus_request(self):
+        focus_config = self.consume_pending_focus_config()
+
+        if focus_config is None:
+            return
+        
+        print(f"[CAMERA] Procesando solicitud de enfoque desde el loop: {focus_config}")
+
+        self.calibrate_focus_from_config(focus_config)
     
     # ESTE METODO PERMITE RECIBIR UN ROI DE LA VENTANA DE CALIBRACION:
     # {
@@ -1036,6 +1063,8 @@ class CameraWorker(QObject):
             emit_interval = 1 / 30
 
             while self._running:
+                self.process_pending_focus_request()
+                
                 if self.calibrating:
                     time.sleep(0.01)
                     continue

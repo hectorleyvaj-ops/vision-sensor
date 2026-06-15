@@ -276,7 +276,7 @@ class ConfigWindow(QWidget):
 
         if self.camera_worker is not None:
             print("[CONFIG] Conectando señales de calibración con CameraWorker")
-            dialog.calibration_requested.connect(self.camera_worker.calibrate_focus_from_config)
+            dialog.calibration_requested.connect(self.camera_worker.request_manual_focus_from_config)
             self.camera_worker.manual_focus_finished.connect(dialog.on_calibration_finished)
             self.camera_worker.manual_focus_failed.connect(dialog.on_calibration_failed)
         else:
@@ -310,6 +310,7 @@ class ConfigWindow(QWidget):
 
         if self.camera_worker is not None:
             try:
+                dialog.calibration_requested.disconnect(self.camera_worker.request_manual_focus_from_config)
                 self.camera_worker.manual_focus_finished.disconnect(dialog.on_calibration_finished)
                 self.camera_worker.manual_focus_failed.disconnect(dialog.on_calibration_failed)
             except Exception:
