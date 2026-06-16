@@ -52,6 +52,24 @@ class MainWindow(QMainWindow):
         self.focus_ready_for_active_recipe = False
         self.focus_check_busy = False
         self.pending_trigger_after_focus = False
+        self.focus_runtime_verified = False
+
+        # BLOQUEOS DE PRODUCCION
+        self.require_serial_ready = True
+        # Dejar False si el firmware actual de la ESP32 aun no responde SYNC_OK.
+        # Cuando agregues handshake al firmware final, cambialo a True.
+        self.require_serial_sync = False
+        self.require_single_dmtx_recipe = True
+        self.production_focus_required = True
+        self.max_frame_age = 0.50
+        self.last_recipe_result = None
+        self.last_esp_result = None
+
+        # ESTADO VISUAL DEL INDICADOR
+        # El resultado final de ESP32/PLC queda enclavado visualmente.
+        # Solo se limpia al comenzar un nuevo ciclo valido o al recibir RESET.
+        self.indicator_latched_result = None
+        self.indicator_epoch = 0
 
         self.BASE_STYLE = """
         border: 2px solid;
@@ -216,17 +234,24 @@ class MainWindow(QMainWindow):
 
     def apply_focus_from_recipe(self, recipe):
         self.focus_ready_for_active_recipe = False
+        self.focus_runtime_verified = False
 
         if not recipe:
-            print(f"[APP] No hay receta activa para cargar enfoque")
+            print("[APP] No hay receta activa para cargar enfoque")
             self.camera_worker.set_focus_from_recipe({})
             return
-        
+
         focus = self.recipe_manager.get_focus(recipe["name"])
 
         print(f"[APP] Cargando enfoque desde receta {recipe['name']}: {focus}")
 
         self.camera_worker.set_focus_from_recipe(focus)
+        self.focus_ready_for_active_recipe = self.is_focus_config_complete(focus)
+
+        if self.focus_ready_for_active_recipe:
+            print("[FOCUS] Enfoque guardado detectado para receta activa")
+        else:
+            print("[FOCUS][WARNING] La receta activa no tiene enfoque guardado completo")
 
     def setup_serial(self):
         puerto = None
@@ -244,6 +269,8 @@ class MainWindow(QMainWindow):
 
         self.serial.trigger_received.connect(self.run_fsm)
         self.serial.model_received.connect(self.on_model_changed)
+        self.serial.esp_result_received.connect(self.on_esp_result_received)
+        self.serial.reset_received.connect(self.on_esp_reset_received)
         self.serial_thread.start()
 
     def setup_state_manager(self):
@@ -276,7 +303,7 @@ class MainWindow(QMainWindow):
         self.state_thread.finished.connect(self.state_worker.deleteLater)
         self.camera_worker.frame_ready.connect(self.camera.update_frame)
 
-        self.state_manager.inspectionResult.connect(self.update_indicator)
+        self.state_manager.inspectionResult.connect(self.on_recipe_result)
 
         self.state_worker.cycle_finished.connect(self.on_fsm_finished)
 
@@ -291,62 +318,244 @@ class MainWindow(QMainWindow):
 
         self.state_thread.start()
 
-    def update_indicator(self, result, delay=1000):
+    def set_indicator_base(self):
+        self.ui.indicator_1.setStyleSheet(self.BASE_STYLE)
+
+    def set_indicator_result_style(self, result):
         if result == "OK":
             self.ui.indicator_1.setStyleSheet(self.OK_STYLE)
         else:
             self.ui.indicator_1.setStyleSheet(self.NG_STYLE)
 
-        QTimer.singleShot(delay, lambda: self.ui.indicator_1.setStyleSheet(self.BASE_STYLE))
+    def clear_indicator_for_new_cycle(self):
+        """
+        Limpia el resultado visual anterior cuando comienza un nuevo ciclo valido.
+        Esto evita que un NG anterior se borre por tiempo, pero permite que el
+        operador vea claramente que una nueva inspeccion inicio.
+        """
+        self.indicator_epoch += 1
+        self.indicator_latched_result = None
+        self.last_esp_result = None
+        self.set_indicator_base()
+
+    def clear_indicator_from_reset(self):
+        """
+        Limpia el resultado visual por RESET/llave de calidad recibido desde ESP32/PLC.
+        """
+        self.indicator_epoch += 1
+        self.indicator_latched_result = None
+        self.last_esp_result = None
+        self.set_indicator_base()
+
+    def update_indicator(self, result, delay=None, latch=False):
+        """
+        Actualiza el indicador.
+
+        latch=True se usa para resultados finales desde ESP32/PLC.
+        En ese modo el color permanece hasta un nuevo ciclo valido o RESET.
+
+        delay se usa solo para avisos locales temporales, por ejemplo errores de
+        sistema listo. Un aviso temporal no debe borrar un resultado enclavado.
+        """
+        result = "OK" if result == "OK" else "NG"
+
+        if latch:
+            self.indicator_epoch += 1
+            self.indicator_latched_result = result
+            self.last_esp_result = result
+            self.set_indicator_result_style(result)
+            return
+
+        # Si existe un resultado final enclavado de ESP, no lo sobreescribimos
+        # con avisos locales temporales. Especialmente protege el NG bloqueante.
+        if self.indicator_latched_result is not None:
+            return
+
+        self.indicator_epoch += 1
+        epoch = self.indicator_epoch
+
+        self.set_indicator_result_style(result)
+
+        if delay is not None and delay > 0:
+            QTimer.singleShot(delay, lambda: self.reset_temporary_indicator(epoch))
+
+    def reset_temporary_indicator(self, epoch):
+        if epoch != self.indicator_epoch:
+            return
+
+        if self.indicator_latched_result is not None:
+            return
+
+        self.set_indicator_base()
+
+    def on_recipe_result(self, result):
+        self.last_recipe_result = result
+        print(f"[APP] Resultado de receta enviado a ESP32: {result}")
+
+    def on_esp_result_received(self, result):
+        self.last_esp_result = result
+        print(f"[APP] Resultado final recibido desde ESP32/PLC: {result}")
+        self.update_indicator(result, latch=True)
+
+    def on_esp_reset_received(self):
+        print("[APP] RESET recibido desde ESP32/PLC")
+        self.clear_indicator_from_reset()
+
+    def is_focus_config_complete(self, focus):
+        if not isinstance(focus, dict) or not focus.get("enabled", False):
+            return False
+
+        value = focus.get("value")
+        min_score = focus.get("min_score")
+
+        if value is None or min_score is None:
+            return False
+
+        return True
+
+    def validate_active_recipe_for_production(self):
+        recipe = self.selected_recipe or self.recipe_manager.get_selected()
+
+        if not recipe:
+            return "No hay receta activa"
+
+        steps = recipe.get("steps")
+        if not isinstance(steps, list) or not steps:
+            return f"La receta {recipe.get('name')} no tiene steps"
+
+        dmtx_steps = [step for step in steps if step.get("tool") == "dmtx"]
+
+        if self.require_single_dmtx_recipe:
+            if len(steps) != 1 or len(dmtx_steps) != 1:
+                return "Produccion configurada para una sola receta con un unico step DMTX"
+
+        if not dmtx_steps:
+            return "La receta activa no contiene step DMTX"
+
+        step = dmtx_steps[0]
+        params = step.get("params", {})
+
+        expected_code = params.get("expected_code")
+        if not isinstance(expected_code, str) or not expected_code.strip():
+            return "El step DMTX no tiene expected_code valido"
+
+        roi = params.get("roi")
+        if not isinstance(roi, (list, tuple)) or len(roi) != 4:
+            return "El step DMTX no tiene ROI valida"
+
+        try:
+            x1, y1, x2, y2 = [int(float(v)) for v in roi]
+        except Exception:
+            return f"ROI DMTX invalida: {roi}"
+
+        if x2 <= x1 or y2 <= y1:
+            return f"ROI DMTX sin area valida: {roi}"
+
+        return None
+
+    def get_system_ready_error(self):
+        if not hasattr(self, "state_thread") or not self.state_thread.isRunning():
+            return "State thread no esta corriendo"
+
+        if not hasattr(self, "state_manager") or self.state_manager.state != "IDLE":
+            state = self.state_manager.state if hasattr(self, "state_manager") else "NO_STATE_MANAGER"
+            return f"FSM ocupada en estado {state}"
+
+        recipe_error = self.validate_active_recipe_for_production()
+        if recipe_error:
+            return recipe_error
+
+        if not hasattr(self, "camera") or not self.camera.has_fresh_frame(max_age=self.max_frame_age):
+            return "No hay frame fresco de camara"
+
+        if self.require_serial_ready:
+            if not hasattr(self, "serial") or not self.serial.is_connected():
+                return "Serial no conectado"
+
+            if self.require_serial_sync and not self.serial.synced:
+                return "Serial sin handshake SYNC_OK"
+
+        return None
 
     def run_fsm(self):
         if self.fsm_busy:
             print("[FSM] Ciclo ocupado, trigger ignorado")
             return
-        
+
         if self.focus_check_busy:
-            print("[FOCUS] Verificacion de enfoque en proceso, trigger ignorado")
+            print("[FOCUS] Verificacion/recalibracion de enfoque en proceso, trigger ignorado")
             return
-        
-        if not self.state_thread.isRunning():
-            print("[FSM] State thread no esta corriendo")
+
+        ready_error = self.get_system_ready_error()
+        if ready_error:
+            print(f"[SYSTEM][BLOQUEADO] Trigger rechazado: {ready_error}")
+            self.update_indicator("NG", delay=1500)
             return
-        
-        if self.state_manager.state != "IDLE":
-            print(f"[FSM] Ocupada en estado {self.state_manager.state}, trigger ignorado")
+
+        self.clear_indicator_for_new_cycle()
+
+        if self.should_check_focus_before_trigger():
+            self.start_focus_check_before_trigger()
             return
-        
-        if self.platform == "linux" and not self.focus_ready_for_active_recipe:
-            print("[FOCUS] Primer trigger: verificando enfoque antes de inspeccionar...")
 
-            self.focus_check_busy = True
-            self.pending_trigger_after_focus = True
+        self.start_fsm_cycle(reset_indicator=False)
 
-            focus = {}
+    def get_active_focus_config(self):
+        recipe = self.selected_recipe or self.recipe_manager.get_selected()
 
-            if self.selected_recipe:
-                focus = self.recipe_manager.get_focus(self.selected_recipe["name"])
+        if not recipe:
+            return {}
 
-            self.camera_worker.request_focus_check_before_trigger(focus)
-            return
-        
-        self.start_fsm_cycle()
+        focus = recipe.get("focus", {})
+        return focus if isinstance(focus, dict) else {}
 
-    def start_fsm_cycle(self):
+    def focus_check_is_supported_for_current_platform(self):
+        return (
+            self.production_focus_required
+            and self.platform == "linux"
+            and getattr(self.camera_worker, "focus_absolute_supported", False)
+        )
+
+    def should_check_focus_before_trigger(self):
+        if not self.focus_check_is_supported_for_current_platform():
+            return False
+
+        focus = self.get_active_focus_config()
+
+        verify_on_first_trigger = focus.get("verify_on_first_trigger", True)
+        if verify_on_first_trigger is False:
+            return False
+
+        return not self.focus_runtime_verified
+
+    def start_focus_check_before_trigger(self):
+        focus_config = self.get_active_focus_config()
+
+        print(
+            "[FOCUS] Verificando enfoque antes del trigger. "
+            "Si el score es bajo o no hay foco guardado, se recalibrara automaticamente."
+        )
+
+        self.focus_check_busy = True
+        self.pending_trigger_after_focus = True
+        self.camera_worker.request_focus_check_before_trigger(focus_config)
+
+    def start_fsm_cycle(self, reset_indicator=True):
         if self.fsm_busy:
             print("[FSM] Ciclo ocupado, trigger ignorado")
             return
-        
-        if not self.state_thread.isRunning():
-            print("[FSM] State thread no esta corriendo")
+
+        ready_error = self.get_system_ready_error()
+        if ready_error:
+            print(f"[SYSTEM][BLOQUEADO] Ciclo no iniciado: {ready_error}")
+            self.fsm_busy = False
             return
-        
-        if self.state_manager.state != "IDLE":
-            print(f"[FSM] Ocupada en estado {self.state_manager.state}, trigger ignorado")
-            return
-    
+
+        if reset_indicator:
+            self.clear_indicator_for_new_cycle()
+
         self.fsm_busy = True
-        
+
         if self.state_thread.isRunning():
             QMetaObject.invokeMethod(
                 self.state_worker,
@@ -378,6 +587,10 @@ class MainWindow(QMainWindow):
         self.ui.lbl_model.setText(model_name)
 
     def open_config(self):
+        if self.fsm_busy or self.focus_check_busy or (hasattr(self, "state_manager") and self.state_manager.state != "IDLE"):
+            print("[CONFIG][BLOQUEADO] No se puede abrir configuracion durante un ciclo activo")
+            return
+
         self.config_window = ConfigWindow(
             recipe_manager=self.recipe_manager,
             get_frame_callback=self.get_current_frame,
@@ -422,6 +635,7 @@ class MainWindow(QMainWindow):
             return
 
         self.focus_ready_for_active_recipe = True
+        self.focus_runtime_verified = True
 
         if result.get("focus_updated") and self.selected_recipe:
             focus_data = {
@@ -437,12 +651,13 @@ class MainWindow(QMainWindow):
 
             self.recipe_manager.update_focus(self.selected_recipe["name"], focus_data)
             self.selected_recipe = self.recipe_manager.get(self.selected_recipe["name"])
+            self.camera_worker.set_focus_from_recipe(focus_data)
 
             print(f"[APP] Receta actualizada con nuevo enfoque: {focus_data}")
 
         if self.pending_trigger_after_focus:
             self.pending_trigger_after_focus = False
-            self.start_fsm_cycle()
+            self.start_fsm_cycle(reset_indicator=False)
 
     def on_focus_check_failed(self, message):
         print(f"[APP][ERROR] Verificación de enfoque falló: {message}")
@@ -450,6 +665,8 @@ class MainWindow(QMainWindow):
         self.focus_check_busy = False
         self.pending_trigger_after_focus = False
         self.focus_ready_for_active_recipe = False
+        self.focus_runtime_verified = False
+        self.update_indicator("NG", delay=1500)
 
     def shutdown_thread(self,thread, worker, name="thread"):
         # DETENER WORKERS
@@ -481,4 +698,3 @@ class MainWindow(QMainWindow):
 
         print("App cerrada correctamente")
         event.accept()
-

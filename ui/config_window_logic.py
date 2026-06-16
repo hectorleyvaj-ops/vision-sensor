@@ -374,6 +374,7 @@ class ConfigWindow(QWidget):
                 self.camera_worker.set_focus_from_recipe(focus)
 
             print(f"[CONFIG] Focus guardado en receta: {focus}")
+            self.update_rois.emit()
 
         if self.camera_worker is not None:
             try:
@@ -473,7 +474,16 @@ class ConfigWindow(QWidget):
         def save():
             new_params = editor.get_values()
 
-            self.current_recipe["steps"][selected]["params"] = new_params
+            # Mantiene parametros existentes que no aparezcan todavía en schemas.py.
+            # Esto evita perder configuraciones nuevas o futuras al editar desde la UI.
+            current_params = self.current_recipe["steps"][selected].get("params", {})
+            if not isinstance(current_params, dict):
+                current_params = {}
+
+            merged_params = dict(current_params)
+            merged_params.update(new_params)
+
+            self.current_recipe["steps"][selected]["params"] = merged_params
 
             self.recipe_manager.save(self.current_recipe)
 

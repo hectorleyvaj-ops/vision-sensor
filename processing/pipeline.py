@@ -23,7 +23,7 @@ class VisionPipeline:
         for step in recipe["steps"]:
             tool_name = step["tool"]                #OBTENER EL NOMBRE DE LA HERRAMIENTA
             params = step.get("params", {})         #OBTENER LOS PARAMETROS DESIGNADOS PARA LA HERRAMIENTA
-            required = step.get("required", True)   #FLAG DE REQUERIMIENTO
+            required = step.get("required", params.get("required", True))   #FLAG DE REQUERIMIENTO
 
             tool = self.tool_registry.get(tool_name)    #PASAR INSTANCIA DE LA HERRAMIENTA ACTUAL A LA VARIABLE TOOL
 

@@ -9,6 +9,8 @@ ETX = b'\x03'
 class SerialComm(QObject):
     trigger_received = Signal()
     model_received = Signal(str)
+    esp_result_received = Signal(str)
+    reset_received = Signal()
 
     def __init__(self, port="COM7", baudrate=115200, timeout=1):
         super().__init__()
@@ -70,6 +72,7 @@ class SerialComm(QObject):
             try:
                 if self.is_connected():
                     self.ser.close()
+                    self.synced = False
                     print("[SERIAL] Puerto cerrado correctamente")
             except Exception as e:
                 print(f"[SERIAL][ERROR] al cerrar puerto: {e}")
@@ -77,37 +80,67 @@ class SerialComm(QObject):
     def build_command(self, cmd: str) -> bytes:
         return STX + cmd.encode("utf-8") + ETX
     
-    # SOLO SI EL SISTEMA MANEJARA DIFERENTES MODELOS O RECETAS
-    def normalize_model(self, model):
-        model = model.strip()
+    def send_raw_ack(self):
+        """Responde ACK a mensajes asincronos de la ESP32."""
+        try:
+            with self._serial_lock:
+                if not self.is_connected():
+                    print("[SERIAL][WARNING] No se pudo enviar ACK: puerto no conectado")
+                    return False
 
-        if model == "A":
-            return "MODELO_A"
-        
+                self.ser.write(self.build_command("ACK"))
+                print("[SERIAL] ACK enviado")
+                return True
+
+        except Exception as e:
+            print(f"[SERIAL][ERROR] No se pudo enviar ACK: {e}")
+            return False
+
+    # PRODUCCION ACTUAL: UNA SOLA RECETA/MODELO.
+    # Si en el futuro se vuelven a usar varias recetas, aqui se puede restaurar
+    # el mapeo A/B/C -> MODELO_A/MODELO_B/MODELO_C.
+    def normalize_model(self, model):
+        return "MODELO_A"
+
     def process_message(self, msg: str):
+        msg = (msg or "").strip()
         print(f"[SERIAL] Mensaje recibido: {msg}")
 
         if msg == "TRIGGER":
             self.trigger_received.emit()
 
+        elif msg in ("OK", "NG"):
+            # Resultado final del sistema enviado por la ESP32/PLC.
+            # La ESP lo reintentara si no recibe ACK, por eso se responde aqui.
+            self.send_raw_ack()
+            self.esp_result_received.emit(msg)
+
+        elif msg == "RESET":
+            self.send_raw_ack()
+            self.reset_received.emit()
+
         elif msg == "ACK":
-            # ACK YA SE MANEJA DIRECTAMENTE EN SEND_COMMAND().
+            # ACK ya se maneja directamente en send_command().
             print("[SERIAL] ACK recibido fuera de envio activo")
 
         elif msg.startswith("MODEL:"):
-            model = msg.split(":")[1].strip()
+            model = msg.split(":", 1)[1].strip()
             model = self.normalize_model(model)
+
+            if not model:
+                print("[SERIAL][WARNING] Modelo no reconocido, mensaje ignorado")
+                return
 
             print(f"[SERIAL] Modelo detectado: {model}")
             self.model_received.emit(model)
 
         elif msg.startswith("SYNC_OK"):
-            try: 
+            try:
                 parts = msg.split("|")
 
                 for p in parts:
                     if p.startswith("MODEL:"):
-                        model = p.split(":")[1].strip()
+                        model = p.split(":", 1)[1].strip()
                         self.current_model = self.normalize_model(model)
 
                         print(f"[SERIAL] Sincronizado con modelo: {self.current_model}")
@@ -119,6 +152,9 @@ class SerialComm(QObject):
 
             except Exception as e:
                 print(f"[SERIAL][ERROR] al procesar SYNC_OK: {e}")
+
+        else:
+            print(f"[SERIAL][WARNING] Mensaje no reconocido: {msg}")
 
     def read_packet_blocking(self, timeout=1.0):
         if not self.is_connected():
@@ -198,8 +234,20 @@ class SerialComm(QObject):
         buffer = b""
         receiving = False
 
+        last_reconnect_attempt = 0
+
         while self._running:
             try:
+                if not self.is_connected():
+                    now = time.time()
+                    if now - last_reconnect_attempt > 2.0:
+                        last_reconnect_attempt = now
+                        self.reconnect()
+                        if self.is_connected():
+                            self.start_handshake()
+                    time.sleep(0.05)
+                    continue
+
                 acquired = self._serial_lock.acquire(blocking=False)
 
                 if not acquired:

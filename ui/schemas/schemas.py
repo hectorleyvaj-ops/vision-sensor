@@ -4,20 +4,22 @@ TOOL_SCHEMAS = {
     "dmtx": {
         "roi": {"type": "roi", "label": "Select ROI"},
         "video": {"type": "video", "label": "Video"},
-        "expected_code": {"type": "str", "label": "Código Maestro"},
-        "retries": {"type": "int", "label": "Intentos/Trigger"},
-        "delay": {"type": "float", "label": "Tiempo/ciclo"},
-        "show_roi": {"type": "bool", "label": "Mostrar ROI"},
-        "required": {"type": "bool", "label": "Requerido"}
+        "expected_code": {"type": "str", "label": "Código Maestro", "default": ""},
+        "retries": {"type": "int", "label": "Intentos/Trigger", "min": 1, "max": 20, "default": 3},
+        "delay": {"type": "float", "label": "Tiempo/ciclo", "min": 0.0, "max": 5.0, "decimals": 2, "default": 0.1},
+        "min_expected_reads": {"type": "int", "label": "Lecturas OK mínimas", "min": 1, "max": 20, "default": 2},
+        "max_wrong_reads": {"type": "int", "label": "Lecturas erróneas máximas", "min": 0, "max": 20, "default": 0},
+        "show_roi": {"type": "bool", "label": "Mostrar ROI", "default": True},
+        "required": {"type": "bool", "label": "Requerido", "default": True}
     },
 
     "img_hist": {
         "roi": {"type": "roi", "label": "Select ROI"},
         "video": {"type": "video", "label": "Video"},
-        "threshold": {"type": "float"},
-        "mode": {"type": "choice", "options": ["below", "above"]},
+        "threshold": {"type": "float", "default": 0.0},
+        "mode": {"type": "choice", "options": ["below", "above"], "default": "below"},
         "template_paths": {"type": "image_list"},
-        "show_roi": {"type": "bool"},
-        "required": {"type": "bool"}
+        "show_roi": {"type": "bool", "default": True},
+        "required": {"type": "bool", "default": True}
     }
 }

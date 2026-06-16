@@ -50,12 +50,20 @@ class StateManager(QObject):
             # CAPTURING
             elif self.state == "CAPTURING":
 
+                def get_capture():
+                    return self.camera.capture()
+
                 def get_frame():
-                    result = self.camera.capture()
+                    result = get_capture()
 
-                    if result and result["status"] == "OK":
-                        return result["frame"]
+                    if result and result.get("status") == "OK":
+                        return result.get("frame")
 
+                    error = result.get("error") if isinstance(result, dict) else "captura invalida"
+                    print(f"[FSM][WARNING] No se pudo obtener frame fresco: {error}")
+                    return None
+
+                self.context["capture_provider"] = get_capture
                 self.context["frame_provider"] = get_frame
                 print("[FSM] Frame provider listo")
                 self.state = "PROCESSING"

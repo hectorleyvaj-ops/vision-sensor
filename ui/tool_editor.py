@@ -62,12 +62,18 @@ class ToolEditor(QWidget):
         if t == "str":
             w = QLineEdit()
             w.setMinimumHeight(34)
+            if "default" in config:
+                w.setText(str(config.get("default", "")))
             return w
         
         elif t == "float":
             w = QDoubleSpinBox()
-            w.setRange(0, 100)
-            w.setDecimals(1)
+            w.setRange(float(config.get("min", 0)), float(config.get("max", 100)))
+            w.setDecimals(int(config.get("decimals", 1)))
+            if "step" in config:
+                w.setSingleStep(float(config["step"]))
+            if "default" in config:
+                w.setValue(float(config["default"]))
             w.setCursor(Qt.ArrowCursor)
             w.setKeyboardTracking(False)
             w.setMinimumHeight(34)
@@ -75,19 +81,30 @@ class ToolEditor(QWidget):
         
         elif t == "int":
             w = QDoubleSpinBox()
-            w.setRange(0, 100)
+            w.setRange(int(config.get("min", 0)), int(config.get("max", 100)))
             w.setDecimals(0)
+            if "step" in config:
+                w.setSingleStep(int(config["step"]))
+            if "default" in config:
+                w.setValue(int(config["default"]))
             w.setCursor(Qt.ArrowCursor)
             w.setKeyboardTracking(False)
             w.setMinimumHeight(34)
             return w
         
         elif t == "bool":
-            return QCheckBox()
+            w = QCheckBox()
+            w.setChecked(bool(config.get("default", False)))
+            return w
         
         elif t == "choice":
             w = QComboBox()
             w.addItems(config["options"])
+            default = config.get("default")
+            if default is not None:
+                index = w.findText(str(default))
+                if index >= 0:
+                    w.setCurrentIndex(index)
             w.setMinimumHeight(34)
             return w
         
