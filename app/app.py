@@ -2,6 +2,7 @@ import sys
 import cv2
 # IMPORTS DE QT
 from utils.qt_compat import load_ui, QT_LIB, QThread, QImage, QPixmap, QMainWindow, QMetaObject, Qt, QTimer
+from utils.ui_logger import get_ui_logger
 # IMPORTS DE UI
 from ui.pyside6.ui_main_window import Ui_MainWindow
 from ui.config_window_logic import ConfigWindow
@@ -20,10 +21,11 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        print(f"Qt backend: {QT_LIB}")
-
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+
+        self.setup_ui_logger()
+        print(f"Qt backend: {QT_LIB}")
 
         self.platform = self.detect_platform()
         print(f"[CAMERA] Sistema operativo detectado: {self.platform}")
@@ -54,7 +56,7 @@ class MainWindow(QMainWindow):
         self.BASE_STYLE = """
         border: 2px solid;
         font-size: 16px;
-        border-radius: 22px;
+        border-radius: 30px;
         border-color: rgb(46, 196, 182);
         color: rgb(46, 196, 182);
         background-color: rgb(15, 27, 61);
@@ -63,7 +65,7 @@ class MainWindow(QMainWindow):
         self.OK_STYLE = """
         border: 2px solid;
         font-size: 16px;
-        border-radius: 22px;
+        border-radius: 30px;
         border-color: rgb(82, 183, 136);
         color: white;
         background-color: rgb(46, 125, 50);
@@ -72,7 +74,7 @@ class MainWindow(QMainWindow):
         self.NG_STYLE = """
         border: 2px solid;
         font-size: 16px;
-        border-radius: 22px;
+        border-radius: 30px;
         border-color: rgb(230, 57, 70);
         color: white;
         background-color: rgb(183, 28, 28);
@@ -90,6 +92,23 @@ class MainWindow(QMainWindow):
         self.setup_camera()
         self.setup_serial()
         self.setup_state_manager()
+
+    def setup_ui_logger(self):
+        self.ui_logger = get_ui_logger()
+        self.ui_logger.install()
+
+        if hasattr(self.ui, "list_log"):
+            print(f"[LOGGER] list_log detectado: {type(self.ui.list_log)}")
+
+            self.ui_logger.attach_list_widget(
+                self.ui.list_log,
+                max_items=80,
+                load_history=True
+            )
+        else:
+            print("[LOGGER][ERROR] No existe list_log en ui")
+
+        print("[LOGGER] Loger de interfaz iniciao")
         
     def detect_platform(self):
         if sys.platform.startswith("win"):

@@ -64,6 +64,7 @@ class Ui_MainWindow(object):
         font = QFont()
         font.setPointSize(14)
         font.setBold(True)
+        font.setItalic(False)
         self.lbl_tittle.setFont(font)
         self.lbl_tittle.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "background-color: transparent;")
@@ -176,10 +177,7 @@ class Ui_MainWindow(object):
         self.lbl_model.setObjectName(u"lbl_model")
         self.lbl_model.setMinimumSize(QSize(350, 20))
         self.lbl_model.setMaximumSize(QSize(400, 20))
-        font4 = QFont()
-        font4.setPointSize(11)
-        font4.setBold(True)
-        self.lbl_model.setFont(font4)
+        self.lbl_model.setFont(font3)
         self.lbl_model.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "background-color: transparent;")
         self.lbl_model.setAlignment(Qt.AlignCenter)
@@ -197,6 +195,9 @@ class Ui_MainWindow(object):
         self.btn_config.setSizePolicy(sizePolicy1)
         self.btn_config.setMinimumSize(QSize(225, 45))
         self.btn_config.setMaximumSize(QSize(225, 45))
+        font4 = QFont()
+        font4.setPointSize(11)
+        font4.setBold(True)
         self.btn_config.setFont(font4)
         self.btn_config.setStyleSheet(u"color: rgb(234, 234, 234);\n"
 "border-radius: 15px;\n"
@@ -263,8 +264,8 @@ class Ui_MainWindow(object):
         self.bttm_bar.setObjectName(u"bttm_bar")
         sizePolicy3.setHeightForWidth(self.bttm_bar.sizePolicy().hasHeightForWidth())
         self.bttm_bar.setSizePolicy(sizePolicy3)
-        self.bttm_bar.setMinimumSize(QSize(780, 40))
-        self.bttm_bar.setMaximumSize(QSize(800, 45))
+        self.bttm_bar.setMinimumSize(QSize(780, 90))
+        self.bttm_bar.setMaximumSize(QSize(800, 90))
         font5 = QFont()
         font5.setPointSize(10)
         self.bttm_bar.setFont(font5)
@@ -277,8 +278,8 @@ class Ui_MainWindow(object):
         self.horizontalLayout_3.setContentsMargins(9, 0, -1, 0)
         self.list_log = QListWidget(self.bttm_bar)
         self.list_log.setObjectName(u"list_log")
-        self.list_log.setMinimumSize(QSize(750, 30))
-        self.list_log.setMaximumSize(QSize(800, 30))
+        self.list_log.setMinimumSize(QSize(750, 80))
+        self.list_log.setMaximumSize(QSize(800, 80))
         font6 = QFont()
         font6.setFamilies([u"MS Shell Dlg 2"])
         font6.setPointSize(10)
@@ -298,7 +299,7 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"MainWindow", None))
-        self.lbl_tittle.setText(QCoreApplication.translate("MainWindow", u"SISTEMA DE VISI\u00d3N - WORKSURFACE", None))
+        self.lbl_tittle.setText(QCoreApplication.translate("MainWindow", u"SISTEMA DE VISI\u00d3N - SUMMIT USB", None))
         self.btn_minimizar.setText(QCoreApplication.translate("MainWindow", u"-", None))
         self.btn_cerrar.setText(QCoreApplication.translate("MainWindow", u"X", None))
         self.lbl_cam.setText(QCoreApplication.translate("MainWindow", u"CAMARA", None))

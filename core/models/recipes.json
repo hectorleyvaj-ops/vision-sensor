@@ -20,7 +20,17 @@
                         "required": true
                     }
                 }
-            ]
+            ],
+            "focus": {
+                "enabled": false,
+                "roi": null,
+                "value": null,
+                "min_score": null,
+                "median_score": null,
+                "peak_score": null,
+                "verify_on_first_trigger": true,
+                "auto_refocus_if_failed": true
+            }
         },
         {
             "name": "MODELO_B",
@@ -60,7 +70,17 @@
                         "required": false
                     }
                 }
-            ]
+            ],
+            "focus": {
+                "enabled": false,
+                "roi": null,
+                "value": null,
+                "min_score": null,
+                "median_score": null,
+                "peak_score": null,
+                "verify_on_first_trigger": true,
+                "auto_refocus_if_failed": true
+            }
         },
         {
             "name": "MODELO_F",
@@ -82,7 +102,17 @@
                         "required": true
                     }
                 }
-            ]
+            ],
+            "focus": {
+                "enabled": false,
+                "roi": null,
+                "value": null,
+                "min_score": null,
+                "median_score": null,
+                "peak_score": null,
+                "verify_on_first_trigger": true,
+                "auto_refocus_if_failed": true
+            }
         }
     ]
 }

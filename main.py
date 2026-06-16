@@ -6,7 +6,13 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     
     window = MainWindow()
-    window.showFullScreen()
+
+    if sys.platform.startswith("linux"):
+        window.showFullScreen()
+    elif sys.platform.startswith("win"):
+        window.show()
+    else:
+        window.show()
 
     if hasattr(app, "exec"):
         sys.exit(app.exec())
