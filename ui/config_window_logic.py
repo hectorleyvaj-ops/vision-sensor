@@ -3,6 +3,7 @@ from utils.qt_compat import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea
 )
+from utils.ui_logger import get_ui_logger
 from ui.pyside6.ui_config_window import Ui_Form
 from ui.tool_editor import ToolEditor
 from ui.schemas.schemas import TOOL_SCHEMAS
@@ -17,7 +18,7 @@ class ConfigWindow(QWidget):
 
         self.ui = Ui_Form()
         self.ui.setupUi(self)
-
+        
         self.apply_config_style()
         self.apply_button_feedbakcs()
 
