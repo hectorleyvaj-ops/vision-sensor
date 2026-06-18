@@ -310,11 +310,11 @@ class MainWindow(QMainWindow):
 
     def on_serial_connection_lost(self, reason):
         print(f"[APP][SERIAL] Conexion perdida: {reason}")
-        # No pintamos directamente aquí.
-        # El QTimer central publish_rpi_ready_status() decide color y RPI_READY/RPI_NOT_READY.
+
         self.last_ready_sent = None
         self.last_ready_reason = None
-        self.publish_rpi_ready_status()
+
+        self.set_system_status_visual("CRITICAL", f"Conexion perdida: {reason}")
 
     def on_serial_connection_restored(self):
         print("[APP][SERIAL] Conexion restaurada con ESP32")
@@ -379,33 +379,44 @@ class MainWindow(QMainWindow):
         else:
             self.ui.indicator_1.setStyleSheet(self.BASE_STYLE)
 
-    # MEJORAR PARA ACTUALIZAR LA PALETA DE COLORES DE TODA LA INTERFAZ SEGUN EL ESTADO O RESULTADO
-    def set_system_status_visual(self, state, reason=None):
+    def refresh_indicator_visual(self):
         """
-        Actualiza el color visual del estado general del sistema.
+        Aplica la prioridad visual final del indicador.
 
-        Prioridad visual:
-        - CRITICAL manda sobre todo.
-        - WARNING manda sobre resultado OK/NG.
-        - READY permite mostrar resultado enclavado si existe.
+        Prioridad:
+        1. CRITICAL del sistema
+        2. WARNING del sistema
+        3. Resultado final OK/NG de ESP si el sistema está READY
+        4. BASE si el sistema está READY y no hay resultado
         """
-        self.current_system_visual_state = state
-        self.current_system_ready_error = reason
-
-        if state == "CRITICAL":
+        if self.current_system_visual_state == "CRITICAL":
             self.set_indicator_result_style("CRITICAL")
+            return
 
-        elif state == "WARNING":
+        if self.current_system_visual_state == "WARNING":
             self.set_indicator_result_style("NOT_READY")
+            return
 
-        elif state == "READY":
+        if self.current_system_visual_state == "READY":
             if self.indicator_latched_result is not None:
                 self.set_indicator_result_style(self.indicator_latched_result)
             else:
                 self.set_indicator_result_style("BASE")
+            return
 
-        else:
-            self.set_indicator_result_style("NOT_READY")
+        # Fallback seguro
+        self.set_indicator_result_style("NOT_READY")
+
+    # MEJORAR PARA ACTUALIZAR LA PALETA DE COLORES DE TODA LA INTERFAZ SEGUN EL ESTADO O RESULTADO
+    def set_system_status_visual(self, state, reason=None):
+        """
+        Actualiza el estado general del sistema y refresca el indicador
+        usando prioridad centralizada.
+        """
+        self.current_system_visual_state = state
+        self.current_system_ready_error = reason
+
+        self.refresh_indicator_visual()
 
         if reason:
             print(f"[APP][STATUS] {state}: {reason}")
@@ -413,13 +424,12 @@ class MainWindow(QMainWindow):
     def clear_indicator_for_new_cycle(self):
         """
         Limpia el resultado visual anterior cuando comienza un nuevo ciclo valido.
-        Esto evita que un NG anterior se borre por tiempo, pero permite que el
-        operador vea claramente que una nueva inspeccion inicio.
+        El color final sigue respetando el estado general del sistema.
         """
         self.indicator_epoch += 1
         self.indicator_latched_result = None
         self.last_esp_result = None
-        self.set_indicator_result_style("BASE")
+        self.refresh_indicator_visual()
 
     def clear_indicator_from_reset(self):
         """
@@ -435,11 +445,11 @@ class MainWindow(QMainWindow):
 
     def update_indicator(self, result, delay=None, latch=False):
         """
-        Actualiza el indicador.
+        Guarda o muestra resultado de inspección.
 
-        latch=True se usa para resultados finales desde ESP32/PLC.
-        El resultado queda guardado, pero solo se muestra si el sistema está READY.
-        Si el sistema está WARNING o CRITICAL, el estado del sistema tiene prioridad.
+        Si latch=True, el resultado OK/NG de ESP queda guardado, pero no
+        necesariamente visible. La prioridad visual final la decide
+        refresh_indicator_visual().
         """
         result = "OK" if result == "OK" else "NG"
 
@@ -447,23 +457,13 @@ class MainWindow(QMainWindow):
             self.indicator_epoch += 1
             self.indicator_latched_result = result
             self.last_esp_result = result
-
-            if self.current_system_visual_state == "READY":
-                self.set_indicator_result_style(result)
-            else:
-                self.set_system_status_visual(
-                    self.current_system_visual_state,
-                    self.current_system_ready_error
-                )
+            self.refresh_indicator_visual()
             return
 
-        # Avisos temporales locales ya no deben imponerse si el estado general
-        # está evaluado como WARNING/CRITICAL.
-        if self.current_system_visual_state in ("WARNING", "CRITICAL"):
-            self.set_system_status_visual(
-                self.current_system_visual_state,
-                self.current_system_ready_error
-            )
+        # Avisos temporales locales solo se muestran si el sistema está READY.
+        # Si el sistema está WARNING/CRITICAL, esos estados tienen prioridad.
+        if self.current_system_visual_state != "READY":
+            self.refresh_indicator_visual()
             return
 
         self.indicator_epoch += 1
@@ -473,15 +473,28 @@ class MainWindow(QMainWindow):
 
         if delay is not None and delay > 0:
             QTimer.singleShot(delay, lambda: self.reset_temporary_indicator(epoch))
+            # Avisos temporales locales ya no deben imponerse si el estado general
+            # está evaluado como WARNING/CRITICAL.
+            if self.current_system_visual_state in ("WARNING", "CRITICAL"):
+                self.set_system_status_visual(
+                    self.current_system_visual_state,
+                    self.current_system_ready_error
+                )
+                return
+
+            self.indicator_epoch += 1
+            epoch = self.indicator_epoch
+
+            self.set_indicator_result_style(result)
+
+            if delay is not None and delay > 0:
+                QTimer.singleShot(delay, lambda: self.reset_temporary_indicator(epoch))
 
     def reset_temporary_indicator(self, epoch):
         if epoch != self.indicator_epoch:
             return
 
-        self.set_system_status_visual(
-            self.current_system_visual_state,
-            self.current_system_ready_error
-        )
+        self.refresh_indicator_visual()
 
     def on_recipe_result(self, result):
         self.last_recipe_result = result
@@ -671,13 +684,13 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "serial") or self.serial is None:
             ready_error = "Serial no disponible"
             visual_state = self.classify_ready_error(ready_error)
-            self.set_system_status_visual(visual_state)
+            self.set_system_status_visual(visual_state, ready_error)
             return
 
         if not self.serial.is_connected():
             ready_error = "Serial no conectado"
             visual_state = self.classify_ready_error(ready_error)
-            self.set_system_status_visual(visual_state)
+            self.set_system_status_visual(visual_state, ready_error)
             return
 
         ready_error = self.get_system_ready_error()
@@ -690,7 +703,7 @@ class MainWindow(QMainWindow):
                 self.last_ready_sent = "READY"
                 self.last_ready_reason = None
 
-            self.set_system_status_visual("READY")
+            self.set_system_status_visual("READY", None)
             return
 
         visual_state = self.classify_ready_error(ready_error)
@@ -701,7 +714,7 @@ class MainWindow(QMainWindow):
             self.last_ready_sent = "NOT_READY"
             self.last_ready_reason = ready_error
 
-        self.set_system_status_visual(visual_state)
+        self.set_system_status_visual(visual_state, ready_error)
 
     def run_fsm(self):
         if self.fsm_busy:
