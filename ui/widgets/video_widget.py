@@ -61,7 +61,7 @@ class VideoWidget(QLabel):
             return
         
         if not isinstance(frame, (list, tuple)) and not hasattr(frame, "shape"):
-            print("Frame invalido:", type(frame))
+            print("[VIDEO_WIDGET] Frame invalido:", type(frame))
             return
         
         self.current_frame = frame.copy()
@@ -213,7 +213,7 @@ class VideoWidget(QLabel):
                 if abs(x2 - x1) >= min_size and abs(y2-y1) >= min_size:
                     self.roi = (x1, y1, x2, y2)
                     self.rois = [self.roi]
-                    print("Nuevo ROI desde config: ",self.roi)
+                    print("[VIDEO_WIDGET] Nuevo ROI desde config: ",self.roi)
                 
             self.enable_edition = False
             self.update()
@@ -231,6 +231,6 @@ class VideoWidget(QLabel):
         else:
             self.roi = None
 
-        print("ROIs aplicados: ", self.rois)
+        print("[VIDEO_WIDGET] ROIs aplicados: ", self.rois)
         self.update()
 

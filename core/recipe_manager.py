@@ -144,7 +144,7 @@ class RecipeManager:
                 r["selected"] = False
 
         if not found and recipes:
-            print(f"[RECIPE] '{name}' no existe, fallback: {recipes[0]['name']}")
+            print(f"[RECIPES_MANAGER] '{name}' no existe, fallback: {recipes[0]['name']}")
             recipes[0]["selected"] = True
 
         data["recipes"] = recipes
@@ -155,16 +155,16 @@ class RecipeManager:
 
         for r in recipes:
             if r.get("selected"):
-                print(f"{r['name']} seleccionada: {r.get('selected')}")
+                print(f"[RECIPES_MANAGER] {r['name']} seleccionada: {r.get('selected')}")
                 return r
             
         if recipes:
-            print("[RECIPE] No hay receta seleccionada, usando default...")
+            print("[RECIPE_MANAGER] No hay receta seleccionada, usando default...")
             recipes[0]["selected"] = True
             self._save_file({"recipes": recipes})
             return recipes[0]
         
-        print("[RECIPE] No hay recetas disponibles, creando DEFAULT...")
+        print("[RECIPES_MANAGER] No hay recetas disponibles, creando DEFAULT...")
         default_recipe = {
             "name": "DEFAULT",
             "selected": True,
@@ -222,7 +222,7 @@ class RecipeManager:
         recipe = self.get(recipe_name)
 
         if not recipe:
-            print(f"[RECIPE][ERROR] No se encontro receta para actualizar enfoque: {recipe_name}")
+            print(f"[RECIPES_MANAGER][ERROR] No se encontro receta para actualizar enfoque: {recipe_name}")
             return False
         
         self.ensure_focus(recipe)

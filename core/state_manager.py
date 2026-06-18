@@ -26,7 +26,7 @@ class StateManager(QObject):
 
         if selected:
             self.active_recipe_name = selected["name"]
-            print(f"Receta activa cargada: {self.active_recipe_name}")
+            print(f"[STATE_MANAGER] Receta activa cargada: {self.active_recipe_name}")
 
     def set_recipe_manager(self, recipe_manager):
         self.recipe_manager = recipe_manager
@@ -119,7 +119,7 @@ class StateManager(QObject):
 
     # MANEJA LOS LOGS DE ERROR PARA REDIRECCIONARLOS AL LOG EN LA INTERFAZ PRINCIPAL EN UN FUTURO
     def handle_error(self, stage, details):
-        print(f"Error at stage {stage}: {details.get('error')}")
+        print(f"[STATE_MANAGER][FSM] Error at stage {stage}: {details.get('error')}")
         
         # FORZAR NG PARA CONTINUAR EN ESP
         self.context["final_result"] = "NG"

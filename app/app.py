@@ -58,7 +58,7 @@ class MainWindow(QMainWindow):
         self.require_serial_ready = True
         # Dejar False si el firmware actual de la ESP32 aun no responde SYNC_OK.
         # Cuando agregues handshake al firmware final, cambialo a True.
-        self.require_serial_sync = False
+        self.require_serial_sync = True
         self.require_single_dmtx_recipe = True
         self.production_focus_required = True
         self.max_frame_age = 0.50
@@ -70,6 +70,14 @@ class MainWindow(QMainWindow):
         # Solo se limpia al comenzar un nuevo ciclo valido o al recibir RESET.
         self.indicator_latched_result = None
         self.indicator_epoch = 0
+
+        # EVALUAR SISTEMA LISTO PARA TRIGGER
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.ready_notify_interval = 1000
+        self.ready_timer = QTimer(self)
+        self.ready_timer.timeout.connect(self.publish_rpi_ready_status)
+        self.ready_timer.start(self.ready_notify_interval)
 
         self.BASE_STYLE = """
         border: 2px solid;
@@ -96,6 +104,24 @@ class MainWindow(QMainWindow):
         border-color: rgb(230, 57, 70);
         color: white;
         background-color: rgb(183, 28, 28);
+        """
+
+        self.NOT_READY_STYLE = """
+        border: 2px solid;
+        font-size: 16px;
+        border-radius: 30px;
+        border-color: rgb(255, 183, 3);
+        color: white;
+        background-color: rgb(180, 120, 0);
+        """
+
+        self.CRITICAL_STYLE = """
+        border: 2px solid;
+        font-size: 16px;
+        border-radius: 30px;
+        border-color: rgb(255, 76, 76);
+        color: white;
+        background-color: rgb(120, 0, 0);
         """
 
         self.lbl_video.setStyleSheet("""
@@ -271,7 +297,24 @@ class MainWindow(QMainWindow):
         self.serial.model_received.connect(self.on_model_changed)
         self.serial.esp_result_received.connect(self.on_esp_result_received)
         self.serial.reset_received.connect(self.on_esp_reset_received)
+        self.serial.connection_lost.connect(self.on_serial_connection_lost)
+        self.serial.connection_restored.connect(self.on_serial_connection_restored)
+
         self.serial_thread.start()
+
+    def on_serial_connection_lost(self, reason):
+        print(f"[APP][SERIAL] Conexion perdida: {reason}")
+        # No pintamos directamente aquí.
+        # El QTimer central publish_rpi_ready_status() decide color y RPI_READY/RPI_NOT_READY.
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.publish_rpi_ready_status()
+
+    def on_serial_connection_restored(self):
+        print("[APP][SERIAL] Conexion restaurada con ESP32")
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.publish_rpi_ready_status()
 
     def setup_state_manager(self):
         # TOOLS
@@ -318,14 +361,40 @@ class MainWindow(QMainWindow):
 
         self.state_thread.start()
 
-    def set_indicator_base(self):
-        self.ui.indicator_1.setStyleSheet(self.BASE_STYLE)
-
     def set_indicator_result_style(self, result):
         if result == "OK":
             self.ui.indicator_1.setStyleSheet(self.OK_STYLE)
-        else:
+        elif result == "NG":
             self.ui.indicator_1.setStyleSheet(self.NG_STYLE)
+        elif result == "NOT_READY":
+            self.ui.indicator_1.setStyleSheet(self.NOT_READY_STYLE)
+        elif result == "CRITICAL":
+            self.ui.indicator_1.setStyleSheet(self.CRITICAL_STYLE)
+        else:
+            self.ui.indicator_1.setStyleSheet(self.BASE_STYLE)
+
+    # MEJORAR PARA ACTUALIZAR LA PALETA DE COLORES DE TODA LA INTERFAZ SEGUN EL ESTADO O RESULTADO
+    def set_system_status_visual(self, state, reason=None):
+        """
+        Actualiza el color visual del estado general del sistema.
+
+        No debe borrar un resultado final enclavado OK/NG de la ESP.
+        El resultado de pieza tiene prioridad visual sobre el estado general.
+        """
+        if self.indicator_latched_result is not None:
+            return
+
+        if state == "READY":
+            self.set_indicator_result_style("BASE")
+        elif state == "WARNING":
+            self.set_indicator_result_style("NOT_READY")
+        elif state == "CRITICAL":
+            self.set_indicator_result_style("CRITICAL")
+        else:
+            self.set_indicator_result_style("NOT_READY")
+
+        if reason:
+            print(f"[APP][STATUS] {state}: {reason}")
 
     def clear_indicator_for_new_cycle(self):
         """
@@ -336,7 +405,7 @@ class MainWindow(QMainWindow):
         self.indicator_epoch += 1
         self.indicator_latched_result = None
         self.last_esp_result = None
-        self.set_indicator_base()
+        self.set_indicator_result_style("BASE")
 
     def clear_indicator_from_reset(self):
         """
@@ -345,7 +414,7 @@ class MainWindow(QMainWindow):
         self.indicator_epoch += 1
         self.indicator_latched_result = None
         self.last_esp_result = None
-        self.set_indicator_base()
+        self.set_indicator_result_style("BASE")
 
     def update_indicator(self, result, delay=None, latch=False):
         """
@@ -386,7 +455,7 @@ class MainWindow(QMainWindow):
         if self.indicator_latched_result is not None:
             return
 
-        self.set_indicator_base()
+        self.set_indicator_result_style("BASE")
 
     def on_recipe_result(self, result):
         self.last_recipe_result = result
@@ -452,30 +521,161 @@ class MainWindow(QMainWindow):
             return f"ROI DMTX sin area valida: {roi}"
 
         return None
+    
+    def get_focus_ready_error(self):
+        if not self.production_focus_required:
+            return None
+        
+        if not hasattr(self, "camera_worker") or self.camera_worker is None:
+            return "CameraWorker no disponible"
+
+        if getattr(self.camera_worker, "calibrating", False):
+            return "Camara calibrando enfoque"
+
+        if getattr(self.camera_worker, "focus_busy", False):
+            return "Camara enfocando/calibrando"
+
+        if not getattr(self.camera_worker, "focus_ready", False):
+            return "Foco de camara no listo/no aplicado"
+
+        if callable(getattr(self.camera_worker, "has_applied_focus", None)):
+            if not self.camera_worker.has_applied_focus():
+                return "Foco de camara no aplicado"
+
+        return None
 
     def get_system_ready_error(self):
         if not hasattr(self, "state_thread") or not self.state_thread.isRunning():
             return "State thread no esta corriendo"
 
-        if not hasattr(self, "state_manager") or self.state_manager.state != "IDLE":
-            state = self.state_manager.state if hasattr(self, "state_manager") else "NO_STATE_MANAGER"
-            return f"FSM ocupada en estado {state}"
+        if not hasattr(self, "state_manager") or self.state_manager is None:
+            return "State manager no disponible"
+        
+        if self.state_manager.state != "IDLE":
+            return f"FSM ocupada en estado {self.state_manager.state}"
 
         recipe_error = self.validate_active_recipe_for_production()
         if recipe_error:
             return recipe_error
+        
+        focus_error = self.get_focus_ready_error()
+        if focus_error:
+            return focus_error
 
-        if not hasattr(self, "camera") or not self.camera.has_fresh_frame(max_age=self.max_frame_age):
+        if not hasattr(self, "camera") or self.camera is None:
+            return "Camera no disponible"
+    
+        if not self.camera.has_fresh_frame(max_age=self.max_frame_age):
             return "No hay frame fresco de camara"
 
         if self.require_serial_ready:
-            if not hasattr(self, "serial") or not self.serial.is_connected():
+            if not hasattr(self, "serial") or self.serial is None:
+                return "Serial no disponible"
+
+            if not self.serial.is_connected():
                 return "Serial no conectado"
 
             if self.require_serial_sync and not self.serial.synced:
                 return "Serial sin handshake SYNC_OK"
+            
+        if self.focus_check_busy:
+            return "Enfoque/Calibracion en proceso"
 
         return None
+    
+    def classify_ready_error(self, ready_error):
+        """
+        Clasifica la razón de bloqueo para decidir color visual.
+
+        WARNING = condición temporal o esperada:
+        - enfocando
+        - FSM ocupada
+        - sin frame fresco al arranque
+        - foco no listo
+        - receta/configuración pendiente
+
+        CRITICAL = falla de infraestructura:
+        - serial desconectado
+        - sin handshake
+        - hilos caídos
+        - workers no disponibles
+        """
+        if not ready_error:
+            return "READY"
+
+        text = ready_error.lower()
+
+        critical_keywords = (
+            "serial no conectado",
+            "serial sin handshake",
+            "state thread no esta corriendo",
+            "state manager no disponible",
+            "cameraworker no disponible",
+            "camera worker no disponible",
+            "thread no esta corriendo",
+            "conexion perdida",
+            "desconectado",
+        )
+
+        for keyword in critical_keywords:
+            if keyword in text:
+                return "CRITICAL"
+
+        warning_keywords = (
+            "fsm ocupada",
+            "enfoque",
+            "calibr",
+            "foco",
+            "no hay frame fresco",
+            "receta",
+            "roi",
+            "dmtx",
+            "step",
+            "expected_code",
+        )
+
+        for keyword in warning_keywords:
+            if keyword in text:
+                return "WARNING"
+
+        # Por seguridad, cualquier error desconocido se trata como crítico.
+        return "CRITICAL"
+    
+    def publish_rpi_ready_status(self):
+        if not hasattr(self, "serial") or self.serial is None:
+            ready_error = "Serial no disponible"
+            visual_state = self.classify_ready_error(ready_error)
+            self.set_system_status_visual(visual_state)
+            return
+
+        if not self.serial.is_connected():
+            ready_error = "Serial no conectado"
+            visual_state = self.classify_ready_error(ready_error)
+            self.set_system_status_visual(visual_state)
+            return
+
+        ready_error = self.get_system_ready_error()
+        ready_now = ready_error is None
+
+        if ready_now:
+            if self.last_ready_sent != "READY":
+                print("[APP][READY] Raspberry lista para produccion")
+                self.serial.notify_rpi_ready()
+                self.last_ready_sent = "READY"
+                self.last_ready_reason = None
+
+            self.set_system_status_visual("READY")
+            return
+
+        visual_state = self.classify_ready_error(ready_error)
+
+        if self.last_ready_sent != "NOT_READY" or self.last_ready_reason != ready_error:
+            print(f"[APP][READY] Raspberry NO lista: {ready_error}")
+            self.serial.notify_rpi_not_ready()
+            self.last_ready_sent = "NOT_READY"
+            self.last_ready_reason = ready_error
+
+        self.set_system_status_visual(visual_state)
 
     def run_fsm(self):
         if self.fsm_busy:
@@ -489,7 +689,8 @@ class MainWindow(QMainWindow):
         ready_error = self.get_system_ready_error()
         if ready_error:
             print(f"[SYSTEM][BLOQUEADO] Trigger rechazado: {ready_error}")
-            self.update_indicator("NG", delay=1500)
+            visual_state = self.classify_ready_error(ready_error)
+            self.set_system_status_visual(visual_state, ready_error)
             return
 
         self.clear_indicator_for_new_cycle()
@@ -535,6 +736,9 @@ class MainWindow(QMainWindow):
             "[FOCUS] Verificando enfoque antes del trigger. "
             "Si el score es bajo o no hay foco guardado, se recalibrara automaticamente."
         )
+        
+        if hasattr(self, "serial") and self.serial.is_connected():
+            self.serial.notify_calibrating()
 
         self.focus_check_busy = True
         self.pending_trigger_after_focus = True
@@ -666,7 +870,11 @@ class MainWindow(QMainWindow):
         self.pending_trigger_after_focus = False
         self.focus_ready_for_active_recipe = False
         self.focus_runtime_verified = False
-        self.update_indicator("NG", delay=1500)
+        
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.set_system_status_visual("WARNING", message)
+        self.publish_rpi_ready_status()
 
     def shutdown_thread(self,thread, worker, name="thread"):
         # DETENER WORKERS

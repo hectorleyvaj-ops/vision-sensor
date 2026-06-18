@@ -41,6 +41,13 @@ class CameraWorker(QObject):
         self.locked_focus_value = None
         self.calibrating = False
 
+        # VALIDACION DEL FOCO PARA ACTUALIZAR STATUS Y PERMISOS
+        # Estado oficial de enfoque para que app.py pueda decidir RPI_READY.
+        # focus_busy=True bloquea triggers mientras hay enfoque/calibracion activa.
+        # focus_ready=True significa que ya hay foco aplicado/congelado o que no se requiere.
+        self.focus_busy = False
+        self.focus_ready = False
+
         self.min_focus_score_windows = 350
         self.max_focus_retries_windows = 10
 
@@ -53,8 +60,6 @@ class CameraWorker(QObject):
         self.focus_max = 1023
         self.focus_step = 1
 
-        # TEMPORAL PARA PRIMERA INTEGRACION Y PRUEBAS
-        # DESPUES ESTOS DATOS VENDRAN DE LA RECETA ACTIVA OBTENIDOS DESDE CONFIGURACION
         self.focus_roi = None
         self.focus_value = None
         self.focus_min_score = self.min_focus_score_linux
@@ -85,6 +90,28 @@ class CameraWorker(QObject):
     
     def is_windows(self):
         return self.platform == "windows"
+    
+    def set_focus_status(self, busy=None, ready=None, reason=""):
+        if busy is not None:
+            self.focus_busy = bool(busy)
+
+        if ready is not None:
+            self.focus_ready = bool(ready)
+
+        if reason:
+            print(
+                f"[CAMERA][FOCUS_STATUS] {reason}: "
+                f"busy={self.focus_busy}, ready={self.focus_ready}, "
+                f"locked_focus={self.locked_focus_value}, focus_value={self.focus_value}"
+            )
+
+    def has_applied_focus(self):
+        """
+        Estado simple y oficial para app.py.
+        True significa que el sistema puede publicar RPI_READY desde el punto
+        de vista del enfoque.
+        """
+        return bool(self.focus_ready) and not bool(self.focus_busy)
     
     def find_camera_device(self):
         # SOLO BSUCAMOS EL DEVICE PARA LA RASPBERRY, SI SE TRABAJA EN WIDOWS SE USA CAMERA INDEX 
@@ -169,7 +196,7 @@ class CameraWorker(QObject):
 
         print(f"[CAMERA] Resolucion solicitada: {self.width} x {self.height}")
         print(f"[CAMERA] Resolucion activa: {real_width} x {real_height}")
-        print(f"[CAMERA] FPS activo: {real_fps}")
+        print(f"[CAMERA] FPS activo: {real_fps:.2f}")
 
     def warmup_camera(self, frames=30, delay=0.02):
         # LEE CIERTOS FRAMES PARA ESTABILIZAR CAMARA
@@ -541,6 +568,7 @@ class CameraWorker(QObject):
         
     def autofocus_calibration_windows(self):
         self.calibrating = True
+        self.set_focus_status(busy=True, ready=False, reason="Windows calibracion autofocus iniciada")
         try:
             if self.cap is None or not self.cap.isOpened():
                 return None, -1, None
@@ -592,6 +620,7 @@ class CameraWorker(QObject):
         
         finally:
             self.calibrating = False
+            self.focus_busy = False
 
     def reset_autofocus_windows_for_retry(self):
         try:
@@ -659,12 +688,14 @@ class CameraWorker(QObject):
 
             if focus_value is None:
                 print("[CAMERA] No se pudo obtener valor de foco Windows para congelar")
+                self.set_focus_status(busy=False, ready=False, reason="Windows sin valor de foco para congelar")
                 return None
             
             self.set_autofocus_windows(False)
             time.sleep(0.3)
             
             if not self.set_focus_windows(focus_value):
+                self.set_focus_status(busy=False, ready=False, reason="Windows sin valor de foco para congelar")
                 return None
 
             time.sleep(0.3)
@@ -675,6 +706,7 @@ class CameraWorker(QObject):
                 verified = focus_value
 
             self.locked_focus_value = verified
+            self.set_focus_status(busy=False, ready=True, reason=f"Foco Windows congelado en {verified}")
             print(f"[CAMERA] Foco windows congelado en {verified}")
 
             return verified
@@ -744,12 +776,15 @@ class CameraWorker(QObject):
         print("[CAMERA][WARNING] Recalibración no disponible en esta plataforma")
 
     def initial_focus_setup(self):
+        self.set_focus_status(busy=True, ready=False, reason="Inicio de cofiguracion inicial de enfoque")
+
         if self.is_windows():
             best_frame, score, focus_value = self.autofocus_calibration_windows_with_retries()
 
             if focus_value is None:
                 print("[CAMERA] Windows: no se pudo obtener foco, se deja autofocus activo")
                 self.set_autofocus_windows(True)
+                self.set_focus_status(busy=False, ready=False, reason="Windows sin foco valido")
                 return
             
             if score < self.min_focus_score_windows:
@@ -758,6 +793,7 @@ class CameraWorker(QObject):
                     "No se congela foco; se deja autofocus activo."
                 )
                 self.set_autofocus_windows(True)
+                self.set_focus_status(busy=False, ready=False, reason="Windows sin foco valido")
                 return
             
             locked = self.freeze_camera_windows(focus_value)
@@ -765,23 +801,34 @@ class CameraWorker(QObject):
             if locked is None:
                 print("[CAMERA] Windows: no se pudo congelar foco, se deja funcionamiento normal")
                 self.set_autofocus_windows(True)
+                self.set_focus_status(busy=False, ready=False, reason="Windows no pudo congelar foco")
             else:
                 print(f"[CAMERA] Windows FOCUS CALIBRADO SCORE: {score}, FOCUS: {locked}")
+                self.set_focus_status(busy=False, ready=True, reason="Windows foco congelado")
 
             return
         
         if not self.is_linux():
             print("[CAMERA] Plataforma no Linux: se omite calibración avanzada")
+            self.set_focus_status(busy=False, ready=False, reason="Plataforma sin enfoque requerido")
             return
 
         if not self.focus_absolute_supported:
             print("[CAMERA][WARNING] Linux: focus_absolute no disponible. Se usará video sin enfoque manual.")
+            self.set_focus_status(busy=False, ready=True, reason="Linux sin focus_absolue, enfoque no requerido")
             return
         
         if self.autofocus_supported:
             self.set_autofocus_linux(False)
 
         print("[CAMERA] Linux: enfoque manual listo. La verificación se hará en el primer trigger.")
+        # En Linux con focus_absolute disponible NO marcamos ready todavía si no hay foco cargado.
+        # app.py podrá mandar RPI_READY solo si hay foco guardado o si decides permitir calibracion al primer trigger.
+        self.set_focus_status(
+            busy=False,
+            ready=self.focus_value is not None,
+            reason="Linux enfoque inicial preparado"
+        )
         return
 
 
@@ -855,6 +902,7 @@ class CameraWorker(QObject):
             return None
         
         self.calibrating = True
+        self.set_focus_status(busy=True, ready=False, reason="Linux calibracion manual iniciada")
 
         try:
             focus_roi = roi if roi is not None else self.focus_roi
@@ -873,6 +921,7 @@ class CameraWorker(QObject):
                 self.focus_value = result.focus_value
                 self.locked_focus_value = result.focus_value
                 self.focus_min_score = result.min_score
+                self.set_focus_status(busy=False, ready=True, reason="Linux calibracion manual OK")
 
                 print(
                     f"[CAMERA] Autofocus manual Linux OK: "
@@ -883,6 +932,7 @@ class CameraWorker(QObject):
 
             else: 
                 print("[CAMERA][WARNING] Autofocus manual Linux no logro enfoque valido")
+                self.set_focus_status(busy=False, ready=False, reason="Linux calibracion manual fallida")
 
             return result
         
@@ -892,6 +942,7 @@ class CameraWorker(QObject):
         
         finally:
             self.calibrating = False
+            self.focus_busy = False
 
     def verify_manual_focus_linux(self, focus_value=None, roi=None, min_score=None, apply_value=True):
         if not self.is_linux():
@@ -937,6 +988,7 @@ class CameraWorker(QObject):
             self.focus_min_score = self.min_focus_score_linux
             self.focus_reference_score = None
             self.focus_peak_score = None
+            self.set_focus_status(busy=False, ready=False, reason="Receta sin configuracion de enfoque")
             print("[CAMERA] Receta sin configuración de enfoque habilitada")
             return
         
@@ -959,6 +1011,31 @@ class CameraWorker(QObject):
             f"reference_score={self.focus_reference_score}, "
             f"peak_score={self.focus_peak_score}"
         )
+
+        has_focus_value = self.focus_value is not None
+
+        if self.is_linux() and self.focus_absolute_supported and has_focus_value:
+            applied = self.set_focus_absolute(self.focus_value)
+            if applied:
+                self.locked_focus_value = self.focus_value
+                self.set_focus_status(busy=False, ready=True, reason="Focus Linux aplicado desde receta")
+            else:
+                self.set_focus_status(busy=False, ready=False, reason="Focus Linux no pudo aplicarse desde receta")
+
+        elif self.is_windows() and has_focus_value:
+            applied = self.set_focus_windows(self.focus_value)
+            if applied:
+                self.locked_focus_value = self.focus_value
+                self.set_focus_status(busy=False, ready=True, reason="Focus Windows aplicado desde receta")
+            else:
+                self.set_focus_status(busy=False, ready=False, reason="Focus Windows no pudo aplicarse desde receta")
+
+        elif has_focus_value:
+            self.locked_focus_value = self.focus_value
+            self.set_focus_status(busy=False, ready=True, reason="Focus cargado desde receta")
+
+        else:
+            self.set_focus_status(busy=False, ready=False, reason="Focus config sin value")
 
     def get_focus_required_score(self):
         candidates = [self.min_focus_score_linux]
@@ -1084,6 +1161,7 @@ class CameraWorker(QObject):
 
     def ensure_focus_ready_for_trigger(self, focus_config=None):
         if self.calibrating:
+            self.set_focus_status(busy=True, ready=False, reason="Verificacion de foco antes de trigger")
             self.focus_check_failed.emit("Ya hay una calibracion en proceso")
             return
         
@@ -1100,6 +1178,7 @@ class CameraWorker(QObject):
             return
         
         try:
+            self.set_focus_status(busy=True, ready=False, reason="Verificacion de foco antes de trigger")
             self.focus_check_started.emit()
 
             if isinstance(focus_config, dict):
@@ -1156,6 +1235,7 @@ class CameraWorker(QObject):
                 )
                 
                 if ok:
+                    self.set_focus_status(busy=False, ready=True, reason="Foco verificado antes de trigger")
                     self.focus_check_finished.emit({
                         "ok": True,
                         "focus_updated": False,
@@ -1196,10 +1276,12 @@ class CameraWorker(QObject):
             }
 
             print(f"[CAMERA] Enfoque listo para trigger: {result_data}")
+            self.set_focus_status(busy=False, ready=True, reason="Foco recalibrado antes de trigger")
             self.focus_check_finished.emit(result_data)
 
         except Exception as e:
             print(f"[CAMERA][ERROR] ensure_focus_ready_for_trigger: {e}")
+            self.set_focus_status(busy=False, ready=False, reason="Error verificando foco antes de trigger")
             self.focus_check_failed.emit(str(e))
 
 
