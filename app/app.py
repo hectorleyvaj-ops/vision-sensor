@@ -71,6 +71,12 @@ class MainWindow(QMainWindow):
         self.indicator_latched_result = None
         self.indicator_epoch = 0
 
+        # Estado visual general del sistema.
+        # READY permite mostrar resultado OK/NG.
+        # WARNING/CRITICAL tienen prioridad sobre cualquier resultado.
+        self.current_system_visual_state = "WARNING"
+        self.current_system_ready_error = "Sistema iniciando"
+
         # EVALUAR SISTEMA LISTO PARA TRIGGER
         self.last_ready_sent = None
         self.last_ready_reason = None
@@ -378,18 +384,26 @@ class MainWindow(QMainWindow):
         """
         Actualiza el color visual del estado general del sistema.
 
-        No debe borrar un resultado final enclavado OK/NG de la ESP.
-        El resultado de pieza tiene prioridad visual sobre el estado general.
+        Prioridad visual:
+        - CRITICAL manda sobre todo.
+        - WARNING manda sobre resultado OK/NG.
+        - READY permite mostrar resultado enclavado si existe.
         """
-        if self.indicator_latched_result is not None:
-            return
+        self.current_system_visual_state = state
+        self.current_system_ready_error = reason
 
-        if state == "READY":
-            self.set_indicator_result_style("BASE")
+        if state == "CRITICAL":
+            self.set_indicator_result_style("CRITICAL")
+
         elif state == "WARNING":
             self.set_indicator_result_style("NOT_READY")
-        elif state == "CRITICAL":
-            self.set_indicator_result_style("CRITICAL")
+
+        elif state == "READY":
+            if self.indicator_latched_result is not None:
+                self.set_indicator_result_style(self.indicator_latched_result)
+            else:
+                self.set_indicator_result_style("BASE")
+
         else:
             self.set_indicator_result_style("NOT_READY")
 
@@ -410,21 +424,22 @@ class MainWindow(QMainWindow):
     def clear_indicator_from_reset(self):
         """
         Limpia el resultado visual por RESET/llave de calidad recibido desde ESP32/PLC.
+        Después vuelve a publicar el estado real del sistema.
         """
         self.indicator_epoch += 1
         self.indicator_latched_result = None
         self.last_esp_result = None
-        self.set_indicator_result_style("BASE")
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.publish_rpi_ready_status()
 
     def update_indicator(self, result, delay=None, latch=False):
         """
         Actualiza el indicador.
 
         latch=True se usa para resultados finales desde ESP32/PLC.
-        En ese modo el color permanece hasta un nuevo ciclo valido o RESET.
-
-        delay se usa solo para avisos locales temporales, por ejemplo errores de
-        sistema listo. Un aviso temporal no debe borrar un resultado enclavado.
+        El resultado queda guardado, pero solo se muestra si el sistema está READY.
+        Si el sistema está WARNING o CRITICAL, el estado del sistema tiene prioridad.
         """
         result = "OK" if result == "OK" else "NG"
 
@@ -432,12 +447,23 @@ class MainWindow(QMainWindow):
             self.indicator_epoch += 1
             self.indicator_latched_result = result
             self.last_esp_result = result
-            self.set_indicator_result_style(result)
+
+            if self.current_system_visual_state == "READY":
+                self.set_indicator_result_style(result)
+            else:
+                self.set_system_status_visual(
+                    self.current_system_visual_state,
+                    self.current_system_ready_error
+                )
             return
 
-        # Si existe un resultado final enclavado de ESP, no lo sobreescribimos
-        # con avisos locales temporales. Especialmente protege el NG bloqueante.
-        if self.indicator_latched_result is not None:
+        # Avisos temporales locales ya no deben imponerse si el estado general
+        # está evaluado como WARNING/CRITICAL.
+        if self.current_system_visual_state in ("WARNING", "CRITICAL"):
+            self.set_system_status_visual(
+                self.current_system_visual_state,
+                self.current_system_ready_error
+            )
             return
 
         self.indicator_epoch += 1
@@ -452,10 +478,10 @@ class MainWindow(QMainWindow):
         if epoch != self.indicator_epoch:
             return
 
-        if self.indicator_latched_result is not None:
-            return
-
-        self.set_indicator_result_style("BASE")
+        self.set_system_status_visual(
+            self.current_system_visual_state,
+            self.current_system_ready_error
+        )
 
     def on_recipe_result(self, result):
         self.last_recipe_result = result
@@ -870,7 +896,7 @@ class MainWindow(QMainWindow):
         self.pending_trigger_after_focus = False
         self.focus_ready_for_active_recipe = False
         self.focus_runtime_verified = False
-        
+
         self.last_ready_sent = None
         self.last_ready_reason = None
         self.set_system_status_visual("WARNING", message)

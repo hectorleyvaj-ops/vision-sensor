@@ -29,6 +29,7 @@ class ConfigWindow(QWidget):
         self.camera_worker = camera_worker
 
         self.current_recipe = None
+        self.loading_recipes = False
 
         self.connect_signals()
         self.load_recipes()
@@ -388,26 +389,79 @@ class ConfigWindow(QWidget):
         print(f"[CONFIG] Redirigiendo solicitud de calibración a MainWindow: {focus_config}")
         self.focus_calibration_requested.emit(focus_config)
 
-    def load_recipes(self):
-        self.ui.cmb_recipes.clear()
+    def load_recipes(self, preferred_name=None):
+        self.loading_recipes = False
 
-        recipes = self.recipe_manager.get_all()
+        try:
+            self.ui.cmb_recipes.blockSignals(True)
+            self.ui.cmb_recipes.clear()
 
-        selected_index = 0
+            recipes = self.recipe_manager.get_all()
 
-        for i, r in enumerate(recipes):
-            self.ui.cmb_recipes.addItem(r["name"])
+            if not recipes:
+                self.current_recipe = None
+                self.ui.cmb_tools.clear()
+                return
+            
+            selected_index = 0
 
-            if r.get("selected"):
-                selected_index = i
+            for i, r in enumerate(recipes):
+                name = r.get("name", "")
 
-        self.ui.cmb_recipes.setCurrentIndex(selected_index)
+                if not name:
+                    continue
+
+                self.ui.cmb_recipes.addItem(name)
+
+                if preferred_name and name == preferred_name:
+                    selected_index = i
+
+                elif not preferred_name and r.get("selected"):
+                    selected_index = i
+
+            if self.ui.cmb_recipes.count() == 0:
+                self.current_recipe = None
+                self.ui.cmb_tools.clear()
+                return
+            
+            selected_index = max(0, min(selected_index, self.ui.cmb_recipes.count() - 1))
+            self.ui.cmb_recipes.setCurrentIndex(selected_index)
+
+        finally:
+            self.ui.cmb_recipes.blockSignals(False)
+            self.loading_recipes = False
+
+        # Cargar manualmente la receta seleccionada una sola vez, ya sin señales intermedias.
+        self.on_recipe_selected(self.ui.cmb_recipes.currentIndex())
 
     def on_recipe_selected(self, item):
-        name = self.ui.cmb_recipes.itemText(item)
+        if self.loading_recipes:
+            return
+
+        if item < 0:
+            self.current_recipe = None
+            self.ui.cmb_tools.clear()
+            return
+
+        name = self.ui.cmb_recipes.itemText(item).strip()
+
+        if not name:
+            self.current_recipe = None
+            self.ui.cmb_tools.clear()
+            return
+
         print(name)
 
-        self.current_recipe = self.recipe_manager.get(name)
+        recipe = self.recipe_manager.get(name)
+
+        if not recipe:
+            print(f"[CONFIG][WARNING] Receta no encontrada al seleccionar: {name}")
+            self.current_recipe = None
+            self.ui.cmb_tools.clear()
+            return
+
+        self.current_recipe = recipe
+
         print(f"Current Recipe: {self.current_recipe.get('name', 'UNKNOWN')}")
 
         self.load_tools()
@@ -682,17 +736,17 @@ class ConfigWindow(QWidget):
             self.ui.cmb_recipes.setCurrentIndex(index)
 
     def delete_recipe(self):
-        name = self.ui.cmb_recipes.currentText()
+        name = self.ui.cmb_recipes.currentText().strip()
 
         if not name:
             return
-        
+
         recipe = self.recipe_manager.get(name)
 
         if not recipe:
             print("Receta no encontrada")
             return
-        
+
         # ELIMINAR CARPETA DE IMAGENES ASOCIADA A LA RECETA
         safe = self.safe_name(name)
         path = f"master_img/{safe}/"
@@ -700,18 +754,46 @@ class ConfigWindow(QWidget):
         if os.path.exists(path):
             shutil.rmtree(path)
 
+        was_active = False
+        if self.state_manager and getattr(self.state_manager, "active_recipe_name", None) == name:
+            was_active = True
+
         self.recipe_manager.delete(name)
-        self.current_recipe = None
 
-        self.load_recipes()
-        self.ui.cmb_tools.clear()  # LIMPIA LA LISTA DE HERRAMIENTAS AL ELIMINAR LA RECETA
+        recipes = self.recipe_manager.get_all()
 
-        if self.state_manager and self.state_manager.active_recipe_name == name:
-            self.state_manager.set_active_recipe(None)
+        if not recipes:
+            self.current_recipe = None
+            self.ui.cmb_recipes.clear()
+            self.ui.cmb_tools.clear()
+
+            if self.state_manager:
+                self.state_manager.set_active_recipe(None)
+
+            print("[CONFIG] No quedan recetas disponibles")
+            return
+
+        # Seleccionar la primera receta restante.
+        fallback_name = recipes[0].get("name")
+
+        if fallback_name:
+            self.recipe_manager.set_selected(fallback_name)
+
+        self.load_recipes(preferred_name=fallback_name)
+
+        if was_active and self.state_manager and fallback_name:
+            self.state_manager.set_active_recipe(fallback_name)
+
+        self.update_rois.emit()
+
+        print(f"[CONFIG] Receta eliminada: {name}. Receta actual: {fallback_name}")
 
     def save_changes(self):
-        if self.current_recipe:
-            self.recipe_manager.save(self.current_recipe)
+        if not self.current_recipe:
+            print("[CONFIG][WARNING] No hay receta actual para guardar")
+            return
+
+        self.recipe_manager.save(self.current_recipe)
 
         if self.state_manager:
             self.state_manager.set_active_recipe(self.current_recipe["name"])
