@@ -2,8 +2,9 @@ import sys
 import cv2
 # IMPORTS DE QT
 from utils.qt_compat import load_ui, QT_LIB, QThread, QImage, QPixmap, QMainWindow, QMetaObject, Qt, QTimer
+from utils.ui_logger import get_ui_logger
 # IMPORTS DE UI
-from ui.ui_main_window import Ui_MainWindow
+from ui.pyside6.ui_main_window import Ui_MainWindow
 from ui.config_window_logic import ConfigWindow
 # IMPORTS DE HERRAMIENTAS, SERVICIOS Y LOGICA
 from tools.compare_img_hist import CompareImgHistTool
@@ -20,13 +21,16 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        print(f"Qt backend: {QT_LIB}")
-
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
 
+        self.setup_ui_logger()
+        print(f"Qt backend: {QT_LIB}")
+
         self.platform = self.detect_platform()
         print(f"[CAMERA] Sistema operativo detectado: {self.platform}")
+
+        self.apply_main_button_feedbacks()
 
         # ASIGNAR WIDGETS DE LA UI A VARIABLES CORRESPONDIENTES
         self.lbl_video = self.ui.lbl_video
@@ -37,17 +41,54 @@ class MainWindow(QMainWindow):
         # CONECTAR WIDGETS
         self.btn_trigger.clicked.connect(self.run_fsm)
         self.btn_config.clicked.connect(self.open_config)
+        self.ui.btn_cerrar.clicked.connect(self.close)
 
         self.current_frame = None
         self.selected_recipe = None
         self.rois_to_apply = []
 
+        # BANDERAS
         self.fsm_busy = False
+        self.focus_ready_for_active_recipe = False
+        self.focus_check_busy = False
+        self.pending_trigger_after_focus = False
+        self.focus_runtime_verified = False
+
+        # BLOQUEOS DE PRODUCCION
+        self.require_serial_ready = True
+        # Dejar False si el firmware actual de la ESP32 aun no responde SYNC_OK.
+        # Cuando agregues handshake al firmware final, cambialo a True.
+        self.require_serial_sync = True
+        self.require_single_dmtx_recipe = True
+        self.production_focus_required = True
+        self.max_frame_age = 0.50
+        self.last_recipe_result = None
+        self.last_esp_result = None
+
+        # ESTADO VISUAL DEL INDICADOR
+        # El resultado final de ESP32/PLC queda enclavado visualmente.
+        # Solo se limpia al comenzar un nuevo ciclo valido o al recibir RESET.
+        self.indicator_latched_result = None
+        self.indicator_epoch = 0
+
+        # Estado visual general del sistema.
+        # READY permite mostrar resultado OK/NG.
+        # WARNING/CRITICAL tienen prioridad sobre cualquier resultado.
+        self.current_system_visual_state = "WARNING"
+        self.current_system_ready_error = "Sistema iniciando"
+
+        # EVALUAR SISTEMA LISTO PARA TRIGGER
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.ready_notify_interval = 1000
+        self.ready_timer = QTimer(self)
+        self.ready_timer.timeout.connect(self.publish_rpi_ready_status)
+        self.ready_timer.start(self.ready_notify_interval)
 
         self.BASE_STYLE = """
         border: 2px solid;
         font-size: 16px;
-        border-radius: 17px;
+        border-radius: 30px;
         border-color: rgb(46, 196, 182);
         color: rgb(46, 196, 182);
         background-color: rgb(15, 27, 61);
@@ -56,25 +97,68 @@ class MainWindow(QMainWindow):
         self.OK_STYLE = """
         border: 2px solid;
         font-size: 16px;
-        border-radius: 17px;
-        border-color: rgb(0, 200, 0);
-        color: rgb(0, 200, 0);
-        background-color: rgb(15, 27, 61);
+        border-radius: 30px;
+        border-color: rgb(82, 183, 136);
+        color: white;
+        background-color: rgb(46, 125, 50);
         """
 
         self.NG_STYLE = """
         border: 2px solid;
         font-size: 16px;
-        border-radius: 17px;
-        border-color: rgb(220, 50, 50);
-        color: rgb(220, 50, 50);
-        background-color: rgb(15, 27, 61);
+        border-radius: 30px;
+        border-color: rgb(230, 57, 70);
+        color: white;
+        background-color: rgb(183, 28, 28);
         """
+
+        self.NOT_READY_STYLE = """
+        border: 2px solid;
+        font-size: 16px;
+        border-radius: 30px;
+        border-color: rgb(255, 183, 3);
+        color: white;
+        background-color: rgb(180, 120, 0);
+        """
+
+        self.CRITICAL_STYLE = """
+        border: 2px solid;
+        font-size: 16px;
+        border-radius: 30px;
+        border-color: rgb(255, 76, 76);
+        color: white;
+        background-color: rgb(120, 0, 0);
+        """
+
+        self.lbl_video.setStyleSheet("""
+            QLabel {
+                background-color: black;
+                border-radius: 0px;
+                border: 2px solid rgb(91, 192, 190);
+            }
+        """)
 
         self.recipe_manager = RecipeManager("core/models/recipes.json")
         self.setup_camera()
         self.setup_serial()
         self.setup_state_manager()
+
+    def setup_ui_logger(self):
+        self.ui_logger = get_ui_logger()
+        self.ui_logger.install()
+
+        if hasattr(self.ui, "list_log"):
+            print(f"[LOGGER] list_log detectado: {type(self.ui.list_log)}")
+
+            self.ui_logger.attach_list_widget(
+                self.ui.list_log,
+                max_items=80,
+                load_history=True
+            )
+        else:
+            print("[LOGGER][ERROR] No existe list_log en ui")
+
+        print("[LOGGER] Loger de interfaz iniciao")
         
     def detect_platform(self):
         if sys.platform.startswith("win"):
@@ -84,6 +168,64 @@ class MainWindow(QMainWindow):
             return "linux"
         
         return "other"
+    
+    def apply_main_button_feedbacks(self):
+        buttons = [
+            self.ui.btn_config,
+        ]
+
+        for btn in buttons:
+            self.add_button_feedback(btn)
+    
+    def add_button_feedback(self, button):
+        base_style = button.styleSheet().strip()
+
+        feedback_style = """
+        QPushButton:hover {
+            background-color: rgb(20, 38, 82);
+            border-color: rgb(46, 196, 182);
+        }
+
+        QPushButton:pressed {
+            background-color: rgb(46, 196, 182);
+            color: rgb(11, 19, 43);
+        }
+        """
+
+        if base_style:
+            if "{" in base_style and "}" in base_style:
+                final_style = base_style + "\n" + feedback_style
+            else:
+                final_style = f"""
+                QPushButton {{
+                    {base_style}
+                }}
+                {feedback_style}
+                """
+        else:
+            final_style = """
+            QPushButton {
+                color: rgb(234, 234, 234);
+                border-radius: 10px;
+                border: 2px solid rgb(91, 192, 190);
+                background-color: rgb(15, 27, 61);
+                min-height: 28px;
+                padding: 4px 12px;
+            }
+
+            QPushButton:hover {
+                background-color: rgb(20, 38, 82);
+                border-color: rgb(46, 196, 182);
+            }
+
+            QPushButton:pressed {
+                background-color: rgb(46, 196, 182);
+                color: rgb(11, 19, 43);
+            }
+            """
+
+        button.setStyleSheet(final_style)
+        button.setCursor(Qt.PointingHandCursor)
 
     def setup_camera(self):
         # CREAR THREAD Y WORKER DE CAMARA
@@ -100,6 +242,8 @@ class MainWindow(QMainWindow):
         self.camera_worker.frame_ready.connect(self.update_frame)
         self.camera_worker.finished.connect(self.camera_thread.quit)
         self.camera_worker.finished.connect(self.camera_worker.deleteLater)
+        self.camera_worker.focus_check_finished.connect(self.on_focus_check_finished)
+        self.camera_worker.focus_check_failed.connect(self.on_focus_check_failed)
 
         self.camera_thread.start()
 
@@ -118,6 +262,29 @@ class MainWindow(QMainWindow):
                     self.rois_to_apply.append((x1, y1, x2, y2))
             self.lbl_video.set_rois(self.rois_to_apply)
 
+        self.apply_focus_from_recipe(self.selected_recipe)
+
+    def apply_focus_from_recipe(self, recipe):
+        self.focus_ready_for_active_recipe = False
+        self.focus_runtime_verified = False
+
+        if not recipe:
+            print("[APP] No hay receta activa para cargar enfoque")
+            self.camera_worker.set_focus_from_recipe({})
+            return
+
+        focus = self.recipe_manager.get_focus(recipe["name"])
+
+        print(f"[APP] Cargando enfoque desde receta {recipe['name']}: {focus}")
+
+        self.camera_worker.set_focus_from_recipe(focus)
+        self.focus_ready_for_active_recipe = self.is_focus_config_complete(focus)
+
+        if self.focus_ready_for_active_recipe:
+            print("[FOCUS] Enfoque guardado detectado para receta activa")
+        else:
+            print("[FOCUS][WARNING] La receta activa no tiene enfoque guardado completo")
+
     def setup_serial(self):
         puerto = None
         if self.platform == "linux":
@@ -134,7 +301,26 @@ class MainWindow(QMainWindow):
 
         self.serial.trigger_received.connect(self.run_fsm)
         self.serial.model_received.connect(self.on_model_changed)
+        self.serial.esp_result_received.connect(self.on_esp_result_received)
+        self.serial.reset_received.connect(self.on_esp_reset_received)
+        self.serial.connection_lost.connect(self.on_serial_connection_lost)
+        self.serial.connection_restored.connect(self.on_serial_connection_restored)
+
         self.serial_thread.start()
+
+    def on_serial_connection_lost(self, reason):
+        print(f"[APP][SERIAL] Conexion perdida: {reason}")
+
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+
+        self.set_system_status_visual("CRITICAL", f"Conexion perdida: {reason}")
+
+    def on_serial_connection_restored(self):
+        print("[APP][SERIAL] Conexion restaurada con ESP32")
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.publish_rpi_ready_status()
 
     def setup_state_manager(self):
         # TOOLS
@@ -166,7 +352,7 @@ class MainWindow(QMainWindow):
         self.state_thread.finished.connect(self.state_worker.deleteLater)
         self.camera_worker.frame_ready.connect(self.camera.update_frame)
 
-        self.state_manager.inspectionResult.connect(self.update_indicator)
+        self.state_manager.inspectionResult.connect(self.on_recipe_result)
 
         self.state_worker.cycle_finished.connect(self.on_fsm_finished)
 
@@ -181,29 +367,438 @@ class MainWindow(QMainWindow):
 
         self.state_thread.start()
 
-    def update_indicator(self, result, delay=1000):
+    def set_indicator_result_style(self, result):
         if result == "OK":
             self.ui.indicator_1.setStyleSheet(self.OK_STYLE)
-        else:
+        elif result == "NG":
             self.ui.indicator_1.setStyleSheet(self.NG_STYLE)
+        elif result == "NOT_READY":
+            self.ui.indicator_1.setStyleSheet(self.NOT_READY_STYLE)
+        elif result == "CRITICAL":
+            self.ui.indicator_1.setStyleSheet(self.CRITICAL_STYLE)
+        else:
+            self.ui.indicator_1.setStyleSheet(self.BASE_STYLE)
 
-        QTimer.singleShot(delay, lambda: self.ui.indicator_1.setStyleSheet(self.BASE_STYLE))
+    def refresh_indicator_visual(self):
+        """
+        Aplica la prioridad visual final del indicador.
+
+        Prioridad:
+        1. CRITICAL del sistema
+        2. WARNING del sistema
+        3. Resultado final OK/NG de ESP si el sistema está READY
+        4. BASE si el sistema está READY y no hay resultado
+        """
+        if self.current_system_visual_state == "CRITICAL":
+            self.set_indicator_result_style("CRITICAL")
+            return
+
+        if self.current_system_visual_state == "WARNING":
+            self.set_indicator_result_style("NOT_READY")
+            return
+
+        if self.current_system_visual_state == "READY":
+            if self.indicator_latched_result is not None:
+                self.set_indicator_result_style(self.indicator_latched_result)
+            else:
+                self.set_indicator_result_style("BASE")
+            return
+
+        # Fallback seguro
+        self.set_indicator_result_style("NOT_READY")
+
+    # MEJORAR PARA ACTUALIZAR LA PALETA DE COLORES DE TODA LA INTERFAZ SEGUN EL ESTADO O RESULTADO
+    def set_system_status_visual(self, state, reason=None):
+        """
+        Actualiza el estado general del sistema y refresca el indicador
+        usando prioridad centralizada.
+        """
+        self.current_system_visual_state = state
+        self.current_system_ready_error = reason
+
+        self.refresh_indicator_visual()
+
+        if reason:
+            print(f"[APP][STATUS] {state}: {reason}")
+
+    def clear_indicator_for_new_cycle(self):
+        """
+        Limpia el resultado visual anterior cuando comienza un nuevo ciclo valido.
+        El color final sigue respetando el estado general del sistema.
+        """
+        self.indicator_epoch += 1
+        self.indicator_latched_result = None
+        self.last_esp_result = None
+        self.refresh_indicator_visual()
+
+    def clear_indicator_from_reset(self):
+        """
+        Limpia el resultado visual por RESET/llave de calidad recibido desde ESP32/PLC.
+        Después vuelve a publicar el estado real del sistema.
+        """
+        self.indicator_epoch += 1
+        self.indicator_latched_result = None
+        self.last_esp_result = None
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.publish_rpi_ready_status()
+
+    def update_indicator(self, result, delay=None, latch=False):
+        """
+        Guarda o muestra resultado de inspección.
+
+        Si latch=True, el resultado OK/NG de ESP queda guardado, pero no
+        necesariamente visible. La prioridad visual final la decide
+        refresh_indicator_visual().
+        """
+        result = "OK" if result == "OK" else "NG"
+
+        if latch:
+            self.indicator_epoch += 1
+            self.indicator_latched_result = result
+            self.last_esp_result = result
+            self.refresh_indicator_visual()
+            return
+
+        # Avisos temporales locales solo se muestran si el sistema está READY.
+        # Si el sistema está WARNING/CRITICAL, esos estados tienen prioridad.
+        if self.current_system_visual_state != "READY":
+            self.refresh_indicator_visual()
+            return
+
+        self.indicator_epoch += 1
+        epoch = self.indicator_epoch
+
+        self.set_indicator_result_style(result)
+
+        if delay is not None and delay > 0:
+            QTimer.singleShot(delay, lambda: self.reset_temporary_indicator(epoch))
+            # Avisos temporales locales ya no deben imponerse si el estado general
+            # está evaluado como WARNING/CRITICAL.
+            if self.current_system_visual_state in ("WARNING", "CRITICAL"):
+                self.set_system_status_visual(
+                    self.current_system_visual_state,
+                    self.current_system_ready_error
+                )
+                return
+
+            self.indicator_epoch += 1
+            epoch = self.indicator_epoch
+
+            self.set_indicator_result_style(result)
+
+            if delay is not None and delay > 0:
+                QTimer.singleShot(delay, lambda: self.reset_temporary_indicator(epoch))
+
+    def reset_temporary_indicator(self, epoch):
+        if epoch != self.indicator_epoch:
+            return
+
+        self.refresh_indicator_visual()
+
+    def on_recipe_result(self, result):
+        self.last_recipe_result = result
+        print(f"[APP] Resultado de receta enviado a ESP32: {result}")
+
+    def on_esp_result_received(self, result):
+        self.last_esp_result = result
+        print(f"[APP] Resultado final recibido desde ESP32/PLC: {result}")
+        self.update_indicator(result, latch=True)
+
+    def on_esp_reset_received(self):
+        print("[APP] RESET recibido desde ESP32/PLC")
+        self.clear_indicator_from_reset()
+
+    def is_focus_config_complete(self, focus):
+        if not isinstance(focus, dict) or not focus.get("enabled", False):
+            return False
+
+        value = focus.get("value")
+        min_score = focus.get("min_score")
+
+        if value is None or min_score is None:
+            return False
+
+        return True
+
+    def validate_active_recipe_for_production(self):
+        recipe = self.selected_recipe or self.recipe_manager.get_selected()
+
+        if not recipe:
+            return "No hay receta activa"
+
+        steps = recipe.get("steps")
+        if not isinstance(steps, list) or not steps:
+            return f"La receta {recipe.get('name')} no tiene steps"
+
+        dmtx_steps = [step for step in steps if step.get("tool") == "dmtx"]
+
+        if self.require_single_dmtx_recipe:
+            if len(steps) != 1 or len(dmtx_steps) != 1:
+                return "Produccion configurada para una sola receta con un unico step DMTX"
+
+        if not dmtx_steps:
+            return "La receta activa no contiene step DMTX"
+
+        step = dmtx_steps[0]
+        params = step.get("params", {})
+
+        expected_code = params.get("expected_code")
+        if not isinstance(expected_code, str) or not expected_code.strip():
+            return "El step DMTX no tiene expected_code valido"
+
+        roi = params.get("roi")
+        if not isinstance(roi, (list, tuple)) or len(roi) != 4:
+            return "El step DMTX no tiene ROI valida"
+
+        try:
+            x1, y1, x2, y2 = [int(float(v)) for v in roi]
+        except Exception:
+            return f"ROI DMTX invalida: {roi}"
+
+        if x2 <= x1 or y2 <= y1:
+            return f"ROI DMTX sin area valida: {roi}"
+
+        return None
+    
+    def get_focus_ready_error(self):
+        if not self.production_focus_required:
+            return None
+        
+        if not hasattr(self, "camera_worker") or self.camera_worker is None:
+            return "CameraWorker no disponible"
+
+        if getattr(self.camera_worker, "calibrating", False):
+            return "Camara calibrando enfoque"
+
+        if getattr(self.camera_worker, "focus_busy", False):
+            return "Camara enfocando/calibrando"
+
+        if not getattr(self.camera_worker, "focus_ready", False):
+            return "Foco de camara no listo/no aplicado"
+
+        if callable(getattr(self.camera_worker, "has_applied_focus", None)):
+            if not self.camera_worker.has_applied_focus():
+                return "Foco de camara no aplicado"
+
+        return None
+
+    def get_system_ready_error(self):
+        if not hasattr(self, "state_thread") or not self.state_thread.isRunning():
+            return "State thread no esta corriendo"
+
+        if not hasattr(self, "state_manager") or self.state_manager is None:
+            return "State manager no disponible"
+        
+        if self.state_manager.state != "IDLE":
+            return f"FSM ocupada en estado {self.state_manager.state}"
+
+        recipe_error = self.validate_active_recipe_for_production()
+        if recipe_error:
+            return recipe_error
+        
+        focus_error = self.get_focus_ready_error()
+        if focus_error:
+            return focus_error
+
+        if not hasattr(self, "camera") or self.camera is None:
+            return "Camera no disponible"
+    
+        if not self.camera.has_fresh_frame(max_age=self.max_frame_age):
+            return "No hay frame fresco de camara"
+
+        if self.require_serial_ready:
+            if not hasattr(self, "serial") or self.serial is None:
+                return "Serial no disponible"
+
+            if not self.serial.is_connected():
+                return "Serial no conectado"
+
+            if self.require_serial_sync and not self.serial.synced:
+                return "Serial sin handshake SYNC_OK"
+            
+        if self.focus_check_busy:
+            return "Enfoque/Calibracion en proceso"
+
+        return None
+    
+    def classify_ready_error(self, ready_error):
+        """
+        Clasifica la razón de bloqueo para decidir color visual.
+
+        WARNING = condición temporal o esperada:
+        - enfocando
+        - FSM ocupada
+        - sin frame fresco al arranque
+        - foco no listo
+        - receta/configuración pendiente
+
+        CRITICAL = falla de infraestructura:
+        - serial desconectado
+        - sin handshake
+        - hilos caídos
+        - workers no disponibles
+        """
+        if not ready_error:
+            return "READY"
+
+        text = ready_error.lower()
+
+        critical_keywords = (
+            "serial no conectado",
+            "serial sin handshake",
+            "state thread no esta corriendo",
+            "state manager no disponible",
+            "cameraworker no disponible",
+            "camera worker no disponible",
+            "thread no esta corriendo",
+            "conexion perdida",
+            "desconectado",
+        )
+
+        for keyword in critical_keywords:
+            if keyword in text:
+                return "CRITICAL"
+
+        warning_keywords = (
+            "fsm ocupada",
+            "enfoque",
+            "calibr",
+            "foco",
+            "no hay frame fresco",
+            "receta",
+            "roi",
+            "dmtx",
+            "step",
+            "expected_code",
+        )
+
+        for keyword in warning_keywords:
+            if keyword in text:
+                return "WARNING"
+
+        # Por seguridad, cualquier error desconocido se trata como crítico.
+        return "CRITICAL"
+    
+    def publish_rpi_ready_status(self):
+        if not hasattr(self, "serial") or self.serial is None:
+            ready_error = "Serial no disponible"
+            visual_state = self.classify_ready_error(ready_error)
+            self.set_system_status_visual(visual_state, ready_error)
+            return
+
+        if not self.serial.is_connected():
+            ready_error = "Serial no conectado"
+            visual_state = self.classify_ready_error(ready_error)
+            self.set_system_status_visual(visual_state, ready_error)
+            return
+
+        ready_error = self.get_system_ready_error()
+        ready_now = ready_error is None
+
+        if ready_now:
+            if self.last_ready_sent != "READY":
+                print("[APP][READY] Raspberry lista para produccion")
+                self.serial.notify_rpi_ready()
+                self.last_ready_sent = "READY"
+                self.last_ready_reason = None
+
+            self.set_system_status_visual("READY", None)
+            return
+
+        visual_state = self.classify_ready_error(ready_error)
+
+        if self.last_ready_sent != "NOT_READY" or self.last_ready_reason != ready_error:
+            print(f"[APP][READY] Raspberry NO lista: {ready_error}")
+            self.serial.notify_rpi_not_ready()
+            self.last_ready_sent = "NOT_READY"
+            self.last_ready_reason = ready_error
+
+        self.set_system_status_visual(visual_state, ready_error)
 
     def run_fsm(self):
         if self.fsm_busy:
             print("[FSM] Ciclo ocupado, trigger ignorado")
             return
-        
-        if not self.state_thread.isRunning():
-            print("[FSM] State thread no esta corriendo")
+
+        if self.focus_check_busy:
+            print("[FOCUS] Verificacion/recalibracion de enfoque en proceso, trigger ignorado")
             return
-        
-        if self.state_manager.state != "IDLE":
-            print(f"[FSM] Ocupada en estado {self.state_manager.state}, trigger ignorado")
+
+        ready_error = self.get_system_ready_error()
+        if ready_error:
+            print(f"[SYSTEM][BLOQUEADO] Trigger rechazado: {ready_error}")
+            visual_state = self.classify_ready_error(ready_error)
+            self.set_system_status_visual(visual_state, ready_error)
             return
+
+        self.clear_indicator_for_new_cycle()
+
+        if self.should_check_focus_before_trigger():
+            self.start_focus_check_before_trigger()
+            return
+
+        self.start_fsm_cycle(reset_indicator=False)
+
+    def get_active_focus_config(self):
+        recipe = self.selected_recipe or self.recipe_manager.get_selected()
+
+        if not recipe:
+            return {}
+
+        focus = recipe.get("focus", {})
+        return focus if isinstance(focus, dict) else {}
+
+    def focus_check_is_supported_for_current_platform(self):
+        return (
+            self.production_focus_required
+            and self.platform == "linux"
+            and getattr(self.camera_worker, "focus_absolute_supported", False)
+        )
+
+    def should_check_focus_before_trigger(self):
+        if not self.focus_check_is_supported_for_current_platform():
+            return False
+
+        focus = self.get_active_focus_config()
+
+        verify_on_first_trigger = focus.get("verify_on_first_trigger", True)
+        if verify_on_first_trigger is False:
+            return False
+
+        return not self.focus_runtime_verified
+
+    def start_focus_check_before_trigger(self):
+        focus_config = self.get_active_focus_config()
+
+        print(
+            "[FOCUS] Verificando enfoque antes del trigger. "
+            "Si el score es bajo o no hay foco guardado, se recalibrara automaticamente."
+        )
         
+        if hasattr(self, "serial") and self.serial.is_connected():
+            self.serial.notify_calibrating()
+
+        self.focus_check_busy = True
+        self.pending_trigger_after_focus = True
+        self.camera_worker.request_focus_check_before_trigger(focus_config)
+
+    def start_fsm_cycle(self, reset_indicator=True):
+        if self.fsm_busy:
+            print("[FSM] Ciclo ocupado, trigger ignorado")
+            return
+
+        ready_error = self.get_system_ready_error()
+        if ready_error:
+            print(f"[SYSTEM][BLOQUEADO] Ciclo no iniciado: {ready_error}")
+            self.fsm_busy = False
+            return
+
+        if reset_indicator:
+            self.clear_indicator_for_new_cycle()
+
         self.fsm_busy = True
-        
+
         if self.state_thread.isRunning():
             QMetaObject.invokeMethod(
                 self.state_worker,
@@ -220,21 +815,105 @@ class MainWindow(QMainWindow):
     def on_model_changed(self, model_name):
         if not model_name:
             print("[SERIAL] Modelo vacio, cambio ignorado")
+            return
             
         print(f"Cambiando receta a modelo: {model_name}")
+
+        self.recipe_manager.set_selected(model_name)
         self.state_manager.set_active_recipe(model_name)
+
+        self.selected_recipe = self.recipe_manager.get(model_name)
+
         self.apply_rois_from_recipe()
+        self.apply_focus_from_recipe(self.selected_recipe)
+
         self.ui.lbl_model.setText(model_name)
 
     def open_config(self):
+        if self.fsm_busy or self.focus_check_busy or (hasattr(self, "state_manager") and self.state_manager.state != "IDLE"):
+            print("[CONFIG][BLOQUEADO] No se puede abrir configuracion durante un ciclo activo")
+            return
+
         self.config_window = ConfigWindow(
             recipe_manager=self.recipe_manager,
             get_frame_callback=self.get_current_frame,
-            state_manager=self.state_manager
+            state_manager=self.state_manager,
+            platform=self.platform,
+            camera_worker=self.camera_worker
         )
         # CONECTAR SIGNALS DESDE CONFIG WINDOW
-        self.config_window.update_rois.connect(self.apply_rois_from_recipe, Qt.UniqueConnection)
-        self.config_window.show()
+        self.config_window.update_rois.connect(
+            self.apply_rois_from_recipe, 
+            Qt.UniqueConnection
+        )
+
+        self.config_window.focus_calibration_requested.connect(
+            self.request_camera_focus_from_config,
+            Qt.DirectConnection
+        )
+
+        if self.platform == "linux": 
+            self.config_window.showFullScreen()
+        else:
+            self.config_window.resize(480, 320)
+            self.config_window.show()
+
+    def request_camera_focus_from_config(self, focus_config):
+        print(f"[APP] Solicitud de calibración recibida desde ConfigWindow: {focus_config}")
+
+        if not hasattr(self, "camera_worker") or self.camera_worker is None:
+            print("[APP][ERROR] camera_worker no disponible")
+            return
+
+        self.camera_worker.request_manual_focus_from_config(focus_config)
+
+    def on_focus_check_finished(self, result):
+        print(f"[APP] Resultado verificación enfoque: {result}")
+
+        self.focus_check_busy = False
+
+        if not isinstance(result, dict) or not result.get("ok"):
+            print("[APP][ERROR] Verificación de enfoque no válida")
+            self.pending_trigger_after_focus = False
+            return
+
+        self.focus_ready_for_active_recipe = True
+        self.focus_runtime_verified = True
+
+        if result.get("focus_updated") and self.selected_recipe:
+            focus_data = {
+                "enabled": True,
+                "roi": result.get("roi"),
+                "value": result.get("focus_value"),
+                "min_score": result.get("min_score"),
+                "median_score": result.get("median_score"),
+                "peak_score": result.get("peak_score"),
+                "verify_on_first_trigger": True,
+                "auto_refocus_if_failed": True,
+            }
+
+            self.recipe_manager.update_focus(self.selected_recipe["name"], focus_data)
+            self.selected_recipe = self.recipe_manager.get(self.selected_recipe["name"])
+            self.camera_worker.set_focus_from_recipe(focus_data)
+
+            print(f"[APP] Receta actualizada con nuevo enfoque: {focus_data}")
+
+        if self.pending_trigger_after_focus:
+            self.pending_trigger_after_focus = False
+            self.start_fsm_cycle(reset_indicator=False)
+
+    def on_focus_check_failed(self, message):
+        print(f"[APP][ERROR] Verificación de enfoque falló: {message}")
+
+        self.focus_check_busy = False
+        self.pending_trigger_after_focus = False
+        self.focus_ready_for_active_recipe = False
+        self.focus_runtime_verified = False
+
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.set_system_status_visual("WARNING", message)
+        self.publish_rpi_ready_status()
 
     def shutdown_thread(self,thread, worker, name="thread"):
         # DETENER WORKERS
@@ -266,4 +945,3 @@ class MainWindow(QMainWindow):
 
         print("App cerrada correctamente")
         event.accept()
-

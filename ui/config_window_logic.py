@@ -1,26 +1,310 @@
 import os
-from utils.qt_compat import QWidget, QDialog, QVBoxLayout, QPushButton, QComboBox, QInputDialog, QTimer, Signal
-from ui.ui_config_window import Ui_Form
+from utils.qt_compat import (
+    QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+    QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea
+)
+from utils.ui_logger import get_ui_logger
+from ui.pyside6.ui_config_window import Ui_Form
 from ui.tool_editor import ToolEditor
 from ui.schemas.schemas import TOOL_SCHEMAS
+from ui.focus_config_dialog import FocusConfigDialog
 import shutil
 
 class ConfigWindow(QWidget):
     update_rois = Signal()
-    def __init__(self, recipe_manager, get_frame_callback, state_manager):
+    focus_calibration_requested = Signal(object)
+    def __init__(self, recipe_manager, get_frame_callback, state_manager, platform, camera_worker=None):
         super().__init__()
 
         self.ui = Ui_Form()
         self.ui.setupUi(self)
+        
+        self.apply_config_style()
+        self.apply_button_feedbakcs()
 
         self.recipe_manager = recipe_manager
         self.get_frame = get_frame_callback
         self.state_manager = state_manager
+        self.platform = platform
+        self.camera_worker = camera_worker
 
         self.current_recipe = None
+        self.loading_recipes = False
 
         self.connect_signals()
         self.load_recipes()
+
+    def apply_config_style(self):
+        self.setStyleSheet("""
+            QWidget {
+                background-color: rgb(11, 19, 43);
+                color: rgb(234, 234, 234);
+                font-size: 14px;
+            }
+
+            QDialog {
+                background-color: rgb(11, 19, 43);
+                color: rgb(234, 234, 234);
+            }
+
+            QLabel {
+                color: rgb(234, 234, 234);
+                background-color: transparent;
+            }
+
+            QPushButton {
+                color: rgb(234, 234, 234);
+                border-radius: 10px;
+                border: 2px solid rgb(91, 192, 190);
+                background-color: rgb(15, 27, 61);
+                min-height: 28px;
+                padding: 4px 12px;
+            }
+
+            QPushButton:hover {
+                background-color: rgb(20, 38, 82);
+                border-color: rgb(46, 196, 182);
+            }
+
+            QPushButton:pressed {
+                background-color: rgb(46, 196, 182);
+                color: rgb(11, 19, 43);
+            }
+
+            QComboBox,
+            QLineEdit,
+            QDoubleSpinBox,
+            QSpinBox {
+                color: rgb(234, 234, 234);
+                border-radius: 4px;
+                border: 2px solid rgb(91, 192, 190);
+                background-color: rgb(15, 27, 61);
+                min-height: 28px;
+                padding-left: 6px;
+                padding-right: 26px;
+                selection-background-color: rgb(46, 196, 182);
+                selection-color: rgb(11, 19, 43);
+            }
+
+            QComboBox:hover,
+            QLineEdit:hover,
+            QDoubleSpinBox:hover,
+            QSpinBox:hover {
+                border-color: rgb(46, 196, 182);
+            }
+
+            QDoubleSpinBox::up-button,
+            QSpinBox::up-button {
+                subcontrol-origin: border;
+                subcontrol-position: top right;
+                width: 22px;
+                border-left: 1px solid rgb(91, 192, 190);
+                border-bottom: 1px solid rgb(91, 192, 190);
+                background-color: rgb(20, 38, 82);
+            }
+
+            QDoubleSpinBox::down-button,
+            QSpinBox::down-button {
+                subcontrol-origin: border;
+                subcontrol-position: bottom right;
+                width: 22px;
+                border-left: 1px solid rgb(91, 192, 190);
+                background-color: rgb(20, 38, 82);
+            }
+
+            QDoubleSpinBox::up-button:hover,
+            QDoubleSpinBox::down-button:hover,
+            QSpinBox::up-button:hover,
+            QSpinBox::down-button:hover {
+                background-color: rgb(46, 196, 182);
+            }
+
+            QCheckBox {
+                color: rgb(234, 234, 234);
+                background-color: transparent;
+                min-height: 24px;
+                spacing: 8px;
+            }
+
+            QCheckBox::indicator {
+                width: 15px;
+                height: 15px;
+                border-radius: 4px;
+                border: 2px solid rgb(91, 192, 190);
+                background-color: rgb(15, 27, 61);
+            }
+
+            QCheckBox::indicator:hover {
+                border-color: rgb(46, 196, 182);
+            }
+
+            QCheckBox::indicator:checked {
+                background-color: rgb(46, 196, 182);
+                border-color: rgb(46, 196, 182);
+            }
+
+            QFrame#line {
+                background-color: rgb(15, 27, 61);
+            }
+
+            QInputDialog {
+                background-color: rgb(11, 19, 43);
+                color: rgb(234, 234, 234);
+            }
+
+            QInputDialog QLabel {
+                color: rgb(234, 234, 234);
+            }
+
+            QScrollArea {
+                border: none;
+                background-color: rgb(11, 19, 43);
+            }
+
+            QScrollArea QWidget {
+                background-color: rgb(11, 19, 43);
+            }
+        """)
+
+    def add_button_feedback(self, button):
+        base_style = button.styleSheet().strip()
+        
+        feedback_style = """
+        QPushButton:hover {
+            background-color: rgb(20 ,38 ,82);
+            border-color: rgb(46, 196, 182);
+        }
+        QPushButton:pressed {
+            background-color: rgb(46, 196, 182);
+            color: rgb(11, 19, 43);
+        }
+        """
+
+        if base_style:
+            if "{" in base_style and "}" in base_style:
+                final_style = base_style + "\n" + feedback_style
+            else:
+                final_style = f"""
+                QPushButton {{
+                    {base_style}
+                }}
+                {feedback_style}
+                """
+        else:
+            final_style = """
+            QPushButton {
+                color: rgb(234, 234, 234);
+                border-radius: 10px;
+                border: 2px solid rgb(91, 192, 190);
+                background-color: rgb(15, 27, 61);
+                min-height: 28px;
+                padding: 4px 12px;
+            }
+
+            QPushButton:hover {
+                background-color: rgb(20, 38, 82);
+                border-color: rgb(46, 196, 182);
+            }
+
+            QPushButton:pressed {
+                background-color: rgb(46, 196, 182);
+                color: rgb(11, 19, 43);
+            }
+            """
+
+        button.setStyleSheet(final_style)
+        button.setCursor(Qt.PointingHandCursor)
+
+    def apply_button_feedbakcs(self):
+        buttons = [
+            self.ui.btn_add_r,
+            self.ui.btn_del_r,
+            self.ui.btn_select_r,
+            self.ui.btn_add_t,
+            self.ui.btn_del_t,
+            self.ui.btn_edit_t,
+            self.ui.btn_out,
+            self.ui.btn_save,
+            self.ui.btn_focus_config,
+        ]
+
+        for btn in buttons:
+            self.add_button_feedback(btn)
+
+    def apply_scrollbar_style(self, scroll):
+        scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: rgb(11, 19, 43);
+            }
+
+            QScrollBar:vertical {
+                background-color: rgb(15, 27, 61);
+                width: 22px;
+                margin: 0px;
+                border-radius: 8px;
+            }
+
+            QScrollBar::handle:vertical {
+                background-color: rgb(91, 192, 190);
+                min-height: 36px;
+                border-radius: 8px;
+            }
+
+            QScrollBar::handle:vertical:hover {
+                background-color: rgb(46, 196, 182);
+            }
+
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+                background: none;
+                border: none;
+            }
+
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: transparent;
+            }
+
+            QScrollBar:horizontal {
+                background-color: rgb(15, 27, 61);
+                height: 18px;
+                margin: 0px;
+                border-radius: 8px;
+            }
+
+            QScrollBar::handle:horizontal {
+                background-color: rgb(91, 192, 190);
+                min-width: 36px;
+                border-radius: 8px;
+            }
+
+            QScrollBar::handle:horizontal:hover {
+                background-color: rgb(46, 196, 182);
+            }
+
+            QScrollBar::add-line:horizontal,
+            QScrollBar::sub-line:horizontal {
+                width: 0px;
+                background: none;
+                border: none;
+            }
+
+            QScrollBar::add-page:horizontal,
+            QScrollBar::sub-page:horizontal {
+                background: transparent;
+            }
+        """)
+
+    def get_screen_size(self):
+        screen = self.screen()
+
+        if screen is None:
+            return (480, 320)
+        
+        geo = screen.availableGeometry()
+        return geo.width(), geo.height()
 
     def safe_name(self, name):
         return name.replace(" ","_").replace("/","_").replace("\\","_")
@@ -42,27 +326,142 @@ class ConfigWindow(QWidget):
         self.ui.btn_add_r.clicked.connect(self.add_recipe)
         self.ui.btn_del_r.clicked.connect(self.delete_recipe)
         self.ui.btn_select_r.clicked.connect(self.select_recipe)
+        self.ui.btn_out.clicked.connect(self.close)
+        self.ui.btn_focus_config.clicked.connect(self.open_focus_config)
 
-    def load_recipes(self):
-        self.ui.cmb_recipes.clear()
+    def open_focus_config(self):
+        # REQUIERE TENER UNA RECETA ACTIVA PARA CONFIGURAR EL ENFOQUE
+        if not self.current_recipe:
+            print("[CONFIG] No hay receta seleccionada para cofigurar enfoque")
+            return
+        
+        dialog = FocusConfigDialog(
+            recipe=self.current_recipe,
+            get_frame_callback=self.get_frame,
+            platform=self.platform,
+            parent=self
+        )
 
-        recipes = self.recipe_manager.get_all()
+        if self.camera_worker is not None:
+            print("[CONFIG] Conectando señales de calibración con CameraWorker")
+            dialog.calibration_requested.connect(self.foward_focus_calibration_request)
+            self.camera_worker.manual_focus_finished.connect(dialog.on_calibration_finished)
+            self.camera_worker.manual_focus_failed.connect(dialog.on_calibration_failed)
+        else:
+            print("[CONFIG][ERROR] camera_worker es None. No se podrá calibrar enfoque.")
+            dialog.lbl_status.setText("Error: CameraWorker no está disponible.")
+            dialog.btn_calibrate.setEnabled(False)
 
-        selected_index = 0
+        screen_size = self.get_screen_size()
+        sw, sh = screen_size
 
-        for i, r in enumerate(recipes):
-            self.ui.cmb_recipes.addItem(r["name"])
+        if self.platform == "linux":
+            dialog.setMinimumSize(sw, sh)
+            dialog.showFullScreen()
+        else:
+            dialog.resize(800, 600)
 
-            if r.get("selected"):
-                selected_index = i
+        if hasattr(dialog, "exec"):
+            result = dialog.exec()
+        else:
+            result = dialog.exec_()
 
-        self.ui.cmb_recipes.setCurrentIndex(selected_index)
+        if result:
+            self.recipe_manager.save(self.current_recipe)
+
+            focus = self.current_recipe.get("focus", {})
+
+            if self.camera_worker is not None:
+                self.camera_worker.set_focus_from_recipe(focus)
+
+            print(f"[CONFIG] Focus guardado en receta: {focus}")
+            self.update_rois.emit()
+
+        if self.camera_worker is not None:
+            try:
+                dialog.calibration_requested.disconnect(self.foward_focus_calibration_request)
+                self.camera_worker.manual_focus_finished.disconnect(dialog.on_calibration_finished)
+                self.camera_worker.manual_focus_failed.disconnect(dialog.on_calibration_failed)
+            except Exception:
+                pass
+
+    def foward_focus_calibration_request(self, focus_config):
+        print(f"[CONFIG] Redirigiendo solicitud de calibración a MainWindow: {focus_config}")
+        self.focus_calibration_requested.emit(focus_config)
+
+    def load_recipes(self, preferred_name=None):
+        self.loading_recipes = False
+
+        try:
+            self.ui.cmb_recipes.blockSignals(True)
+            self.ui.cmb_recipes.clear()
+
+            recipes = self.recipe_manager.get_all()
+
+            if not recipes:
+                self.current_recipe = None
+                self.ui.cmb_tools.clear()
+                return
+            
+            selected_index = 0
+
+            for i, r in enumerate(recipes):
+                name = r.get("name", "")
+
+                if not name:
+                    continue
+
+                self.ui.cmb_recipes.addItem(name)
+
+                if preferred_name and name == preferred_name:
+                    selected_index = i
+
+                elif not preferred_name and r.get("selected"):
+                    selected_index = i
+
+            if self.ui.cmb_recipes.count() == 0:
+                self.current_recipe = None
+                self.ui.cmb_tools.clear()
+                return
+            
+            selected_index = max(0, min(selected_index, self.ui.cmb_recipes.count() - 1))
+            self.ui.cmb_recipes.setCurrentIndex(selected_index)
+
+        finally:
+            self.ui.cmb_recipes.blockSignals(False)
+            self.loading_recipes = False
+
+        # Cargar manualmente la receta seleccionada una sola vez, ya sin señales intermedias.
+        self.on_recipe_selected(self.ui.cmb_recipes.currentIndex())
 
     def on_recipe_selected(self, item):
-        name = self.ui.cmb_recipes.itemText(item)
+        if self.loading_recipes:
+            return
+
+        if item < 0:
+            self.current_recipe = None
+            self.ui.cmb_tools.clear()
+            return
+
+        name = self.ui.cmb_recipes.itemText(item).strip()
+
+        if not name:
+            self.current_recipe = None
+            self.ui.cmb_tools.clear()
+            return
+
         print(name)
 
-        self.current_recipe = self.recipe_manager.get(name)
+        recipe = self.recipe_manager.get(name)
+
+        if not recipe:
+            print(f"[CONFIG][WARNING] Receta no encontrada al seleccionar: {name}")
+            self.current_recipe = None
+            self.ui.cmb_tools.clear()
+            return
+
+        self.current_recipe = recipe
+
         print(f"Current Recipe: {self.current_recipe.get('name', 'UNKNOWN')}")
 
         self.load_tools()
@@ -85,36 +484,77 @@ class ConfigWindow(QWidget):
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Editar {tool_name}")
 
-        layout = QVBoxLayout()
+        screen_size = self.get_screen_size()
+        sw, sh =  screen_size
+
+        if self.platform == "linux": 
+            dialog.setMinimumSize(sw, sh)
+        else:
+            dialog.setMinimumSize(700,520)
+
+        dialog.setStyleSheet(self.styleSheet())
+
+        layout = QVBoxLayout(dialog)
 
         editor = ToolEditor(
             tool_name=tool_name,
             get_frame_callback=self.get_frame,
             base_path=base_path,
-            edit=True
+            edit=True,
+            platform=self.platform,
+            screen_size=screen_size
         )
 
         editor.set_values(params)
 
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(editor)
+        self.apply_scrollbar_style(scroll)
+
         btn_save = QPushButton("Guardar")
+        btn_cancel = QPushButton("Cancelar")
 
-        layout.addWidget(editor)
-        layout.addWidget(btn_save)
+        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setCursor(Qt.PointingHandCursor)
 
-        dialog.setLayout(layout)
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(btn_cancel)
+        buttons_layout.addWidget(btn_save)
+
+        layout.addWidget(scroll)
+        layout.addLayout(buttons_layout)
 
         def save():
             new_params = editor.get_values()
 
-            self.current_recipe["steps"][selected]["params"] = new_params
+            # Mantiene parametros existentes que no aparezcan todavía en schemas.py.
+            # Esto evita perder configuraciones nuevas o futuras al editar desde la UI.
+            current_params = self.current_recipe["steps"][selected].get("params", {})
+            if not isinstance(current_params, dict):
+                current_params = {}
+
+            merged_params = dict(current_params)
+            merged_params.update(new_params)
+
+            self.current_recipe["steps"][selected]["params"] = merged_params
 
             self.recipe_manager.save(self.current_recipe)
 
             dialog.accept()
 
         btn_save.clicked.connect(save)
+        btn_cancel.clicked.connect(dialog.reject)
 
-        dialog.exec_()
+        if self.platform == "linux":
+            dialog.showFullScreen()
+        else:
+            dialog.resize(700, 520)
+
+        if hasattr(dialog, "exec"):
+            dialog.exec()
+        else:
+            dialog.exec_()
 
     def add_step(self):
         self.ensure_steps()  # ASEGURA QUE EXISTE LA CLAVE "steps" Y ES UNA LISTA
@@ -127,11 +567,13 @@ class ConfigWindow(QWidget):
         # VENTANA Y WIDGETS
         dialog = QDialog(self)
         dialog.setWindowTitle("Agregando nuevo Step")
+
+        dialog.setStyleSheet(self.styleSheet())
         layout = QVBoxLayout()
 
         cmb_tools = QComboBox()
         cmb_tools.addItems(tools)
-        btn_save = QPushButton("Guardar")
+        
 
         def create_path():
             tool_name = cmb_tools.currentText()
@@ -142,16 +584,42 @@ class ConfigWindow(QWidget):
 
         tool_name, base_path = create_path()
 
+        screen_size = self.get_screen_size()
+        sw, sh =  screen_size
+
+        if self.platform == "linux": 
+            dialog.setMinimumSize(sw, sh)
+        else:
+            dialog.setMinimumSize(700,520)
+
         editor = ToolEditor(
             tool_name=tool_name,
             get_frame_callback=self.get_frame,
             base_path=base_path,
-            edit=False
+            edit=False,
+            platform=self.platform,
+            screen_size=screen_size
         )
 
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(editor)
+        self.apply_scrollbar_style(scroll)
+
+        btn_cancel = QPushButton("Cancelar")
+        btn_save = QPushButton("Guardar")
+
+        btn_save.setCursor(Qt.PointingHandCursor)
+        btn_cancel.setCursor(Qt.PointingHandCursor)
+
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addWidget(btn_cancel)
+        buttons_layout.addWidget(btn_save)
+
         layout.addWidget(cmb_tools)
-        layout.addWidget(editor)
-        layout.addWidget(btn_save)
+        layout.addWidget(scroll)
+        layout.addLayout(buttons_layout)
+
         dialog.setLayout(layout)
 
         def save():
@@ -168,6 +636,7 @@ class ConfigWindow(QWidget):
             dialog.accept()
 
         btn_save.clicked.connect(save)
+        btn_cancel.clicked.connect(dialog.reject)
 
         def reload_ui():
             tool_name, base_path = create_path()
@@ -176,7 +645,15 @@ class ConfigWindow(QWidget):
         cmb_tools.currentTextChanged.connect(reload_ui)
 
         # MUESTRA LA NUEVA VENTANA DE EDICION DE FORMA BLOQUEANTE
-        dialog.exec_()
+        if self.platform == "linux":
+            dialog.showFullScreen()
+        else:
+            dialog.resize(700, 520)
+
+        if hasattr(dialog, "exec"):
+            dialog.exec()
+        else:
+            dialog.exec_()
 
     def delete_tool(self):
         self.ensure_steps()
@@ -222,11 +699,28 @@ class ConfigWindow(QWidget):
             self.ui.cmb_tools.addItem(tool_name)
 
     def add_recipe(self):
-        name, ok = QInputDialog.getText(self, "Nueva Receta", "Nombre:")
+        dialog = QInputDialog(self)
+        dialog.setWindowTitle("Nueva Receta")
+        dialog.setLabelText("Nombre:")
+        dialog.setStyleSheet(self.styleSheet())
 
-        if not ok or not name.strip():
+        if self.platform == "linux":
+            dialog.resize(300, 160)
+        else:
+            dialog.resize(360, 180)
+
+        if hasattr(dialog, "exec"):
+            ok = dialog.exec()
+        else:
+            ok = dialog.exec_()
+
+        if not ok:
             return
         
+        name = dialog.textValue().strip()
+
+        if not name:
+            return
 
         # EVITAR DUPLICADOS
         if self.recipe_manager.get(name):
@@ -242,17 +736,17 @@ class ConfigWindow(QWidget):
             self.ui.cmb_recipes.setCurrentIndex(index)
 
     def delete_recipe(self):
-        name = self.ui.cmb_recipes.currentText()
+        name = self.ui.cmb_recipes.currentText().strip()
 
         if not name:
             return
-        
+
         recipe = self.recipe_manager.get(name)
 
         if not recipe:
             print("Receta no encontrada")
             return
-        
+
         # ELIMINAR CARPETA DE IMAGENES ASOCIADA A LA RECETA
         safe = self.safe_name(name)
         path = f"master_img/{safe}/"
@@ -260,18 +754,46 @@ class ConfigWindow(QWidget):
         if os.path.exists(path):
             shutil.rmtree(path)
 
+        was_active = False
+        if self.state_manager and getattr(self.state_manager, "active_recipe_name", None) == name:
+            was_active = True
+
         self.recipe_manager.delete(name)
-        self.current_recipe = None
 
-        self.load_recipes()
-        self.ui.cmb_tools.clear()  # LIMPIA LA LISTA DE HERRAMIENTAS AL ELIMINAR LA RECETA
+        recipes = self.recipe_manager.get_all()
 
-        if self.state_manager and self.state_manager.active_recipe_name == name:
-            self.state_manager.set_active_recipe(None)
+        if not recipes:
+            self.current_recipe = None
+            self.ui.cmb_recipes.clear()
+            self.ui.cmb_tools.clear()
+
+            if self.state_manager:
+                self.state_manager.set_active_recipe(None)
+
+            print("[CONFIG] No quedan recetas disponibles")
+            return
+
+        # Seleccionar la primera receta restante.
+        fallback_name = recipes[0].get("name")
+
+        if fallback_name:
+            self.recipe_manager.set_selected(fallback_name)
+
+        self.load_recipes(preferred_name=fallback_name)
+
+        if was_active and self.state_manager and fallback_name:
+            self.state_manager.set_active_recipe(fallback_name)
+
+        self.update_rois.emit()
+
+        print(f"[CONFIG] Receta eliminada: {name}. Receta actual: {fallback_name}")
 
     def save_changes(self):
-        if self.current_recipe:
-            self.recipe_manager.save(self.current_recipe)
+        if not self.current_recipe:
+            print("[CONFIG][WARNING] No hay receta actual para guardar")
+            return
+
+        self.recipe_manager.save(self.current_recipe)
 
         if self.state_manager:
             self.state_manager.set_active_recipe(self.current_recipe["name"])
@@ -295,7 +817,3 @@ class ConfigWindow(QWidget):
 
     def closeEvent(self, event):
         event.accept()
-
-        
-
-    

@@ -53,6 +53,10 @@ Carga y selecciona configuraciones de inspección.
 ### ConfigWindow
 Controla la interfaz de edicion de recetas y steps (herramientas) por receta.
 Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametros de cada herramienta segun dicha herramienta, usa schemas.py para vaciar la informacion de los widgets y parametros requeridos
+Debe llamar a otra ventana para calibracion del enfoque de la camara
+
+### Camera Worker
+Controla la camara, emite frames, contrla el enfoque manual por barrido.
 
 ---
 
@@ -66,39 +70,26 @@ Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametro
 
 ## 📌 Objetivo actual
 - Estabilizar UI (evitar freezes)
+- Congelar foco usando un autofocus manual, barrido de frames y calcular mejor focus usando score
 - Mejorar diseño de interfaz de configuracion, tanto la ventana dinamica (ventana escalada y en pantalla completa, widgets escaldos, copiar paleta de colores de la ventana principal)
 - Mejorar FSM
 - Preparar V2.0 para producción en otra máquina
 
 ## Ramas para avanzar
-1. stabilize-system-base
+1. stabilize-system-base   / COMPLETADO
    - hilos
    - cierre seguro
    - FSM
    - SerialComm
    - triggers dobles
 
-2. improve-camera-worker
+2. improve-camera-worker   / EN PROCESOR DE MEJORA
    - autofocus inicial
    - estabilización
-   - congelar focus_absolute
    - recalibración segura
-
-   Windows:
-      - Usa OpenCV + CAP_DSHOW.
-      - Intenta activar autofocus con CAP_PROP_AUTOFOCUS.
-      - Si no se puede, sigue funcionando sin calibración.
-      - No usa v4l2-ctl.
-
-   Raspberry/Linux:
-      - Busca /dev/videoX.
-      - Usa CAP_V4L2.
-      - Revisa si existe v4l2-ctl.
-      - Lee controles disponibles.
-      - Solo calibra si existen:
-      - focus_automatic_continuous
-      - focus_absolute
-      - Si no existen, transmite video normalmente.
+   - enfoque basado en focus_score
+   - Windows: OpenCV autofocus
+   - Linux: autofocus apagado + barrido de frames para buscar score y focus_absolute + freeze focus en mejor valor
 
 3. improve-config-ui
    - fullscreen
@@ -116,3 +107,9 @@ Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametro
    - redirigir los logs al txtlog de mi interfaz
    - agregar logger en cada script y reemplazar por print
    - mostrar logs tanto en ui como en la terminal
+
+6. Mejoras en logica del sistema
+   - Bloquear fsm hasta que camara haya calibrado para evitar triggers prematuros
+   - Agregar retroalimentacion visual para el usuario usando el indicador de la interfaz, modificar segun el resultado del plc, esp o master (via Serial)
+   - Utilizar datos que actualmente no se usan de los parametros de las recetas en sus debidas herramientas o quitar si no son necesarios
+   - Hacer pruebas intensivas en el sistema de crear, editar y eliminar recetas y etiquetas para encontrar mejoras y bugs

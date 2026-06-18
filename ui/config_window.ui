@@ -6,9 +6,27 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>480</width>
-    <height>320</height>
+    <width>800</width>
+    <height>480</height>
    </rect>
+  </property>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+    <horstretch>0</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>480</width>
+    <height>0</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>800</width>
+    <height>480</height>
+   </size>
   </property>
   <property name="windowTitle">
    <string>Form</string>
@@ -40,11 +58,22 @@
        <verstretch>0</verstretch>
       </sizepolicy>
      </property>
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>40</height>
+      </size>
+     </property>
      <property name="maximumSize">
       <size>
-       <width>480</width>
-       <height>30</height>
+       <width>780</width>
+       <height>40</height>
       </size>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>11</pointsize>
+      </font>
      </property>
      <property name="styleSheet">
       <string notr="true"/>
@@ -66,19 +95,19 @@
         </property>
         <property name="minimumSize">
          <size>
-          <width>200</width>
+          <width>300</width>
           <height>15</height>
          </size>
         </property>
         <property name="maximumSize">
          <size>
-          <width>350</width>
-          <height>50</height>
+          <width>500</width>
+          <height>80</height>
          </size>
         </property>
         <property name="font">
          <font>
-          <pointsize>12</pointsize>
+          <pointsize>15</pointsize>
           <weight>75</weight>
           <bold>true</bold>
          </font>
@@ -106,73 +135,97 @@ background-color: transparent;</string>
      <item>
       <layout class="QVBoxLayout" name="left_panel">
        <item>
-        <widget class="QLabel" name="lbl_recipes">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>200</width>
-           <height>30</height>
-          </size>
-         </property>
-         <property name="font">
-          <font>
-           <weight>75</weight>
-           <bold>true</bold>
-          </font>
-         </property>
-         <property name="styleSheet">
-          <string notr="true">color: rgb(234, 234, 234);
-background-color: transparent;</string>
-         </property>
-         <property name="text">
-          <string>RECETAS</string>
-         </property>
-         <property name="alignment">
-          <set>Qt::AlignCenter</set>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QComboBox" name="cmb_recipes">
-         <property name="maximumSize">
-          <size>
-           <width>200</width>
-           <height>25</height>
-          </size>
-         </property>
-         <property name="styleSheet">
-          <string notr="true">color: rgb(234, 234, 234);
-border-radius: 3px;
-border: 2px solid;
-border-color: rgb(91, 192, 190);
-background-color: rgb(15, 27, 61);</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <layout class="QHBoxLayout" name="horizontalLayout">
+        <layout class="QHBoxLayout" name="horizontalLayout_6">
          <item>
-          <widget class="QPushButton" name="btn_add_r">
+          <widget class="QLabel" name="lbl_recipes">
            <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
            <property name="maximumSize">
             <size>
-             <width>95</width>
-             <height>25</height>
+             <width>200</width>
+             <height>20</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <pointsize>10</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">color: rgb(234, 234, 234);
+background-color: transparent;</string>
+           </property>
+           <property name="text">
+            <string>RECETAS</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_7">
+         <item>
+          <widget class="QComboBox" name="cmb_recipes">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>280</width>
+             <height>30</height>
             </size>
            </property>
            <property name="styleSheet">
             <string notr="true">color: rgb(234, 234, 234);
-border-radius: 10px;
+border-radius: 3px;
+border: 2px solid;
+border-color: rgb(91, 192, 190);
+background-color: rgb(15, 27, 61);</string>
+           </property>
+           <property name="editable">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout">
+         <item>
+          <widget class="QPushButton" name="btn_add_r">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>130</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">color: rgb(234, 234, 234);
+border-radius: 15px;
 border: 2px solid;
 border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
@@ -185,20 +238,26 @@ background-color: rgb(15, 27, 61);</string>
          <item>
           <widget class="QPushButton" name="btn_del_r">
            <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+            <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>30</height>
+            </size>
+           </property>
            <property name="maximumSize">
             <size>
-             <width>95</width>
-             <height>25</height>
+             <width>130</width>
+             <height>30</height>
             </size>
            </property>
            <property name="styleSheet">
             <string notr="true">color: rgb(234, 234, 234);
-border-radius: 10px;
+border-radius: 15px;
 border: 2px solid;
 border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
@@ -215,20 +274,26 @@ background-color: rgb(15, 27, 61);</string>
          <item>
           <widget class="QPushButton" name="btn_select_r">
            <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+            <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>30</height>
+            </size>
+           </property>
            <property name="maximumSize">
             <size>
-             <width>95</width>
-             <height>25</height>
+             <width>160</width>
+             <height>30</height>
             </size>
            </property>
            <property name="styleSheet">
             <string notr="true">color: rgb(234, 234, 234);
-border-radius: 10px;
+border-radius: 15px;
 border: 2px solid;
 border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
@@ -240,10 +305,38 @@ background-color: rgb(15, 27, 61);</string>
          </item>
         </layout>
        </item>
+       <item>
+        <spacer name="horizontalSpacer_3">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeType">
+          <enum>QSizePolicy::Fixed</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>380</width>
+           <height>30</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
       </layout>
      </item>
      <item>
       <widget class="Line" name="line">
+       <property name="minimumSize">
+        <size>
+         <width>3</width>
+         <height>300</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>500</height>
+        </size>
+       </property>
        <property name="styleSheet">
         <string notr="true">background-color: rgb(15, 27, 61);</string>
        </property>
@@ -254,80 +347,146 @@ background-color: rgb(15, 27, 61);</string>
      </item>
      <item>
       <layout class="QVBoxLayout" name="right_panel">
+       <property name="spacing">
+        <number>5</number>
+       </property>
+       <property name="leftMargin">
+        <number>8</number>
+       </property>
+       <property name="rightMargin">
+        <number>8</number>
+       </property>
        <item>
-        <widget class="QLabel" name="lbl_tools">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>200</width>
-           <height>30</height>
-          </size>
-         </property>
-         <property name="font">
-          <font>
-           <weight>75</weight>
-           <bold>true</bold>
-          </font>
-         </property>
-         <property name="styleSheet">
-          <string notr="true">color: rgb(234, 234, 234);
-background-color: transparent;</string>
-         </property>
-         <property name="text">
-          <string>HERRAMIENTAS</string>
-         </property>
-         <property name="alignment">
-          <set>Qt::AlignCenter</set>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QComboBox" name="cmb_tools">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>200</width>
-           <height>25</height>
-          </size>
-         </property>
-         <property name="styleSheet">
-          <string notr="true">color: rgb(234, 234, 234);
-border-radius: 3px;
-border: 2px solid;
-border-color: rgb(91, 192, 190);
-background-color: rgb(15, 27, 61);</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <layout class="QHBoxLayout" name="horizontalLayout_2">
+        <layout class="QHBoxLayout" name="horizontalLayout_9">
          <item>
-          <widget class="QPushButton" name="btn_add_t">
+          <widget class="QLabel" name="lbl_tools">
            <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
            <property name="maximumSize">
             <size>
-             <width>95</width>
+             <width>200</width>
+             <height>20</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <pointsize>10</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">color: rgb(234, 234, 234);
+background-color: transparent;</string>
+           </property>
+           <property name="text">
+            <string>HERRAMIENTAS</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_8">
+         <item>
+          <widget class="QComboBox" name="cmb_tools">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
              <height>25</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>280</width>
+             <height>30</height>
             </size>
            </property>
            <property name="styleSheet">
             <string notr="true">color: rgb(234, 234, 234);
-border-radius: 10px;
+border-radius: 3px;
+border: 2px solid;
+border-color: rgb(91, 192, 190);
+background-color: rgb(15, 27, 61);</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_3">
+         <item>
+          <widget class="QPushButton" name="btn_edit_t">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>150</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">color: rgb(234, 234, 234);
+border-radius: 15px;
+border: 2px solid;
+border-color: rgb(91, 192, 190);
+background-color: rgb(15, 27, 61);</string>
+           </property>
+           <property name="text">
+            <string>EDITAR</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_2">
+         <item>
+          <widget class="QPushButton" name="btn_add_t">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>120</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">color: rgb(234, 234, 234);
+border-radius: 15px;
 border: 2px solid;
 border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
@@ -340,20 +499,26 @@ background-color: rgb(15, 27, 61);</string>
          <item>
           <widget class="QPushButton" name="btn_del_t">
            <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+            <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>30</height>
+            </size>
+           </property>
            <property name="maximumSize">
             <size>
-             <width>95</width>
-             <height>25</height>
+             <width>120</width>
+             <height>30</height>
             </size>
            </property>
            <property name="styleSheet">
             <string notr="true">color: rgb(234, 234, 234);
-border-radius: 10px;
+border-radius: 15px;
 border: 2px solid;
 border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
@@ -366,30 +531,101 @@ background-color: rgb(15, 27, 61);</string>
         </layout>
        </item>
        <item>
-        <layout class="QHBoxLayout" name="horizontalLayout_3">
+        <widget class="Line" name="line_2">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>355</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>355</width>
+           <height>3</height>
+          </size>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">background-color: rgb(15, 27, 61);</string>
+         </property>
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_11">
          <item>
-          <widget class="QPushButton" name="btn_edit_t">
+          <widget class="QLabel" name="lbl_focus">
            <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
            <property name="maximumSize">
             <size>
-             <width>95</width>
-             <height>25</height>
+             <width>200</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="font">
+            <font>
+             <pointsize>10</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">color: rgb(234, 234, 234);
+background-color: transparent;</string>
+           </property>
+           <property name="text">
+            <string>ENFOQUE DE CAMARA</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_10">
+         <item>
+          <widget class="QPushButton" name="btn_focus_config">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
+             <horstretch>0</horstretch>
+             <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>30</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>160</width>
+             <height>30</height>
             </size>
            </property>
            <property name="styleSheet">
             <string notr="true">color: rgb(234, 234, 234);
-border-radius: 10px;
+border-radius: 15px;
 border: 2px solid;
 border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
            </property>
            <property name="text">
-            <string>EDITAR</string>
+            <string>FOCUS CONFIG</string>
            </property>
           </widget>
          </item>
@@ -402,6 +638,12 @@ background-color: rgb(15, 27, 61);</string>
    <item>
     <layout class="QHBoxLayout" name="bttm_layout">
      <property name="spacing">
+      <number>30</number>
+     </property>
+     <property name="topMargin">
+      <number>10</number>
+     </property>
+     <property name="bottomMargin">
       <number>10</number>
      </property>
      <item>
@@ -411,7 +653,7 @@ background-color: rgb(15, 27, 61);</string>
        </property>
        <property name="sizeHint" stdset="0">
         <size>
-         <width>50</width>
+         <width>30</width>
          <height>30</height>
         </size>
        </property>
@@ -420,20 +662,26 @@ background-color: rgb(15, 27, 61);</string>
      <item>
       <widget class="QPushButton" name="btn_save">
        <property name="sizePolicy">
-        <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+        <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
        </property>
+       <property name="minimumSize">
+        <size>
+         <width>0</width>
+         <height>30</height>
+        </size>
+       </property>
        <property name="maximumSize">
         <size>
-         <width>120</width>
-         <height>30</height>
+         <width>160</width>
+         <height>35</height>
         </size>
        </property>
        <property name="styleSheet">
         <string notr="true">color: rgb(234, 234, 234);
-border-radius: 10px;
+border-radius: 15px;
 border: 2px solid;
 border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
@@ -446,26 +694,44 @@ background-color: rgb(15, 27, 61);</string>
      <item>
       <widget class="QPushButton" name="btn_out">
        <property name="sizePolicy">
-        <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+        <sizepolicy hsizetype="Expanding" vsizetype="Minimum">
          <horstretch>0</horstretch>
          <verstretch>0</verstretch>
         </sizepolicy>
        </property>
+       <property name="minimumSize">
+        <size>
+         <width>0</width>
+         <height>30</height>
+        </size>
+       </property>
        <property name="maximumSize">
         <size>
-         <width>120</width>
-         <height>30</height>
+         <width>160</width>
+         <height>35</height>
         </size>
        </property>
        <property name="styleSheet">
         <string notr="true">color: rgb(234, 234, 234);
-border-radius: 10px;
+border-radius: 15px;
 border: 2px solid;
 border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
        </property>
        <property name="text">
         <string>SALIR</string>
+       </property>
+       <property name="checkable">
+        <bool>false</bool>
+       </property>
+       <property name="checked">
+        <bool>false</bool>
+       </property>
+       <property name="autoDefault">
+        <bool>true</bool>
+       </property>
+       <property name="default">
+        <bool>true</bool>
        </property>
       </widget>
      </item>
@@ -476,13 +742,61 @@ background-color: rgb(15, 27, 61);</string>
        </property>
        <property name="sizeHint" stdset="0">
         <size>
-         <width>50</width>
+         <width>30</width>
          <height>30</height>
         </size>
        </property>
       </spacer>
      </item>
     </layout>
+   </item>
+   <item>
+    <widget class="QFrame" name="frame">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="minimumSize">
+      <size>
+       <width>780</width>
+       <height>45</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>800</width>
+       <height>45</height>
+      </size>
+     </property>
+     <property name="frameShape">
+      <enum>QFrame::StyledPanel</enum>
+     </property>
+     <property name="frameShadow">
+      <enum>QFrame::Raised</enum>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_12">
+      <item>
+       <widget class="QListWidget" name="list_log_config">
+        <property name="maximumSize">
+         <size>
+          <width>800</width>
+          <height>35</height>
+         </size>
+        </property>
+        <property name="font">
+         <font>
+          <pointsize>11</pointsize>
+         </font>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">border: none;</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
   </layout>
  </widget>

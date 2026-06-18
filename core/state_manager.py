@@ -26,7 +26,7 @@ class StateManager(QObject):
 
         if selected:
             self.active_recipe_name = selected["name"]
-            print(f"Receta activa cargada: {self.active_recipe_name}")
+            print(f"[STATE_MANAGER] Receta activa cargada: {self.active_recipe_name}")
 
     def set_recipe_manager(self, recipe_manager):
         self.recipe_manager = recipe_manager
@@ -50,12 +50,20 @@ class StateManager(QObject):
             # CAPTURING
             elif self.state == "CAPTURING":
 
+                def get_capture():
+                    return self.camera.capture()
+
                 def get_frame():
-                    result = self.camera.capture()
+                    result = get_capture()
 
-                    if result and result["status"] == "OK":
-                        return result["frame"]
+                    if result and result.get("status") == "OK":
+                        return result.get("frame")
 
+                    error = result.get("error") if isinstance(result, dict) else "captura invalida"
+                    print(f"[FSM][WARNING] No se pudo obtener frame fresco: {error}")
+                    return None
+
+                self.context["capture_provider"] = get_capture
                 self.context["frame_provider"] = get_frame
                 print("[FSM] Frame provider listo")
                 self.state = "PROCESSING"
@@ -111,7 +119,7 @@ class StateManager(QObject):
 
     # MANEJA LOS LOGS DE ERROR PARA REDIRECCIONARLOS AL LOG EN LA INTERFAZ PRINCIPAL EN UN FUTURO
     def handle_error(self, stage, details):
-        print(f"Error at stage {stage}: {details.get('error')}")
+        print(f"[STATE_MANAGER][FSM] Error at stage {stage}: {details.get('error')}")
         
         # FORZAR NG PARA CONTINUAR EN ESP
         self.context["final_result"] = "NG"

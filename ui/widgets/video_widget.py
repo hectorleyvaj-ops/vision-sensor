@@ -1,15 +1,34 @@
 import cv2
-from utils.qt_compat import QLabel, QTimer, QImage, QPixmap, Qt, QPainter, QColor, Signal
+from utils.qt_compat import QLabel, QTimer, QImage, QPixmap, Qt, QPainter, QColor, QPen, QSizePolicy
 import numpy as np
 
 class VideoWidget(QLabel):
-    def __init__(self, get_frame_callback=None, enable_edition=False):
+    def __init__(self, get_frame_callback=None, enable_edition=False, platform="windows", video_size=None,fill_mode="cover"):
         super().__init__()
 
         self.get_frame = get_frame_callback
-        self.setMinimumSize(225,180)
-        self.setMaximumSize(225,180)
+        self.enable_edition = enable_edition
+        self.platform = platform
+        self.fill_mode = fill_mode
+
+        if video_size:
+            self.setMinimumSize(video_size[0], video_size[1])
+            self.setMinimumHeight(video_size[1])
+            self.setMaximumHeight(video_size[1])
+        else:
+            if self.platform == "linux":
+                self.setMinimumSize(260, 210)
+                self.setMinimumHeight(210)
+                self.setMaximumHeight(210)
+            else:
+                self.setMinimumSize(480, 270)
+                self.setMinimumHeight(270)
+                self.setMaximumHeight(270)
+
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        
         self.setMouseTracking(True)
+        self.setStyleSheet("background-color: black; border: 1px solid rgb(91, 192, 190);")
 
         # TIMER
         self.timer = QTimer()
@@ -18,9 +37,10 @@ class VideoWidget(QLabel):
 
         # FRAME ACTUAL
         self.current_frame = None
+        self.frame_w = 1
+        self.frame_h = 1
 
         # ROI
-        self.enable_edition = enable_edition
         self.drawing = False
         self.start_point = None
         self.end_point = None
@@ -31,77 +51,48 @@ class VideoWidget(QLabel):
         self.scale = 1.0
         self.offset_x = 0
         self.offset_y = 0
+        self.draw_w = 1
+        self.draw_h = 1
 
     def update_frame(self):
-        frame = self.get_frame()
+        frame = self.get_frame() if self.get_frame else None
 
         if frame is None:
             return
         
         if not isinstance(frame, (list, tuple)) and not hasattr(frame, "shape"):
-            print("Frame invalido:", type(frame))
+            print("[VIDEO_WIDGET] Frame invalido:", type(frame))
             return
         
         self.current_frame = frame.copy()
 
-        zoom_factor = 0.75
-        h, w, _ = frame.shape
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        self.frame_h, self.frame_w, ch = rgb.shape
 
-        if zoom_factor > 1.0:
-            new_w = int(w / zoom_factor)
-            new_h = int(h / zoom_factor)
+        label_w = max(1, self.width())
+        label_h = max(1, self.height())
 
-            x1 = (w - new_w) // 2
-            y1 = (w - new_h) // 2
-            x2 = x1 + new_w
-            y2 = y1 + new_h
+        scale_w = label_w / self.frame_w
+        scale_h = label_h / self.frame_h
 
-            cropped = frame[y1:y2, x1:x2]
-            display_frame = cv2.resize(cropped, (w,h))
+        if self.fill_mode == "fit":
+            self.scale = min(scale_w, scale_h)
         else:
-            display_frame = frame.copy()
+            self.scale = max(scale_w, scale_h)
 
-        # DIBUJAR ROI SI EXISTE
-        if self.rois:
-            for roi in self.rois:
-                x1, y1, x2, y2 = roi
-                cv2.rectangle(display_frame, (x1,y1), (x2,y2), (255, 0, 0), 2)
+        self.draw_w = int(self.frame_w * self.scale)
+        self.draw_h = int(self.frame_h * self.scale)
 
-        # DIBUJAR ROI EN PROCESO
-        if self.drawing and self.start_point and self.end_point:
-            p1 = self.map_to_frame(self.start_point)
-            p2 = self.map_to_frame(self.end_point)
+        resized = cv2.resize(rgb, (self.draw_w, self.draw_h))
 
-            if p1 and p2:
-                cv2.rectangle(display_frame, p1, p2, (0, 255, 255), 2)
-        
-        # CONVERTIR A RGB
-        rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb.shape
-
-        # ESCALAR MANTENIENDO ASPECTO
-        label_w = self.width()
-        label_h = self.height()
-
-        scale_w = label_w/w
-        scale_h = label_h/h
-
-        self.scale = max(scale_w, scale_h)
-
-        new_w = int(w*self.scale)
-        new_h = int(h*self.scale)
-
-        resized = cv2.resize(rgb, (new_w, new_h))
-
-        # CENTRAR LA IMAGEN EN EL LABEL - WIDGET
-        self.offset_x = (label_w - new_w) // 2
-        self.offset_y = (label_h - new_h) // 2
+        self.offset_x = (label_w - self.draw_w) // 2
+        self.offset_y = (label_h - self.draw_h) // 2
 
         qt_image = QImage(
             resized.data,
-            new_w,
-            new_h,
-            ch*new_w,
+            self.draw_w,
+            self.draw_h,
+            ch* self.draw_w,
             QImage.Format_RGB888
         )
 
@@ -113,24 +104,73 @@ class VideoWidget(QLabel):
 
         painter = QPainter(canvas)
         painter.drawPixmap(self.offset_x, self.offset_y, pixmap)
-        painter.end()
 
+        self.draw_saved_rois(painter)
+        self.draw_roi_in_progress(painter)
+
+        painter.end()
         self.setPixmap(canvas)
 
-    def map_to_frame(self, pos):
-        # CONVIERTE LAS COORDS DEL WIDGET A COORDS DEL FRAME REAL
+    def frame_to_widget(self, point):
+        x, y = point
+
+        wx = int(x * self.scale + self.offset_x)
+        wy = int(y * self.scale + self.offset_y)
+
+        return wx, wy
+    
+    def widget_to_frame(self, pos):
         if self.current_frame is None:
             return None
         
         x = (pos.x() - self.offset_x) / self.scale
         y = (pos.y() - self.offset_y) / self.scale
 
-        h,w, _ = self.current_frame.shape
+        x = int(max(0, min(self.frame_w - 1, x)))
+        y = int(max(0, min(self.frame_h - 1, y)))
 
-        x = int(max(0, min(w - 1, x)))
-        y = int(max(0, min(h - 1, y)))
+        return x, y
+    
+    def draw_saved_rois(self, painter):
+        if not self.rois:
+            return
+        
+        pen = QPen(QColor(0,180,255))
+        pen.setWidth(3)
+        painter.setPen(pen)
 
-        return(x,y)
+        for roi in self.rois:
+            x1, y1, x2, y2 = roi
+
+            p1 = self.frame_to_widget((x1, y1))
+            p2 = self.frame_to_widget((x2, y2))
+
+            painter.drawRect(
+                p1[0], 
+                p1[1],
+                p2[0] - p1[0],
+                p2[1] - p1[1] 
+            )
+
+    def draw_roi_in_progress(self, painter):
+        if not self.drawing or not self.start_point or not self.end_point:
+            return
+
+        pen = QPen(QColor(255, 220, 0))
+        pen.setWidth(3)
+        painter.setPen(pen)
+
+        x1 = self.start_point.x()
+        y1 = self.start_point.y()
+        x2 = self.end_point.x()
+        y2 = self.end_point.y()
+
+        left = min(x1, x2)
+        top = min(y1, y2)
+        width = abs(x2 - x1)
+        height = abs(y2 - y1)
+
+        painter.drawRect(left, top, width, height)
     
     def mousePressEvent(self, event):
         if not self.enable_edition:
@@ -144,8 +184,10 @@ class VideoWidget(QLabel):
     def mouseMoveEvent(self, ev):
         if not self.enable_edition:
             return
+        
         if self.drawing:
             self.end_point = ev.pos()
+            self.update()
 
     def mouseReleaseEvent(self, ev):
         if not self.enable_edition:
@@ -155,8 +197,8 @@ class VideoWidget(QLabel):
             self.drawing = False
             self.end_point = ev.pos()
 
-            p1 = self.map_to_frame(self.start_point)
-            p2 = self.map_to_frame(self.end_point)
+            p1 = self.widget_to_frame(self.start_point)
+            p2 = self.widget_to_frame(self.end_point)
 
             if p1 and p2:
                 x1,y1 = p1
@@ -166,11 +208,15 @@ class VideoWidget(QLabel):
                 x1, x2 = sorted([x1,x2])
                 y1, y2 = sorted([y1,y2])
 
-                self.roi = (x1, y1, x2, y2)
-                print("Nuevo ROI desde config: ",self.roi)
-                self.rois.append(self.roi)
+                min_size = 5
 
-        self.enable_edition = False
+                if abs(x2 - x1) >= min_size and abs(y2-y1) >= min_size:
+                    self.roi = (x1, y1, x2, y2)
+                    self.rois = [self.roi]
+                    print("[VIDEO_WIDGET] Nuevo ROI desde config: ",self.roi)
+                
+            self.enable_edition = False
+            self.update()
 
 
     def get_roi(self):
@@ -179,6 +225,12 @@ class VideoWidget(QLabel):
     def set_rois(self, rois):
         # PERMITE DIBUJAR ROIS EXISTENTES FUERA DE CONFIG
         self.rois = list(rois)
-        print("ROIs aplicados: ", self.rois)
+
+        if self.rois:
+            self.roi = self.rois[-1]
+        else:
+            self.roi = None
+
+        print("[VIDEO_WIDGET] ROIs aplicados: ", self.rois)
         self.update()
 
