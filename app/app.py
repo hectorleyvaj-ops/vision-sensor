@@ -42,6 +42,7 @@ class MainWindow(QMainWindow):
         self.btn_trigger.clicked.connect(self.run_fsm)
         self.btn_config.clicked.connect(self.open_config)
         self.ui.btn_cerrar.clicked.connect(self.close)
+        self.ui.btn_minimizar.clicked.connect(self.minimize)
 
         self.current_frame = None
         self.selected_recipe = None
@@ -945,3 +946,7 @@ class MainWindow(QMainWindow):
 
         print("App cerrada correctamente")
         event.accept()
+
+    def minimize(self):
+        self.showNormal()
+        self.showMinimized()
