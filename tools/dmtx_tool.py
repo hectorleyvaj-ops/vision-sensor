@@ -168,15 +168,30 @@ class DataMatrixTool(ToolBase):
             print(f"[DMTX] Intento {i + 1}/{retries}: {attempt_codes}")
 
             if expected_code:
-                if expected_code in attempt_codes:
-                    expected_reads.append(expected_code)
+                expected_len = len(expected_code)
 
-                non_expected = [code for code in attempt_codes if code != expected_code]
+                matching_codes = []
+                non_expected = []
+
+                for code in attempt_codes:
+                    base_code = code[:expected_len]
+
+                    if base_code == expected_code:
+                        matching_codes.append(code)
+                    else:
+                        non_expected.append(code)
+
+                if matching_codes:
+                    expected_reads.extend(matching_codes)
+
                 if non_expected:
                     wrong_reads.extend(non_expected)
+                    
+                if expected_code in attempt_codes:
+                    expected_reads.append(expected_code)
                     print(
-                        f"[DMTX][WARNING] Codigo diferente al esperado en intento {i + 1}: "
-                        f"{non_expected}"
+                        f"[DMTX][WARNING] Codigo base diferente al esperado en intento {i + 1}: "
+                        f"esperado='{expected_code}', leidos={non_expected}"
                     )
 
                 if len(expected_reads) >= min_expected_reads and len(wrong_reads) <= max_wrong_reads:
