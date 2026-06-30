@@ -22,6 +22,9 @@ class CameraWorker(QObject):
     focus_check_finished = Signal(object)
     focus_check_failed = Signal(str)
 
+    connection_lost = Signal(str)
+    connection_restored = Signal()
+
     def __init__(self,camera_index=0, width=1920, height=1080, platform="other"):
         super().__init__()
         self.camera_index = camera_index
@@ -31,6 +34,12 @@ class CameraWorker(QObject):
 
         self.cap = None
         self.device = None
+
+        self.camera_connected = False
+        self.camera_connection_state = None
+        self.reconnect_interval = 2.0
+        self.read_failure_timeout = 1.0
+        self.read_failure_sleep = 0.03
 
         self._running = False
         self.Trigger = False
@@ -112,6 +121,84 @@ class CameraWorker(QObject):
         de vista del enfoque.
         """
         return bool(self.focus_ready) and not bool(self.focus_busy)
+
+    def is_connected(self):
+        return (
+            bool(self.camera_connected)
+            and self.cap is not None
+            and self.cap.isOpened()
+        )
+
+    def mark_camera_disconnected(self, reason=""):
+        reason = reason or "Camara no disponible"
+        self.camera_connected = False
+        self.current_frame = None
+        self.frame_for_inspection = None
+        self.manual_focus_controller = None
+        self.set_focus_status(busy=False, ready=False, reason="Camara desconectada")
+
+        if self.camera_connection_state != "DISCONNECTED":
+            self.camera_connection_state = "DISCONNECTED"
+            print(f"[CAMERA][DESCONECTADA] {reason}")
+            self.connection_lost.emit(reason)
+
+    def mark_camera_connected(self):
+        self.camera_connected = True
+
+        if self.camera_connection_state != "CONNECTED":
+            self.camera_connection_state = "CONNECTED"
+            print(f"[CAMERA] Conexion restaurada en {self.device}")
+            self.connection_restored.emit()
+
+    def release_camera(self):
+        try:
+            if self.cap is not None:
+                self.cap.release()
+        except Exception as e:
+            print(f"[CAMERA][WARNING] Error liberando camara: {e}")
+        finally:
+            self.cap = None
+            self.manual_focus_controller = None
+
+    def get_cached_focus_config(self):
+        if self.focus_value is None:
+            return None
+
+        return {
+            "enabled": True,
+            "roi": list(self.focus_roi) if self.focus_roi is not None else None,
+            "value": self.focus_value,
+            "min_score": self.focus_min_score,
+            "median_score": self.focus_reference_score,
+            "peak_score": self.focus_peak_score,
+        }
+
+    def initialize_open_camera(self):
+        self.manual_focus_controller = None
+        self.apply_base_controls()
+        self.warmup_camera(frames=40, delay=0.02)
+        self.initial_focus_setup()
+
+        cached_focus = self.get_cached_focus_config()
+        if cached_focus is not None:
+            print("[CAMERA] Reaplicando enfoque cacheado tras apertura/reconexion")
+            self.set_focus_from_recipe(cached_focus)
+
+    def try_open_and_initialize_camera(self):
+        try:
+            if not self.open_camera():
+                self.release_camera()
+                self.mark_camera_disconnected("No se pudo abrir la camara")
+                return False
+
+            self.initialize_open_camera()
+            self.mark_camera_connected()
+            return True
+
+        except Exception as e:
+            self.release_camera()
+            self.mark_camera_disconnected(f"Error inicializando camara: {e}")
+            return False
     
     def find_camera_device(self):
         # SOLO BSUCAMOS EL DEVICE PARA LA RASPBERRY, SI SE TRABAJA EN WIDOWS SE USA CAMERA INDEX 
@@ -1287,37 +1374,65 @@ class CameraWorker(QObject):
 
     @Slot()
     def start(self):
-        # LOOP PRINCIPAL DE CAPTURA
+        # LOOP PRINCIPAL DE CAPTURA + RECONEXION
         self._running = True
-        
+
+        last_emit = time.time()
+        emit_interval = 1 / 30
+        last_reconnect_attempt = 0
+        first_bad_frame_time = None
+
         try:
-            if not self.open_camera():
-                print("[CAMERA][ERROR] No se pudo abrir la camara")
-                self._running = False
-                self.finished.emit()
-                return
-            
-            self.apply_base_controls()
-            self.warmup_camera(frames=40, delay=0.02)
-            self.initial_focus_setup()
-
-            last_emit = time.time()
-            emit_interval = 1 / 30
-
             while self._running:
+                now = time.time()
+
+                if not self.is_connected():
+                    if now - last_reconnect_attempt >= self.reconnect_interval:
+                        last_reconnect_attempt = now
+                        print("[CAMERA] Intentando conectar/reconectar camara...")
+                        self.try_open_and_initialize_camera()
+
+                    time.sleep(0.05)
+                    continue
+
                 self.process_pending_focus_request()
                 self.process_pending_focus_check_request()
 
                 if self.calibrating:
                     time.sleep(0.01)
                     continue
-                
-                ret, frame = self.cap.read()
 
-                if not ret or frame is None or not hasattr(frame, "shape") or frame.size == 0:
-                    time.sleep(0.005)
+                try:
+                    ret, frame = self.cap.read()
+                except Exception as e:
+                    self.release_camera()
+                    self.mark_camera_disconnected(f"Fallo al leer frame: {e}")
+                    first_bad_frame_time = None
                     continue
-                
+
+                valid_frame = (
+                    ret
+                    and frame is not None
+                    and hasattr(frame, "shape")
+                    and frame.size > 0
+                )
+
+                if not valid_frame:
+                    if first_bad_frame_time is None:
+                        first_bad_frame_time = time.time()
+
+                    elapsed = time.time() - first_bad_frame_time
+                    if elapsed >= self.read_failure_timeout:
+                        self.release_camera()
+                        self.mark_camera_disconnected(
+                            f"Sin frames validos durante {elapsed:.2f}s"
+                        )
+                        first_bad_frame_time = None
+
+                    time.sleep(self.read_failure_sleep)
+                    continue
+
+                first_bad_frame_time = None
                 self.current_frame = frame
                 now = time.time()
 
@@ -1328,17 +1443,13 @@ class CameraWorker(QObject):
                 time.sleep(0.001)
 
         except Exception as e:
-            print(f"[CAMERA][ERROR] Error en camara: {e}")
+            print(f"[CAMERA][ERROR] Error en loop principal de camara: {e}")
+            self.mark_camera_disconnected(f"Error en loop principal: {e}")
 
         finally:
             print("[CAMERA] Liberando camara...")
-
-            try:
-                if self.cap:
-                    self.cap.release()
-            except Exception as e:
-                print(f"[CAMERA][ERROR] Error liberando camara: {e}")
-
+            self.release_camera()
+            self.camera_connected = False
             print("[CAMERA] Worker terminado")
             self.finished.emit()
 
@@ -1349,4 +1460,4 @@ class CameraWorker(QObject):
 
         if self.cap is not None:
             print("[CAMERA] Forzando liberacion de camara desde stop")
-            self.cap.release()
+            self.release_camera()

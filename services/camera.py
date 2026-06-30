@@ -27,6 +27,14 @@ class Camera:
             self.last_frame_time = time.monotonic()
             self.frame_id += 1
 
+    def clear(self):
+        """
+        Descarta el frame actual cuando la camara se desconecta
+        """
+        with self._lock:
+            self.last_frame = None
+            self.last_frame_time = None
+
     def has_fresh_frame(self, max_age=None):
         with self._lock:
             if self.last_frame is None or self.last_frame_time is None:

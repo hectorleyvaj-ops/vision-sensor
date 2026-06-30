@@ -245,11 +245,38 @@ class MainWindow(QMainWindow):
         self.camera_worker.finished.connect(self.camera_worker.deleteLater)
         self.camera_worker.focus_check_finished.connect(self.on_focus_check_finished)
         self.camera_worker.focus_check_failed.connect(self.on_focus_check_failed)
+        self.camera_worker.connection_lost.connect(self.on_camera_connection_lost)
+        self.camera_worker.connection_restored.connect(self.on_camera_connection_restored)
 
         self.camera_thread.start()
 
     def update_frame(self, frame):
         self.current_frame = frame      # GUARDAR FRAME ACTUAL PARA COMPARTIR
+
+    def on_camera_connection_lost(self, reason):
+        print(f"[APP][CAMERA] Conexion perdida: {reason}")
+
+        self.current_frame = None
+        self.focus_check_busy = False
+        self.pending_trigger_after_focus = False
+        self.focus_ready_for_active_recipe = False
+        self.focus_runtime_verified = False
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+
+        if hasattr(self, "camera") and self.camera is not None:
+            self.camera.clear()
+
+        self.set_system_status_visual("CRITICAL", f"Camara desconectada: {reason}")
+
+    def on_camera_connection_restored(self):
+        print("[APP][CAMERA] Conexion restaurada")
+
+        self.current_frame = None
+        self.focus_runtime_verified = False
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.publish_rpi_ready_status()
 
     def apply_rois_from_recipe(self):
         self.selected_recipe = self.recipe_manager.get_selected()
@@ -594,6 +621,16 @@ class MainWindow(QMainWindow):
         if self.state_manager.state != "IDLE":
             return f"FSM ocupada en estado {self.state_manager.state}"
 
+        if not hasattr(self, "camera_thread") or not self.camera_thread.isRunning():
+            return "Camera thread no esta corriendo"
+
+        if not hasattr(self, "camera_worker") or self.camera_worker is None:
+            return "CameraWorker no disponible"
+
+        if callable(getattr(self.camera_worker, "is_connected", None)):
+            if not self.camera_worker.is_connected():
+                return "Camara desconectada"
+
         recipe_error = self.validate_active_recipe_for_production()
         if recipe_error:
             return recipe_error
@@ -650,8 +687,12 @@ class MainWindow(QMainWindow):
             "serial sin handshake",
             "state thread no esta corriendo",
             "state manager no disponible",
+            "camera thread no esta corriendo",
             "cameraworker no disponible",
             "camera worker no disponible",
+            "camara desconectada",
+            "camara no conectada",
+            "camera disconnected",
             "thread no esta corriendo",
             "conexion perdida",
             "desconectado",
