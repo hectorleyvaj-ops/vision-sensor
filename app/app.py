@@ -409,17 +409,23 @@ class MainWindow(QMainWindow):
         self.set_indicator_result_style("NOT_READY")
 
     # MEJORAR PARA ACTUALIZAR LA PALETA DE COLORES DE TODA LA INTERFAZ SEGUN EL ESTADO O RESULTADO
-    def set_system_status_visual(self, state, reason=None):
+    def set_system_status_visual(self, state, reason=None, log=True):
         """
         Actualiza el estado general del sistema y refresca el indicador
         usando prioridad centralizada.
+
+        Solo imprime cuando el estado o la razón cambian.
         """
+        state_changed = state != self.current_system_visual_state
+        reason_changed = reason != self.current_system_ready_error
+        should_log = log and reason and (state_changed or reason_changed)
+
         self.current_system_visual_state = state
         self.current_system_ready_error = reason
 
         self.refresh_indicator_visual()
 
-        if reason:
+        if should_log:
             print(f"[APP][STATUS] {state}: {reason}")
 
     def clear_indicator_for_new_cycle(self):
@@ -704,7 +710,7 @@ class MainWindow(QMainWindow):
                 self.last_ready_sent = "READY"
                 self.last_ready_reason = None
 
-            self.set_system_status_visual("READY", None)
+            self.set_system_status_visual("READY", None, log=False)
             return
 
         visual_state = self.classify_ready_error(ready_error)
@@ -715,7 +721,7 @@ class MainWindow(QMainWindow):
             self.last_ready_sent = "NOT_READY"
             self.last_ready_reason = ready_error
 
-        self.set_system_status_visual(visual_state, ready_error)
+        self.set_system_status_visual(visual_state, ready_error, log=False)
 
     def run_fsm(self):
         if self.fsm_busy:
