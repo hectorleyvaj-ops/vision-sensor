@@ -50,6 +50,8 @@ bool triggerLatched = false;
 bool systemSynced = false;
 bool handshakeReceived = false;
 
+bool rpiReady = false;
+
 bool waitingAckResult = false;
 
 unsigned long lastSendTime = 0;
