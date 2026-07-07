@@ -38,7 +38,7 @@ class SerialComm(QObject):
         self.ping_interval = 2.0
         self.connection_timeout = 6.0
 
-        self.duplicate_window = 1.5
+        self.duplicate_window = 5.0
         self.last_trigger_rx_time = 0
         self.last_result_rx = None
         self.last_result_rx_time = 0
