@@ -113,3 +113,7 @@ Controla la camara, emite frames, contrla el enfoque manual por barrido.
    - Agregar retroalimentacion visual para el usuario usando el indicador de la interfaz, modificar segun el resultado del plc, esp o master (via Serial)
    - Utilizar datos que actualmente no se usan de los parametros de las recetas en sus debidas herramientas o quitar si no son necesarios
    - Hacer pruebas intensivas en el sistema de crear, editar y eliminar recetas y etiquetas para encontrar mejoras y bugs
+
+# MEJORAS
+
+Eficientar la discriminacion de la pieza NG por sensores o validaciones rapidas antes de una validacion pesada como QR.
