@@ -56,20 +56,69 @@ class RecipeAndPipelineTests(unittest.TestCase):
         self.assertEqual(set(response["results"]), {"fake_1", "fake_2"})
         self.assertEqual(len(context["outputs_by_tool"]["fake"]), 2)
 
-    def test_uncommissioned_worksurface_recipes_are_blocked(self):
-        manager = RecipeManager("core/models/worksurface_recipes.json")
+    def test_legacy_recipe_is_migrated_to_universal_schema(self):
+        payload = {
+            "recipes": [
+                {
+                    "name": "LEGACY",
+                    "selected": True,
+                    "steps": [
+                        {
+                            "tool": "fake",
+                            "params": {"required": False},
+                        }
+                    ],
+                }
+            ]
+        }
 
-        for recipe in manager.get_all():
-            error = manager.get_execution_error(
-                recipe,
-                available_tools={"dmtx", "img_hist"},
-            )
-            self.assertIn("no esta comisionada", error)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "recipes.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            manager = RecipeManager(str(path), auto_migrate=True)
+            recipe = manager.get_selected()
+            migrated = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(migrated["schema_version"], 2)
+        self.assertEqual(recipe["id"], "legacy")
+        self.assertEqual(recipe["steps"][0]["id"], "fake_1")
+        self.assertFalse(recipe["steps"][0]["required"])
+        self.assertEqual(
+            recipe["steps"][0]["condition"],
+            {"type": "always"},
+        )
+        self.assertNotIn("required", recipe["steps"][0]["params"])
 
     def test_empty_pipeline_never_passes(self):
         response = VisionPipeline({}).run({"steps": []}, {})
         self.assertFalse(response["success"])
         self.assertIn("no contiene herramientas", response["errors"][0])
+
+    def test_step_condition_can_skip_a_tool(self):
+        recipe = {
+            "steps": [
+                {
+                    "id": "only_model_b",
+                    "tool": "fake",
+                    "enabled": True,
+                    "required": True,
+                    "condition": {
+                        "type": "context_equals",
+                        "path": "model",
+                        "value": "B",
+                    },
+                    "params": {},
+                }
+            ]
+        }
+
+        response = VisionPipeline({"fake": SuccessfulTool()}).run(
+            recipe,
+            {"model": "A"},
+        )
+
+        self.assertFalse(response["success"])
+        self.assertEqual(response["skipped_steps"], ["only_model_b"])
 
 
 if __name__ == "__main__":

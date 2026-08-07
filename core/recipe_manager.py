@@ -1,17 +1,24 @@
 import json
 import os
 import re
+from core.step_conditions import ConditionError, evaluate_condition
 
 class RecipeManager:
-    def __init__(self, path="recipes.json"):
+    SCHEMA_VERSION = 2
+
+    def __init__(self, path="recipes.json", auto_migrate=True):
         self.path = path
+        self.auto_migrate = bool(auto_migrate)
         self._ensure_file()
+
+    def _empty_data(self):
+        return {"schema_version": self.SCHEMA_VERSION, "recipes": []}
 
     # INIT FILE - CREA UNA RECETA CON EL ESQUELETO BASE SI NO EXISTE ARCHIVO PREVIO
     def _ensure_file(self):
         if not os.path.exists(self.path):
             with open(self.path, "w") as f:
-                json.dump({"recipes": []}, f, indent=4)
+                json.dump(self._empty_data(), f, indent=4)
 
     # LOAD AND SAVE FILE
     def _load_file(self):
@@ -20,7 +27,7 @@ class RecipeManager:
                 data = json.load(f)
 
             if not isinstance(data, dict):
-                return {"recipes": []}
+                return self._empty_data()
 
             if "recipes" not in data or not isinstance(data["recipes"], list):
                 data["recipes"] = []
@@ -40,12 +47,15 @@ class RecipeManager:
                 except Exception as e2:
                     print(f"[RECIPE_MANAGER][ERROR] Backup invalido: {e2}")
 
-            return {"recipes": []}
+            return self._empty_data()
 
         except FileNotFoundError:
-            return {"recipes": []}
+            return self._empty_data()
 
     def _save_file(self, data):
+        data = dict(data or {})
+        data["schema_version"] = self.SCHEMA_VERSION
+        data.setdefault("recipes", [])
         tmp_path = self.path + ".tmp"
         bak_path = self.path + ".bak"
 
@@ -67,7 +77,15 @@ class RecipeManager:
         data = self._load_file()
         recipes = data.get("recipes", [])
 
-        updated = False
+        schema_version = data.get("schema_version", 1)
+        if schema_version != self.SCHEMA_VERSION and not self.auto_migrate:
+            raise ValueError(
+                f"Recetas schema v{schema_version}; se requiere v{self.SCHEMA_VERSION}"
+            )
+        if not isinstance(schema_version, int) or schema_version > self.SCHEMA_VERSION:
+            raise ValueError(f"Version de recetas no soportada: {schema_version}")
+
+        updated = schema_version != self.SCHEMA_VERSION
 
         for r in recipes:
             if not isinstance(r, dict):
@@ -107,7 +125,9 @@ class RecipeManager:
 
         # GUARDAR LOS CAMBIOS
         if updated:
-            self._save_file({"recipes": recipes})
+            self._save_file(
+                {"schema_version": self.SCHEMA_VERSION, "recipes": recipes}
+            )
 
         return recipes
 
@@ -129,6 +149,7 @@ class RecipeManager:
         self.validate(recipe)
 
         data = self._load_file()
+        data["schema_version"] = self.SCHEMA_VERSION
         recipes = data.get("recipes", [])
 
         # BUSCAR SI YA EXISTE
@@ -169,8 +190,20 @@ class RecipeManager:
                 raise ValueError(f"Step id duplicado: {step_id}")
             step_ids.add(step_id)
 
+            if not isinstance(step.get("enabled", True), bool):
+                raise ValueError(f"enabled invalido en {step_id}")
+            if not isinstance(step.get("required", True), bool):
+                raise ValueError(f"required invalido en {step_id}")
+            try:
+                evaluate_condition(step.get("condition"), {}, {})
+            except ConditionError as exc:
+                raise ValueError(
+                    f"Condicion invalida en {step_id}: {exc}"
+                ) from exc
+
     def delete(self, name):
         data = self._load_file()
+        data["schema_version"] = self.SCHEMA_VERSION
         recipes = data.get("recipes", [])
 
         # GUARDA EN LA VARIABLE R LAS RECETAS QUE CUMPLEN LA CONDICION Y SE LAS ENTREGA A NEW_RECIPES
@@ -191,6 +224,9 @@ class RecipeManager:
                 {
                     "id": "dmtx_1",
                     "tool": "dmtx",
+                    "enabled": True,
+                    "required": True,
+                    "condition": {"type": "always"},
                     "params": self.default_tool_params("dmtx")
                 }
             ],
@@ -208,6 +244,7 @@ class RecipeManager:
 
     def set_selected(self, name):
         data = self._load_file()
+        data["schema_version"] = self.SCHEMA_VERSION
         recipes = data.get("recipes", [])
 
         found = False
@@ -238,7 +275,9 @@ class RecipeManager:
         if recipes:
             print("[RECIPE_MANAGER] No hay receta seleccionada, usando default...")
             recipes[0]["selected"] = True
-            self._save_file({"recipes": recipes})
+            self._save_file(
+                {"schema_version": self.SCHEMA_VERSION, "recipes": recipes}
+            )
             return recipes[0]
 
         print("[RECIPES_MANAGER] No hay recetas disponibles, creando DEFAULT...")
@@ -284,7 +323,6 @@ class RecipeManager:
                 "decode_timeout_ms": 250,
                 "max_total_time": 15.0,
                 "show_roi": False,
-                "required": True,
             },
 
             "img_hist": {
@@ -293,7 +331,6 @@ class RecipeManager:
                 "mode": "below",
                 "template_paths": [],
                 "show_roi": True,
-                "required": True,
             }
         }
 
@@ -342,6 +379,20 @@ class RecipeManager:
                 step["params"] = {}
                 updated = True
 
+            if "enabled" not in step:
+                step["enabled"] = True
+                updated = True
+
+            if "required" not in step:
+                step["required"] = bool(
+                    step["params"].get("required", True)
+                )
+                updated = True
+
+            if "condition" not in step:
+                step["condition"] = {"type": "always"}
+                updated = True
+
             defaults = self.default_tool_params(tool_name)
 
             for key, value in defaults.items():
@@ -349,10 +400,9 @@ class RecipeManager:
                     step["params"][key] = value
                     updated = True
 
-            # Compatibilidad: si alguna receta vieja guardó required al nivel del step,
-            # lo copiamos también a params para que ToolEditor y Pipeline lo vean.
-            if "required" in step and "required" not in step["params"]:
-                step["params"]["required"] = bool(step["required"])
+            # required es politica del paso, no un parametro de la herramienta.
+            if "required" in step["params"]:
+                step["params"].pop("required")
                 updated = True
 
         return updated
@@ -372,14 +422,10 @@ class RecipeManager:
             recipe["id"] = self.slugify(recipe.get("name")) or "recipe"
             updated = True
 
-        # Las recetas existentes estaban activas en produccion. Las nuevas plantillas
-        # Worksurface declaran commissioned=false de forma explicita.
+        # Las recetas heredadas ya estaban activas. Las creadas desde el editor
+        # comienzan sin comisionar hasta completar herramientas y enfoque.
         if "commissioned" not in recipe:
             recipe["commissioned"] = True
-            updated = True
-
-        if "machine" not in recipe or not isinstance(recipe["machine"], dict):
-            recipe["machine"] = {}
             updated = True
 
         return updated
@@ -460,6 +506,8 @@ class RecipeManager:
 
         available = set(available_tools or [])
         for step in steps:
+            if not step.get("enabled", True):
+                continue
             tool_name = step["tool"]
             step_id = step["id"]
             params = step.get("params", {})
@@ -486,4 +534,3 @@ class RecipeManager:
                     return f"ROI sin area valida en {step_id}: {roi}"
 
         return None
-

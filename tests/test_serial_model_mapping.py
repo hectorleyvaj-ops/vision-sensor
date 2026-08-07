@@ -1,27 +1,28 @@
 import unittest
 
-from services.model_mapping import extract_model, normalize_model
+from services.model_mapping import normalize_model
 
 
 class SerialModelMappingTests(unittest.TestCase):
     def setUp(self):
         self.model_map = {
-            "A": "MODELO_A",
-            "B": "MODELO_B",
-            "C": "MODELO_C",
+            "LINE-01": "RECIPE_RED",
+            "SKU-8472": "RECIPE_BLUE",
         }
 
-    def test_model_mapping_is_not_forced_to_a(self):
-        self.assertEqual(normalize_model("A", self.model_map), "MODELO_A")
-        self.assertEqual(normalize_model("b", self.model_map), "MODELO_B")
-        self.assertEqual(normalize_model(" C ", self.model_map), "MODELO_C")
-        self.assertIsNone(normalize_model("D", self.model_map))
-
-    def test_model_is_extracted_from_handshake(self):
+    def test_external_model_ids_map_to_recipe_names(self):
         self.assertEqual(
-            extract_model("SYNC_OK|MODEL: C"),
-            "C",
+            normalize_model("line-01", self.model_map),
+            "RECIPE_RED",
         )
+        self.assertEqual(
+            normalize_model(" SKU-8472 ", self.model_map),
+            "RECIPE_BLUE",
+        )
+        self.assertIsNone(normalize_model("UNKNOWN", self.model_map))
+
+    def test_empty_map_does_not_impose_a_naming_convention(self):
+        self.assertEqual(normalize_model("sku-8472", {}), "SKU-8472")
 
 
 if __name__ == "__main__":

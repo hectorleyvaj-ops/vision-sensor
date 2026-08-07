@@ -1,5 +1,13 @@
 from utils.qt_compat import QObject, Signal, Slot
-from services.model_mapping import extract_model, normalize_model
+from services.model_mapping import normalize_model
+from services.controller_protocol import (
+    PROTOCOL_VERSION,
+    CycleGuard,
+    ProtocolError,
+    decode_message,
+    encode_message,
+    validate_result,
+)
 import serial
 import time
 import threading
@@ -9,7 +17,8 @@ ETX = b'\x03'
 
 
 class SerialComm(QObject):
-    trigger_received = Signal()
+    cycle_trigger_received = Signal(object)
+    cycle_cancelled = Signal(object)
     model_received = Signal(str)
     esp_result_received = Signal(str)
     reset_received = Signal()
@@ -48,17 +57,17 @@ class SerialComm(QObject):
 
         self.synced = False
         self.current_model = None
+        self.remote_not_ready_reason = None
+        self.cycle_guard = CycleGuard()
+        self.heartbeat_sequence = 0
 
         self.last_rx_time = time.time()
         self.last_ping_time = 0
         self.ping_interval = 2.0
         self.connection_timeout = 6.0
 
-        self.duplicate_window = 5.0
-        self.last_trigger_rx_time = 0
         self.last_result_rx = None
         self.last_result_rx_time = 0
-        self.last_reset_rx_time = 0
 
 
         self._serial_lock = threading.RLock()
@@ -115,6 +124,14 @@ class SerialComm(QObject):
             print(f"[SERIAL][DESCONECTADO] {reason}")
 
         self.synced = False
+        cancelled_cycle = self.cycle_guard.cancel()
+        if cancelled_cycle:
+            self.cycle_cancelled.emit(
+                {
+                    "cycle_id": cancelled_cycle,
+                    "reason": "SERIAL_CONNECTION_LOST",
+                }
+            )
         self.connection_lost.emit(reason)
 
         with self._serial_lock:
@@ -181,7 +198,7 @@ class SerialComm(QObject):
                 self.ser.write(packet)
                 self.ser.flush()
 
-            if message not in ("PING",):
+            if not message.startswith("PING"):
                 print(f"[SERIAL] Mensaje enviado: {message}")
             return {"status": "OK"}
 
@@ -196,16 +213,16 @@ class SerialComm(QObject):
         Es el recomendado durante reconexion porque libera estados internos
         sin reiniciar fisicamente el microcontrolador.
         """
-        print("[SERIAL] Solicitando RESET_FSM a ESP32")
-        return self.send_raw_message("RESET_FSM")
+        print("[SERIAL] Solicitando RESET logico al controlador")
+        return self.send_raw_message(encode_message("RESET", scope="CYCLE"))
 
     def restart_esp(self):
         """
         Reinicio completo de la ESP32.
         Usar solo si la ESP queda en estado raro y el reset logico no basta.
         """
-        print("[SERIAL] Solicitando ESP_RESTART a ESP32")
-        result = self.send_raw_message("ESP_RESTART")
+        print("[SERIAL] Solicitando reinicio al controlador")
+        result = self.send_raw_message(encode_message("RESTART"))
         self.synced = False
         return result
 
@@ -214,14 +231,26 @@ class SerialComm(QObject):
         Aviso hacia la ESP para alargar timeout de vision durante enfoque/calibracion.
         """
         print("[SERIAL] Avisando CALIBRATING a ESP32")
-        return self.send_raw_message("CALIBRATING")
+        return self.send_raw_message(
+            encode_message(
+                "FOCUS",
+                state="BUSY",
+                cycle=self.cycle_guard.active_cycle_id,
+            )
+        )
 
     def notify_focus_busy(self):
         """
         Alias opcional para indicar enfoque ocupado.
         """
         print("[SERIAL] Avisando FOCUS_BUSY a ESP32")
-        return self.send_raw_message("FOCUS_BUSY")
+        return self.send_raw_message(
+            encode_message(
+                "FOCUS",
+                state="BUSY",
+                cycle=self.cycle_guard.active_cycle_id,
+            )
+        )
 
     def notify_rpi_ready(self):
         """
@@ -230,113 +259,65 @@ class SerialComm(QObject):
         la disponibilidad del sensor inteligente.
         """
         if not self.ready_notifications_enabled:
-            return {"status": "SKIPPED", "reason": "Firmware sin RPI_READY"}
-        return self.send_raw_message("RPI_READY")
+            return {"status": "SKIPPED", "reason": "READY deshabilitado"}
+        return self.send_raw_message(encode_message("READY", state=1))
 
-    def notify_rpi_not_ready(self):
+    def notify_rpi_not_ready(self, reason=None):
         """
         Avisa a la ESP que la Raspberry no esta lista para aceptar inspecciones.
         La ESP debe ignorar triggers mientras este estado este activo.
         """
         if not self.ready_notifications_enabled:
-            return {"status": "SKIPPED", "reason": "Firmware sin RPI_NOT_READY"}
-        return self.send_raw_message("RPI_NOT_READY")
+            return {"status": "SKIPPED", "reason": "READY deshabilitado"}
+        return self.send_raw_message(
+            encode_message("READY", state=0, reason=reason or "NOT_READY")
+        )
 
-    def send_raw_ack(self):
-        """Responde ACK a mensajes asincronos de la ESP32."""
-        try:
-            with self._serial_lock:
-                if not self.is_connected():
-                    print("[SERIAL][WARNING] No se pudo enviar ACK: puerto no conectado")
-                    return False
-
-                self.ser.write(self.build_command("ACK"))
-                self.ser.flush()
-                print("[SERIAL] ACK enviado")
-                return True
-
-        except Exception as e:
-            print(f"[SERIAL][ERROR] No se pudo enviar ACK: {e}")
-            return False
+    def send_protocol_ack(self, ref_type, cycle_id=None, status="OK", error=None):
+        return self.send_raw_message(
+            encode_message(
+                "ACK",
+                type=ref_type,
+                cycle=cycle_id,
+                status=status,
+                error=error,
+            )
+        )
 
     def normalize_model(self, model):
         return normalize_model(model, self.model_map)
 
-    @staticmethod
-    def extract_model(message):
-        return extract_model(message)
-
     def process_message(self, msg: str):
         self.last_rx_time = time.time()
-        msg = (msg or "").strip()
+        self.process_controller_message((msg or "").strip())
 
-        if msg not in ("PONG",):
-            print(f"[SERIAL] Mensaje recibido: {msg}")
-
-        if msg == "TRIGGER":
-            self.send_raw_ack()
-            now = time.time()
-
-            if now - self.last_trigger_rx_time < self.duplicate_window:
-                print("[SERIAL] TRIGGER duplicado/reitento ignorado")
-                return
-
-            self.last_trigger_rx_time = now
-            self.trigger_received.emit()
-
-        elif msg in ("OK", "NG"):
-            # Resultado final del sistema enviado por la ESP32/PLC.
-            # La ESP lo reintentara si no recibe ACK, por eso se responde aqui.
-            self.send_raw_ack()
-            now = time.time()
-
-            if now - self.last_result_rx_time < self.duplicate_window and self.last_result_rx == msg:
-                print(f"[SERIAL] Resultado final duplicado/reitento ignorado: {msg}")
-                return
-
-            self.last_result_rx_time = now
-            self.last_result_rx = msg
-            self.esp_result_received.emit(msg)
-
-        elif msg == "RESET":
-            # RESET enviado por ESP al liberar con llave de calidad.
-            self.send_raw_ack()
-            now = time.time()
-
-            if now - self.last_reset_rx_time < self.duplicate_window:
-                print("[SERIAL] RESET duplicado/reitento ignorado")
-                return
-
-            self.last_reset_rx_time = now
-            self.reset_received.emit()
-
-        elif msg == "ACK":
-            # ACK ya se maneja directamente en send_command().
-            print("[SERIAL] ACK recibido fuera de envio activo")
-
-        elif msg == "PONG":
-            # WatchDog vivo. No imprimir cada PONG para no saturar el log
+    def process_controller_message(self, payload: str):
+        try:
+            message = decode_message(payload)
+        except ProtocolError as exc:
+            print(f"[SERIAL][PROTOCOL][WARNING] Mensaje invalido: {exc}")
             return
 
-        elif msg.startswith("MODEL:"):
-            model = self.normalize_model(self.extract_model(msg))
+        kind = message.kind
+        fields = message.fields
 
-            if not model:
-                print("[SERIAL][WARNING] Modelo no reconocido, mensaje ignorado")
-                return
+        if kind not in ("PONG", "ACK"):
+            print(f"[SERIAL][PROTOCOL] Mensaje recibido: {payload}")
 
-            print(f"[SERIAL] Modelo detectado: {model}")
-            self.model_received.emit(model)
-
-        elif msg.startswith("SYNC_OK"):
+        if kind == "HELLO_ACK":
             try:
+                message.require("PROTO")
+                if fields["PROTO"] != PROTOCOL_VERSION:
+                    raise ProtocolError(
+                        f"Version incompatible: ESP={fields['PROTO']} RPI={PROTOCOL_VERSION}"
+                    )
+
                 was_synced = self.synced
                 self.synced = True
-                raw_model = self.extract_model(msg)
-                normalized_model = self.normalize_model(raw_model)
-
-                if raw_model is not None and normalized_model is None:
-                    print(f"[SERIAL][WARNING] Modelo de SYNC no configurado: {raw_model}")
+                raw_model = fields.get("MODEL")
+                normalized_model = self.normalize_model(raw_model) if raw_model else None
+                if raw_model and normalized_model is None:
+                    raise ProtocolError(f"Modelo de HELLO no configurado: {raw_model}")
 
                 model_changed = (
                     normalized_model is not None
@@ -345,19 +326,130 @@ class SerialComm(QObject):
                 if normalized_model is not None:
                     self.current_model = normalized_model
 
+                if fields.get("READY") == "0":
+                    self.remote_not_ready_reason = fields.get(
+                        "REASON",
+                        "Controlador remoto no listo",
+                    )
+                else:
+                    self.remote_not_ready_reason = None
+
                 if not was_synced:
                     self.connection_restored.emit()
-
-                print("[SERIAL] Sincronizado con ESP32")
                 if model_changed:
-                    print(f"[SERIAL] Modelo sincronizado: {self.current_model}")
                     self.model_received.emit(self.current_model)
 
-            except Exception as e:
-                print(f"[SERIAL][ERROR] al procesar SYNC_OK: {e}")
+                print(
+                    f"[SERIAL][PROTOCOL] Sincronizado con firmware "
+                    f"{fields.get('FW', 'desconocido')}"
+                )
+            except ProtocolError as exc:
+                self.synced = False
+                print(f"[SERIAL][PROTOCOL][ERROR] Handshake rechazado: {exc}")
+            return
 
-        else:
-            print(f"[SERIAL][WARNING] Mensaje no reconocido: {msg}")
+        if kind == "MODEL":
+            try:
+                message.require("CODE")
+                normalized_model = self.normalize_model(fields["CODE"])
+                if normalized_model is None:
+                    raise ProtocolError(f"Modelo no configurado: {fields['CODE']}")
+                if normalized_model != self.current_model:
+                    self.current_model = normalized_model
+                    self.model_received.emit(normalized_model)
+            except ProtocolError as exc:
+                print(f"[SERIAL][PROTOCOL][WARNING] MODEL rechazado: {exc}")
+            return
+
+        if kind == "TRIGGER":
+            cycle_id = fields.get("CYCLE")
+            try:
+                message.require("CYCLE", "MODEL")
+                event = self.cycle_guard.begin(cycle_id, fields["MODEL"])
+                normalized_model = self.normalize_model(event["model"])
+                if normalized_model is None:
+                    raise ProtocolError(
+                        f"Modelo no configurado: {event['model']}"
+                    )
+                event["recipe_name"] = normalized_model
+
+                self.send_protocol_ack("TRIGGER", cycle_id)
+                if normalized_model != self.current_model:
+                    self.current_model = normalized_model
+                    self.model_received.emit(normalized_model)
+                self.cycle_trigger_received.emit(event)
+            except ProtocolError as exc:
+                if self.cycle_guard.active_cycle_id == cycle_id:
+                    self.cycle_guard.cancel(cycle_id)
+                self.send_protocol_ack(
+                    "TRIGGER",
+                    cycle_id,
+                    status="REJECTED",
+                    error=str(exc),
+                )
+                print(f"[SERIAL][PROTOCOL][WARNING] TRIGGER rechazado: {exc}")
+            return
+
+        if kind == "FINAL_RESULT":
+            cycle_id = fields.get("CYCLE")
+            try:
+                message.require("CYCLE", "RESULT")
+                result = validate_result(fields["RESULT"])
+                self.cycle_guard.close(cycle_id)
+                self.send_protocol_ack("FINAL_RESULT", cycle_id)
+                self.last_result_rx = result
+                self.last_result_rx_time = time.time()
+                self.esp_result_received.emit(result)
+            except ProtocolError as exc:
+                self.send_protocol_ack(
+                    "FINAL_RESULT",
+                    cycle_id,
+                    status="REJECTED",
+                    error=str(exc),
+                )
+                print(
+                    f"[SERIAL][PROTOCOL][WARNING] "
+                    f"Resultado tardio rechazado: {exc}"
+                )
+            return
+
+        if kind == "CANCEL":
+            cycle_id = fields.get("CYCLE")
+            try:
+                cancelled = self.cycle_guard.cancel(cycle_id)
+                self.send_protocol_ack("CANCEL", cancelled or cycle_id)
+                event = {
+                    "cycle_id": cancelled or cycle_id,
+                    "reason": fields.get("REASON", "CANCELLED"),
+                }
+                self.cycle_cancelled.emit(event)
+                self.reset_received.emit()
+            except ProtocolError as exc:
+                self.send_protocol_ack(
+                    "CANCEL", cycle_id, status="REJECTED", error=str(exc)
+                )
+                print(f"[SERIAL][PROTOCOL][WARNING] CANCEL rechazado: {exc}")
+            return
+
+        if kind == "PONG":
+            return
+
+        if kind == "ACK":
+            print(
+                f"[SERIAL][PROTOCOL] ACK asincrono: "
+                f"{fields.get('TYPE', 'UNKNOWN')} {fields.get('CYCLE', '')}"
+            )
+            return
+
+        if kind == "ERROR":
+            print(
+                f"[SERIAL][PROTOCOL][REMOTE_ERROR] "
+                f"{fields.get('CODE', 'UNKNOWN')}: "
+                f"{fields.get('DETAIL', '')}"
+            )
+            return
+
+        print(f"[SERIAL][PROTOCOL][WARNING] Tipo no reconocido: {kind}")
 
     def read_packet_blocking(self, timeout=1.0):
         if not self.is_connected():
@@ -407,21 +499,26 @@ class SerialComm(QObject):
                     self.ser.reset_input_buffer()
                     self.ser.reset_output_buffer()
 
-                    packet = self.build_command("SYNC")
+                    handshake = encode_message(
+                        "HELLO",
+                        proto=PROTOCOL_VERSION,
+                        role="VISION_ENGINE",
+                    )
+                    packet = self.build_command(handshake)
                     self.ser.write(packet)
                     self.ser.flush()
 
                     msg = self.read_packet_blocking(timeout=2.0)
 
-                if msg == "ACK":
-                    # La ESP puede responder ACK primero y luego SYNC_OK.
-                    msg = self.read_packet_blocking(timeout=2.0)
-
-                if msg and msg.startswith("SYNC_OK"):
+                expected_prefix = "HELLO_ACK"
+                if msg and msg.startswith(expected_prefix):
                     self.process_message(msg)
                     return True
 
-                print("[SERIAL] Sin respuesta SYNC_OK, reintentando handshake...")
+                print(
+                    f"[SERIAL] Sin respuesta {expected_prefix}, "
+                    "reintentando handshake..."
+                )
 
             except Exception as e:
                 print(f"[SERIAL][ERROR] durante handshake: {e}")
@@ -486,7 +583,9 @@ class SerialComm(QObject):
                     and now - self.last_ping_time >= self.ping_interval
                 ):
                     self.last_ping_time = now
-                    self.send_raw_message("PING")
+                    self.heartbeat_sequence += 1
+                    ping = encode_message("PING", seq=self.heartbeat_sequence)
+                    self.send_raw_message(ping)
 
                 if (
                     self.heartbeat_enabled
@@ -562,7 +661,7 @@ class SerialComm(QObject):
 
             time.sleep(0.01)
 
-    def send_command(self, cmd: str) -> dict:
+    def send_command(self, cmd: str, cycle_id=None) -> dict:
         """
         Envia comando a ESP32 esperando ACK.
         Se usa principalmente para resultado de receta OK/NG enviado desde Raspberry.
@@ -570,7 +669,18 @@ class SerialComm(QObject):
         if not self.is_connected():
             return {"status": "ERROR", "error": "Puerto no conectado"}
 
-        packet = self.build_command(cmd)
+        try:
+            result_value = validate_result(cmd)
+            cycle = self.cycle_guard.require_active(cycle_id)
+            command = encode_message(
+                "VISION_RESULT",
+                cycle=cycle,
+                result=result_value,
+            )
+        except ProtocolError as exc:
+            return {"status": "ERROR", "error": str(exc)}
+
+        packet = self.build_command(command)
 
         for attempt in range(self.max_retries):
             try:
@@ -578,7 +688,7 @@ class SerialComm(QObject):
                     if not self.is_connected():
                         return {"status": "ERROR", "error": "Puerto no encontrado"}
 
-                    print(f"[SERIAL] Enviando comando: {cmd}, intento: {attempt + 1}")
+                    print(f"[SERIAL] Enviando comando: {command}, intento: {attempt + 1}")
 
                     # DEJAMOS DE LIMPIAR LOS BUFFERS DE ENTRADA Y SALIDA ANTES DE CADA SEND_COMAND
                     self.ser.write(packet)
@@ -586,7 +696,20 @@ class SerialComm(QObject):
 
                     msg = self.read_packet_blocking(timeout=1.0)
 
-                    if msg == "ACK":
+                    ack_matches = False
+                    if msg:
+                        try:
+                            ack = decode_message(msg)
+                            ack_matches = (
+                                ack.kind == "ACK"
+                                and ack.fields.get("TYPE") == "VISION_RESULT"
+                                and ack.fields.get("CYCLE") == str(cycle_id)
+                                and ack.fields.get("STATUS", "OK") == "OK"
+                            )
+                        except ProtocolError:
+                            ack_matches = False
+
+                    if ack_matches:
                         print("[SERIAL] ACK recibido")
                         return {"status": "OK"}
 
@@ -609,4 +732,3 @@ class SerialComm(QObject):
     def stop(self):
         self._running = False
         self.close()
-

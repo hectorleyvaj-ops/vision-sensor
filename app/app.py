@@ -35,9 +35,13 @@ class MainWindow(QMainWindow):
         config_path = os.getenv("VISION_SYSTEM_CONFIG", "config/system.json")
         self.system_config = SystemConfig(config_path)
         self.camera_config = self.system_config.section("camera")
-        self.serial_config = self.system_config.section("serial")
-        self.production_config = self.system_config.section("production")
-        print(f"[CONFIG] Perfil activo: {self.system_config.profile_name}")
+        self.controller_config = self.system_config.section("controller")
+        self.runtime_config = self.system_config.section("runtime")
+        installation = self.system_config.section("installation")
+        print(
+            f"[CONFIG] Instalacion activa: "
+            f"{installation.get('name', installation.get('id'))}"
+        )
 
         self.apply_main_button_feedbacks()
 
@@ -65,17 +69,17 @@ class MainWindow(QMainWindow):
         self.focus_runtime_verified = False
 
         # BLOQUEOS DE PRODUCCION
-        self.require_serial_ready = bool(
-            self.production_config.get("require_serial_ready", True)
+        self.require_controller_ready = bool(
+            self.runtime_config.get("require_controller_ready", True)
         )
-        self.require_serial_sync = bool(
-            self.production_config.get("require_serial_sync", True)
+        self.require_controller_sync = bool(
+            self.runtime_config.get("require_controller_sync", True)
         )
         self.production_focus_required = bool(
-            self.production_config.get("require_focus_ready", True)
+            self.runtime_config.get("require_focus_ready", True)
         )
         self.max_frame_age = float(
-            self.production_config.get("max_frame_age_seconds", 0.50)
+            self.runtime_config.get("max_frame_age_seconds", 0.50)
         )
         self.last_recipe_result = None
         self.last_esp_result = None
@@ -153,7 +157,10 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        self.recipe_manager = RecipeManager(self.system_config.recipe_file)
+        self.recipe_manager = RecipeManager(
+            self.system_config.recipe_file,
+            auto_migrate=self.system_config.auto_migrate_recipes,
+        )
         self.setup_camera()
         self.setup_serial()
         self.setup_state_manager()
@@ -309,20 +316,20 @@ class MainWindow(QMainWindow):
             print("[FOCUS][WARNING] La receta activa no tiene enfoque guardado completo")
 
     def setup_serial(self):
-        puerto = self.system_config.serial_port(self.platform)
+        puerto = self.system_config.controller_port(self.platform)
 
         self.serial_thread = QThread()
         self.serial = SerialComm(
             port=puerto,
-            baudrate=int(self.serial_config.get("baudrate", 115200)),
-            timeout=float(self.serial_config.get("timeout", 1.0)),
-            reset_on_connect=bool(self.serial_config.get("reset_on_connect", True)),
-            model_map=self.serial_config.get("model_map", {}),
+            baudrate=int(self.controller_config.get("baudrate", 115200)),
+            timeout=float(self.controller_config.get("timeout", 1.0)),
+            reset_on_connect=bool(self.controller_config.get("reset_on_connect", True)),
+            model_map=self.controller_config.get("model_map", {}),
             heartbeat_enabled=bool(
-                self.serial_config.get("heartbeat_enabled", False)
+                self.controller_config.get("heartbeat_enabled", True)
             ),
             ready_notifications_enabled=bool(
-                self.serial_config.get("ready_notifications_enabled", False)
+                self.controller_config.get("ready_notifications_enabled", True)
             ),
         )
 
@@ -330,7 +337,8 @@ class MainWindow(QMainWindow):
 
         self.serial_thread.started.connect(self.serial.start_listening)
 
-        self.serial.trigger_received.connect(self.run_fsm)
+        self.serial.cycle_trigger_received.connect(self.on_cycle_trigger_received)
+        self.serial.cycle_cancelled.connect(self.on_cycle_cancelled)
         self.serial.model_received.connect(self.on_model_changed)
         self.serial.esp_result_received.connect(self.on_esp_result_received)
         self.serial.reset_received.connect(self.on_esp_reset_received)
@@ -346,6 +354,8 @@ class MainWindow(QMainWindow):
         self.last_ready_reason = None
 
         self.set_system_status_visual("CRITICAL", f"Conexion perdida: {reason}")
+        if hasattr(self, "state_manager"):
+            self.state_manager.cancel_cycle(reason="SERIAL_CONNECTION_LOST")
 
     def on_serial_connection_restored(self):
         print("[APP][SERIAL] Conexion restaurada con ESP32")
@@ -372,7 +382,7 @@ class MainWindow(QMainWindow):
             self.processor,
             self.comm,
             mechanical_settle_ms=int(
-                self.production_config.get("mechanical_settle_ms", 0)
+                self.runtime_config.get("mechanical_settle_ms", 0)
             ),
         )
 
@@ -549,6 +559,48 @@ class MainWindow(QMainWindow):
         print("[APP] RESET recibido desde ESP32/PLC")
         self.clear_indicator_from_reset()
 
+    def on_cycle_trigger_received(self, event):
+        if not isinstance(event, dict):
+            print("[APP][CONTROLLER][ERROR] Trigger sin contexto valido")
+            return
+
+        recipe_name = event.get("recipe_name")
+        if recipe_name and (
+            not self.selected_recipe
+            or self.selected_recipe.get("name") != recipe_name
+        ):
+            self.on_model_changed(recipe_name)
+
+        try:
+            self.state_manager.prepare_cycle(event)
+        except (ValueError, RuntimeError) as exc:
+            print(f"[APP][CONTROLLER][ERROR] Ciclo rechazado: {exc}")
+            self.reject_controller_cycle(event, str(exc))
+            return
+
+        if not self.run_fsm():
+            self.reject_controller_cycle(event, "Raspberry dejo de estar lista")
+
+    def reject_controller_cycle(self, event, reason):
+        cycle_id = event.get("cycle_id") if isinstance(event, dict) else None
+        print(
+            f"[APP][CONTROLLER] Reportando NG seguro para ciclo "
+            f"{cycle_id}: {reason}"
+        )
+        if cycle_id and hasattr(self, "serial"):
+            self.serial.send_command("NG", cycle_id=cycle_id)
+        if hasattr(self, "state_manager"):
+            self.state_manager.cancel_cycle(cycle_id=cycle_id, reason=reason)
+
+    def on_cycle_cancelled(self, event):
+        event = event if isinstance(event, dict) else {}
+        reason = event.get("reason", "CANCELLED")
+        cycle_id = event.get("cycle_id")
+        print(f"[APP][CONTROLLER] Ciclo {cycle_id} cancelado: {reason}")
+        if hasattr(self, "state_manager"):
+            self.state_manager.cancel_cycle(cycle_id=cycle_id, reason=reason)
+        self.clear_indicator_from_reset()
+
     def is_focus_config_complete(self, focus):
         if not isinstance(focus, dict):
             return False
@@ -590,6 +642,17 @@ class MainWindow(QMainWindow):
         if getattr(self.camera_worker, "focus_busy", False):
             return "Camara enfocando/calibrando"
 
+        focus = self.get_active_focus_config()
+        can_prepare_on_trigger = (
+            focus.get("mode", "calibrated") == "calibrated"
+            and focus.get("verify_on_first_trigger", True)
+            and self.platform == "linux"
+            and getattr(self.camera_worker, "focus_absolute_supported", False)
+        )
+
+        if not getattr(self.camera_worker, "focus_ready", False) and can_prepare_on_trigger:
+            return None
+
         if not getattr(self.camera_worker, "focus_ready", False):
             return "Foco de camara no listo/no aplicado"
 
@@ -623,15 +686,23 @@ class MainWindow(QMainWindow):
         if not self.camera.has_fresh_frame(max_age=self.max_frame_age):
             return "No hay frame fresco de camara"
 
-        if self.require_serial_ready:
+        if self.require_controller_ready:
             if not hasattr(self, "serial") or self.serial is None:
                 return "Serial no disponible"
 
             if not self.serial.is_connected():
                 return "Serial no conectado"
 
-            if self.require_serial_sync and not self.serial.synced:
-                return "Serial sin handshake SYNC_OK"
+            if self.require_controller_sync and not self.serial.synced:
+                return "Controlador sin handshake HELLO_ACK"
+
+            remote_error = getattr(
+                self.serial,
+                "remote_not_ready_reason",
+                None,
+            )
+            if remote_error:
+                return remote_error
 
         if self.focus_check_busy:
             return "Enfoque/Calibracion en proceso"
@@ -687,6 +758,7 @@ class MainWindow(QMainWindow):
             "dmtx",
             "step",
             "expected_code",
+            "sensores esp32",
         )
 
         for keyword in warning_keywords:
@@ -726,35 +798,42 @@ class MainWindow(QMainWindow):
 
         if self.last_ready_sent != "NOT_READY" or self.last_ready_reason != ready_error:
             print(f"[APP][READY] Raspberry NO lista: {ready_error}")
-            self.serial.notify_rpi_not_ready()
+            self.serial.notify_rpi_not_ready(ready_error)
             self.last_ready_sent = "NOT_READY"
             self.last_ready_reason = ready_error
 
         self.set_system_status_visual(visual_state, ready_error, log=False)
 
     def run_fsm(self):
+        pending_cycle = getattr(self.state_manager, "pending_cycle", None)
+        if not isinstance(pending_cycle, dict) or not pending_cycle.get("cycle_id"):
+            print(
+                "[FSM][BLOQUEADO] No existe un ciclo valido del controlador"
+            )
+            return False
+
         if self.fsm_busy:
             print("[FSM] Ciclo ocupado, trigger ignorado")
-            return
+            return False
 
         if self.focus_check_busy:
             print("[FOCUS] Verificacion/recalibracion de enfoque en proceso, trigger ignorado")
-            return
+            return False
 
         ready_error = self.get_system_ready_error()
         if ready_error:
             print(f"[SYSTEM][BLOQUEADO] Trigger rechazado: {ready_error}")
             visual_state = self.classify_ready_error(ready_error)
             self.set_system_status_visual(visual_state, ready_error)
-            return
+            return False
 
         self.clear_indicator_for_new_cycle()
 
         if self.should_check_focus_before_trigger():
             self.start_focus_check_before_trigger()
-            return
+            return True
 
-        self.start_fsm_cycle(reset_indicator=False)
+        return self.start_fsm_cycle(reset_indicator=False)
 
     def get_active_focus_config(self):
         recipe = self.selected_recipe or self.recipe_manager.get_selected()
@@ -804,13 +883,13 @@ class MainWindow(QMainWindow):
     def start_fsm_cycle(self, reset_indicator=True):
         if self.fsm_busy:
             print("[FSM] Ciclo ocupado, trigger ignorado")
-            return
+            return False
 
         ready_error = self.get_system_ready_error()
         if ready_error:
             print(f"[SYSTEM][BLOQUEADO] Ciclo no iniciado: {ready_error}")
             self.fsm_busy = False
-            return
+            return False
 
         if reset_indicator:
             self.clear_indicator_for_new_cycle()
@@ -823,6 +902,10 @@ class MainWindow(QMainWindow):
                 "run_once",
                 Qt.QueuedConnection
             )
+            return True
+
+        self.fsm_busy = False
+        return False
 
     def on_fsm_finished(self):
         self.fsm_busy = False

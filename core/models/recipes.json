@@ -25,7 +25,8 @@
                         "upscale": 2.0,
                         "decode_timeout_ms": 250,
                         "max_total_time": 20.0
-                    }
+                    },
+                    "id": "dmtx_1"
                 }
             ],
             "focus": {
@@ -41,8 +42,12 @@
                 "median_score": 2525,
                 "peak_score": 2563,
                 "verify_on_first_trigger": true,
-                "auto_refocus_if_failed": true
-            }
+                "auto_refocus_if_failed": true,
+                "mode": "calibrated"
+            },
+            "id": "modelo_a",
+            "commissioned": true,
+            "machine": {}
         }
     ]
 }

@@ -10,11 +10,4 @@ def normalize_model(model, model_map=None):
     if normalized_map:
         return normalized_map.get(raw_model)
 
-    return raw_model if raw_model.startswith("MODELO_") else f"MODELO_{raw_model}"
-
-
-def extract_model(message):
-    marker = "MODEL:"
-    if marker not in str(message or ""):
-        return None
-    return str(message).split(marker, 1)[1].strip().split("|", 1)[0].strip()
+    return raw_model

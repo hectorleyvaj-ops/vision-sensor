@@ -505,7 +505,9 @@ class ConfigWindow(QWidget):
             screen_size=screen_size
         )
 
-        editor.set_values(params)
+        editor_values = dict(params)
+        editor_values["required"] = step.get("required", True)
+        editor.set_values(editor_values)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -527,6 +529,7 @@ class ConfigWindow(QWidget):
 
         def save():
             new_params = editor.get_values()
+            required = bool(new_params.pop("required", True))
 
             # Mantiene parametros existentes que no aparezcan todavía en schemas.py.
             # Esto evita perder configuraciones nuevas o futuras al editar desde la UI.
@@ -538,6 +541,7 @@ class ConfigWindow(QWidget):
             merged_params.update(new_params)
 
             self.current_recipe["steps"][selected]["params"] = merged_params
+            self.current_recipe["steps"][selected]["required"] = required
 
             self.recipe_manager.save(self.current_recipe)
 
@@ -624,8 +628,12 @@ class ConfigWindow(QWidget):
 
         def save():
             new_params = editor.get_values()
+            required = bool(new_params.pop("required", True))
             new_step = {
                 "tool": cmb_tools.currentText(),
+                "enabled": True,
+                "required": required,
+                "condition": {"type": "always"},
                 "params": new_params
             }
             self.current_recipe["steps"].append(new_step)

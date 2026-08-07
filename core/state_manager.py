@@ -3,6 +3,7 @@
 
 from utils.qt_compat import Signal, QObject
 import time
+import threading
 
 class StateManager(QObject):
     inspectionResult = Signal(str)
@@ -19,6 +20,40 @@ class StateManager(QObject):
         self.recipe = None
         self.active_recipe_name = None
         self.recipe_manager = None
+        self.pending_cycle = None
+        self.cancel_requested = threading.Event()
+        self.cancel_reason = None
+
+    def prepare_cycle(self, cycle_context):
+        if not isinstance(cycle_context, dict):
+            raise ValueError("El contexto de ciclo debe ser un diccionario")
+        if not cycle_context.get("cycle_id"):
+            raise ValueError("El protocolo del controlador requiere cycle_id")
+        if self.state != "IDLE" or self.pending_cycle is not None:
+            raise RuntimeError("La FSM ya tiene un ciclo pendiente o activo")
+
+        self.cancel_requested.clear()
+        self.cancel_reason = None
+        self.pending_cycle = dict(cycle_context)
+
+    def cancel_cycle(self, cycle_id=None, reason="CANCELLED"):
+        active_cycle = self.context.get("cycle_id") if self.context else None
+        pending_cycle = (
+            self.pending_cycle.get("cycle_id")
+            if isinstance(self.pending_cycle, dict)
+            else None
+        )
+        known_cycle = active_cycle or pending_cycle
+        if cycle_id and known_cycle and str(cycle_id) != str(known_cycle):
+            print(
+                f"[FSM][WARNING] Cancelacion ignorada para ciclo {cycle_id}; "
+                f"ciclo local={known_cycle}"
+            )
+            return False
+
+        self.cancel_reason = reason
+        self.cancel_requested.set()
+        return True
 
     def load_selected_recipe(self):
         if not self.recipe_manager:
@@ -42,11 +77,17 @@ class StateManager(QObject):
     #MAQUINA DE ESTADOS FINITOS - FSM
     def step(self, trigger = False):
         try:
+            if self.cancel_requested.is_set():
+                print(f"[FSM] Ciclo cancelado: {self.cancel_reason}")
+                self.reset()
+                return
+
             # IDLE
             if self.state == "IDLE":
                 if trigger:
                     print("[FSM]: Trigger recibido - CAPTURING")
-                    self.context = {}
+                    self.context = dict(self.pending_cycle or {})
+                    self.pending_cycle = None
                     self.state = "CAPTURING"
 
             # CAPTURING
@@ -114,7 +155,10 @@ class StateManager(QObject):
                 cmd = self.context.get("final_result", "NG")
                 print(f"[FSM] Enviando comando a ESP32: {cmd}")
 
-                result = self.comm.send_command(cmd)
+                result = self.comm.send_command(
+                    cmd,
+                    cycle_id=self.context.get("cycle_id"),
+                )
 
                 if result and result.get("status") == "OK":
                     print("[FSM] Confirmacion recibida desde ESP32")
@@ -140,3 +184,6 @@ class StateManager(QObject):
         print("[FSM] Reset - IDLE")
         self.state = "IDLE"
         self.context = {}
+        self.pending_cycle = None
+        self.cancel_reason = None
+        self.cancel_requested.clear()
