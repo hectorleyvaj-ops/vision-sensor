@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from core.step_conditions import ConditionError, evaluate_condition
+from core.step_conditions import ConditionError, validate_condition
 
 class RecipeManager:
     SCHEMA_VERSION = 2
@@ -152,6 +152,13 @@ class RecipeManager:
         data["schema_version"] = self.SCHEMA_VERSION
         recipes = data.get("recipes", [])
 
+        for existing in recipes:
+            if (
+                existing.get("name") != recipe.get("name")
+                and existing.get("id") == recipe.get("id")
+            ):
+                raise ValueError(f"Recipe id duplicado: {recipe.get('id')}")
+
         # BUSCAR SI YA EXISTE
         for i, r in enumerate(recipes):
             if r["name"] == recipe["name"]:
@@ -171,10 +178,14 @@ class RecipeManager:
         if not isinstance(recipe.get("name"), str) or not recipe["name"].strip():
             raise ValueError("Falta 'name'")
 
+        if not isinstance(recipe.get("id"), str) or not recipe["id"].strip():
+            raise ValueError("Falta 'id'")
+
         if not isinstance(recipe.get("steps"), list):
             raise ValueError("Falta 'steps'")
 
         step_ids = set()
+        previous_step_ids = []
         for step in recipe["steps"]:
             if not isinstance(step, dict):
                 raise ValueError("Step invalido")
@@ -195,11 +206,15 @@ class RecipeManager:
             if not isinstance(step.get("required", True), bool):
                 raise ValueError(f"required invalido en {step_id}")
             try:
-                evaluate_condition(step.get("condition"), {}, {})
+                validate_condition(
+                    step.get("condition"),
+                    available_step_ids=previous_step_ids,
+                )
             except ConditionError as exc:
                 raise ValueError(
                     f"Condicion invalida en {step_id}: {exc}"
                 ) from exc
+            previous_step_ids.append(step_id)
 
     def delete(self, name):
         data = self._load_file()
@@ -489,6 +504,17 @@ class RecipeManager:
 
     def get_execution_error(self, recipe, available_tools=None):
         """Return a safe, user-facing reason when a recipe cannot run."""
+        if not isinstance(recipe, dict):
+            return "La receta debe ser un objeto"
+        if recipe.get("commissioned") is not True:
+            return f"La receta {recipe.get('name')} aun no esta comisionada"
+        return self.get_commissioning_error(
+            recipe,
+            available_tools=available_tools,
+        )
+
+    def get_commissioning_error(self, recipe, available_tools=None):
+        """Return why a recipe is not safe to mark as commissioned."""
         try:
             self.ensure_recipe_metadata(recipe)
             self.ensure_focus(recipe)
@@ -497,17 +523,16 @@ class RecipeManager:
         except ValueError as exc:
             return str(exc)
 
-        if recipe.get("commissioned") is not True:
-            return f"La receta {recipe.get('name')} aun no esta comisionada"
-
         steps = recipe.get("steps", [])
         if not steps:
             return f"La receta {recipe.get('name')} no tiene steps"
 
         available = set(available_tools or [])
+        enabled_steps = 0
         for step in steps:
             if not step.get("enabled", True):
                 continue
+            enabled_steps += 1
             tool_name = step["tool"]
             step_id = step["id"]
             params = step.get("params", {})
@@ -519,6 +544,11 @@ class RecipeManager:
                 expected_code = params.get("expected_code")
                 if not isinstance(expected_code, str) or not expected_code.strip():
                     return f"El step {step_id} no tiene expected_code valido"
+
+            if tool_name == "img_hist":
+                template_paths = params.get("template_paths")
+                if not isinstance(template_paths, list) or not template_paths:
+                    return f"El step {step_id} no tiene imagenes maestras"
 
             roi = params.get("roi")
             if tool_name == "dmtx" and roi is None:
@@ -532,5 +562,8 @@ class RecipeManager:
                     return f"ROI invalida en {step_id}: {roi}"
                 if x2 <= x1 or y2 <= y1:
                     return f"ROI sin area valida en {step_id}: {roi}"
+
+        if not enabled_steps:
+            return f"La receta {recipe.get('name')} no tiene steps habilitados"
 
         return None

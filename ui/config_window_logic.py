@@ -1,23 +1,39 @@
+import copy
 import os
 from utils.qt_compat import (
     QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-    QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea
+    QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea, QMessageBox
 )
+from core.editor_models import EditorValueError
 from utils.ui_logger import get_ui_logger
 from ui.pyside6.ui_config_window import Ui_Form
 from ui.tool_editor import ToolEditor
 from ui.schemas.schemas import TOOL_SCHEMAS
 from ui.focus_config_dialog import FocusConfigDialog
+from ui.recipe_policy_dialogs import RecipeSettingsDialog, StepPolicyEditor
+from ui.system_config_dialog import SystemConfigDialog
 import shutil
 
 class ConfigWindow(QWidget):
     update_rois = Signal()
     focus_calibration_requested = Signal(object)
-    def __init__(self, recipe_manager, get_frame_callback, state_manager, platform, camera_worker=None):
+    restart_required = Signal(object)
+
+    def __init__(
+        self,
+        recipe_manager,
+        get_frame_callback,
+        state_manager,
+        platform,
+        camera_worker=None,
+        system_config=None,
+        available_tools=None,
+    ):
         super().__init__()
 
         self.ui = Ui_Form()
         self.ui.setupUi(self)
+        self._build_universal_controls()
         
         self.apply_config_style()
         self.apply_button_feedbakcs()
@@ -27,12 +43,28 @@ class ConfigWindow(QWidget):
         self.state_manager = state_manager
         self.platform = platform
         self.camera_worker = camera_worker
+        self.system_config = system_config
+        self.available_tools = set(available_tools or [])
 
         self.current_recipe = None
         self.loading_recipes = False
 
         self.connect_signals()
         self.load_recipes()
+
+    def _build_universal_controls(self):
+        self.btn_installation_config = QPushButton("SISTEMA")
+        self.btn_recipe_config = QPushButton("RECETA")
+        self.ui.bttm_layout.setSpacing(6)
+        self.ui.bttm_layout.insertWidget(1, self.btn_installation_config)
+        self.ui.bttm_layout.insertWidget(2, self.btn_recipe_config)
+        for button in (
+            self.btn_installation_config,
+            self.btn_recipe_config,
+            self.ui.btn_save,
+            self.ui.btn_out,
+        ):
+            button.setMaximumWidth(105)
 
     def apply_config_style(self):
         self.setStyleSheet("""
@@ -226,6 +258,8 @@ class ConfigWindow(QWidget):
             self.ui.btn_out,
             self.ui.btn_save,
             self.ui.btn_focus_config,
+            self.btn_installation_config,
+            self.btn_recipe_config,
         ]
 
         for btn in buttons:
@@ -328,6 +362,65 @@ class ConfigWindow(QWidget):
         self.ui.btn_select_r.clicked.connect(self.select_recipe)
         self.ui.btn_out.clicked.connect(self.close)
         self.ui.btn_focus_config.clicked.connect(self.open_focus_config)
+        self.btn_installation_config.clicked.connect(self.open_system_config)
+        self.btn_recipe_config.clicked.connect(self.open_recipe_settings)
+
+    def open_system_config(self):
+        if self.system_config is None:
+            QMessageBox.critical(
+                self,
+                "Configuracion no disponible",
+                "No se recibio la configuracion activa de la instalacion.",
+            )
+            return
+
+        dialog = SystemConfigDialog(
+            system_config=self.system_config,
+            recipe_manager=self.recipe_manager,
+            platform=self.platform,
+            parent=self,
+        )
+        dialog.configuration_saved.connect(self.restart_required.emit)
+        if self.platform == "linux":
+            dialog.showFullScreen()
+        else:
+            dialog.resize(800, 600)
+        if hasattr(dialog, "exec"):
+            dialog.exec()
+        else:
+            dialog.exec_()
+
+    def open_recipe_settings(self):
+        if not self.current_recipe:
+            QMessageBox.information(
+                self,
+                "Sin receta",
+                "Selecciona una receta antes de editar sus propiedades.",
+            )
+            return
+
+        dialog = RecipeSettingsDialog(
+            recipe=self.current_recipe,
+            recipe_manager=self.recipe_manager,
+            available_tools=self.available_tools,
+            parent=self,
+        )
+        dialog.recipe_saved.connect(self.on_recipe_settings_saved)
+        if self.platform == "linux":
+            dialog.showFullScreen()
+        else:
+            dialog.resize(520, 320)
+        if hasattr(dialog, "exec"):
+            dialog.exec()
+        else:
+            dialog.exec_()
+
+    def on_recipe_settings_saved(self, recipe):
+        name = recipe.get("name")
+        self.load_recipes(name)
+        if name and self.state_manager:
+            self.state_manager.set_active_recipe(name)
+        self.update_rois.emit()
 
     def open_focus_config(self):
         # REQUIERE TENER UNA RECETA ACTIVA PARA CONFIGURAR EL ENFOQUE
@@ -506,8 +599,17 @@ class ConfigWindow(QWidget):
         )
 
         editor_values = dict(params)
-        editor_values["required"] = step.get("required", True)
         editor.set_values(editor_values)
+
+        previous_step_ids = [
+            candidate.get("id")
+            for candidate in self.current_recipe["steps"][:selected]
+            if candidate.get("id")
+        ]
+        policy_editor = StepPolicyEditor(
+            step=step,
+            available_step_ids=previous_step_ids,
+        )
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -524,12 +626,17 @@ class ConfigWindow(QWidget):
         buttons_layout.addWidget(btn_cancel)
         buttons_layout.addWidget(btn_save)
 
+        layout.addWidget(policy_editor)
         layout.addWidget(scroll)
         layout.addLayout(buttons_layout)
 
         def save():
+            try:
+                policy = policy_editor.get_values()
+            except EditorValueError as exc:
+                QMessageBox.critical(dialog, "Step invalido", str(exc))
+                return
             new_params = editor.get_values()
-            required = bool(new_params.pop("required", True))
 
             # Mantiene parametros existentes que no aparezcan todavía en schemas.py.
             # Esto evita perder configuraciones nuevas o futuras al editar desde la UI.
@@ -540,11 +647,19 @@ class ConfigWindow(QWidget):
             merged_params = dict(current_params)
             merged_params.update(new_params)
 
-            self.current_recipe["steps"][selected]["params"] = merged_params
-            self.current_recipe["steps"][selected]["required"] = required
+            candidate = copy.deepcopy(self.current_recipe)
+            candidate["steps"][selected]["params"] = merged_params
+            candidate["steps"][selected].update(policy)
 
-            self.recipe_manager.save(self.current_recipe)
+            try:
+                self.recipe_manager.save(candidate)
+            except ValueError as exc:
+                QMessageBox.critical(dialog, "Step invalido", str(exc))
+                return
 
+            self.current_recipe.clear()
+            self.current_recipe.update(candidate)
+            self.load_tools()
             dialog.accept()
 
         btn_save.clicked.connect(save)
@@ -604,6 +719,21 @@ class ConfigWindow(QWidget):
             platform=self.platform,
             screen_size=screen_size
         )
+        default_id = self.recipe_manager.slugify(tool_name) or "step"
+        default_id = f"{default_id}_{len(self.current_recipe['steps']) + 1}"
+        policy_editor = StepPolicyEditor(
+            step={
+                "id": default_id,
+                "enabled": True,
+                "required": True,
+                "condition": {"type": "always"},
+            },
+            available_step_ids=[
+                step.get("id")
+                for step in self.current_recipe["steps"]
+                if step.get("id")
+            ],
+        )
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -621,23 +751,31 @@ class ConfigWindow(QWidget):
         buttons_layout.addWidget(btn_save)
 
         layout.addWidget(cmb_tools)
+        layout.addWidget(policy_editor)
         layout.addWidget(scroll)
         layout.addLayout(buttons_layout)
 
         dialog.setLayout(layout)
 
         def save():
+            try:
+                policy = policy_editor.get_values()
+            except EditorValueError as exc:
+                QMessageBox.critical(dialog, "Step invalido", str(exc))
+                return
             new_params = editor.get_values()
-            required = bool(new_params.pop("required", True))
             new_step = {
                 "tool": cmb_tools.currentText(),
-                "enabled": True,
-                "required": required,
-                "condition": {"type": "always"},
                 "params": new_params
             }
+            new_step.update(policy)
             self.current_recipe["steps"].append(new_step)
-            self.recipe_manager.save(self.current_recipe)
+            try:
+                self.recipe_manager.save(self.current_recipe)
+            except ValueError as exc:
+                self.current_recipe["steps"].pop()
+                QMessageBox.critical(dialog, "Step invalido", str(exc))
+                return
 
             self.load_tools()  # RECARGA LA LISTA DE HERRAMIENTAS PARA MOSTRAR LA NUEVA AGREGADA
             # ACEPTA EL EVENTO DEL DIALOG Y CIERRA LA VENTANA PARA REGRESAR A CONFIGURACION
@@ -704,7 +842,14 @@ class ConfigWindow(QWidget):
 
         for step in steps:
             tool_name = step.get("tool", "unknown")
-            self.ui.cmb_tools.addItem(tool_name)
+            step_id = step.get("id", "sin_id")
+            flags = []
+            if not step.get("enabled", True):
+                flags.append("OFF")
+            if not step.get("required", True):
+                flags.append("OPCIONAL")
+            suffix = f" [{' / '.join(flags)}]" if flags else ""
+            self.ui.cmb_tools.addItem(f"{step_id} - {tool_name}{suffix}")
 
     def add_recipe(self):
         dialog = QInputDialog(self)
@@ -735,7 +880,7 @@ class ConfigWindow(QWidget):
             print("Receta existente, elige otro nombre")
             return
 
-        self.recipe_manager.create_recipe(name, False)
+        self.recipe_manager.create_recipe(name)
         self.load_recipes()
 
         # SELECCIONAR AUTOMATICAMENTE LA NUEVA RECETA EN EL COMBOBOX

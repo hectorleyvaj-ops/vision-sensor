@@ -60,3 +60,7 @@ reemplazan y el archivo anterior se conserva como `.bak`.
 
 Las politicas `enabled`, `required` y `condition` pertenecen al paso. Los
 parametros dentro de `params` pertenecen exclusivamente a la herramienta.
+
+Una condicion `step_success` debe referenciar un `step_id` anterior en la misma
+receta. Esto mantiene la ejecucion ordenada, reproducible y libre de ciclos o
+dependencias hacia resultados que todavia no existen.

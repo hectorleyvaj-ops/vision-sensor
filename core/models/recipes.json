@@ -1,4 +1,5 @@
 {
+    "schema_version": 2,
     "recipes": [
         {
             "name": "MODELO_A",
@@ -17,7 +18,6 @@
                         "retries": 5,
                         "delay": 0.1,
                         "show_roi": true,
-                        "required": true,
                         "min_expected_reads": 2,
                         "max_wrong_reads": 0,
                         "roi_padding": 12,
@@ -26,7 +26,12 @@
                         "decode_timeout_ms": 250,
                         "max_total_time": 20.0
                     },
-                    "id": "dmtx_1"
+                    "id": "dmtx_1",
+                    "enabled": true,
+                    "required": true,
+                    "condition": {
+                        "type": "always"
+                    }
                 }
             ],
             "focus": {

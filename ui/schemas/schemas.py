@@ -91,12 +91,6 @@ TOOL_SCHEMAS = {
             "type": "bool", 
             "label": "Mostrar ROI", 
             "default": True
-            },
-
-        "required": {
-            "type": "bool", 
-            "label": "Requerido", 
-            "default": True
             }
     },
 
@@ -124,8 +118,6 @@ TOOL_SCHEMAS = {
 
         "template_paths": {"type": "image_list"},
 
-        "show_roi": {"type": "bool", "default": True},
-        
-        "required": {"type": "bool", "default": True}
+        "show_roi": {"type": "bool", "default": True}
     }
 }

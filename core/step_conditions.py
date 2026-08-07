@@ -11,11 +11,62 @@ def _read_path(source, path):
     return value
 
 
-def evaluate_condition(condition, results, context):
-    """Evaluate the small declarative condition language used by recipes."""
+def validate_condition(condition, available_step_ids=None):
+    """Validate condition syntax and optional references without executing it."""
     condition = condition or {"type": "always"}
     if not isinstance(condition, dict):
         raise ConditionError("La condicion debe ser un objeto")
+
+    condition_type = str(condition.get("type", "always")).strip().lower()
+    if condition_type == "always":
+        return
+
+    if condition_type == "step_success":
+        step_id = str(condition.get("step_id", "")).strip()
+        if not step_id:
+            raise ConditionError("step_success requiere step_id")
+        if (
+            available_step_ids is not None
+            and step_id not in set(available_step_ids)
+        ):
+            raise ConditionError(
+                f"step_success referencia un step anterior inexistente: {step_id}"
+            )
+        equals = condition.get("equals", True)
+        if not isinstance(equals, bool):
+            raise ConditionError("step_success.equals debe ser booleano")
+        return
+
+    if condition_type == "context_equals":
+        path = str(condition.get("path", "")).strip()
+        if not path:
+            raise ConditionError("context_equals requiere path")
+        return
+
+    if condition_type in ("all", "any"):
+        items = condition.get("conditions")
+        if not isinstance(items, list) or not items:
+            raise ConditionError(f"{condition_type} requiere conditions")
+        for item in items:
+            validate_condition(item, available_step_ids=available_step_ids)
+        return
+
+    if condition_type == "not":
+        if "condition" not in condition:
+            raise ConditionError("not requiere condition")
+        validate_condition(
+            condition["condition"],
+            available_step_ids=available_step_ids,
+        )
+        return
+
+    raise ConditionError(f"Tipo de condicion no soportado: {condition_type}")
+
+
+def evaluate_condition(condition, results, context):
+    """Evaluate the small declarative condition language used by recipes."""
+    condition = condition or {"type": "always"}
+    validate_condition(condition)
 
     condition_type = str(condition.get("type", "always")).strip().lower()
 

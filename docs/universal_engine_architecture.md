@@ -68,3 +68,8 @@ mismas secciones sin crear otra estructura paralela:
 3. pasos, herramienta, parametros, requerido/habilitado y condicion;
 4. mapa de identificadores externos a recetas;
 5. validacion, vista previa y activacion de una receta comisionada.
+
+La primera version del editor universal cubre los puntos 1 a 4 y el
+comisionamiento validado. Los cambios de instalacion requieren reinicio y
+mantienen el motor en `NOT_READY` hasta aplicarse. Consulte
+`docs/universal_configuration_ui.md`.

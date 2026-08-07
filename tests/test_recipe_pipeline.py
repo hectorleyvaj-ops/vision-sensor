@@ -120,6 +120,59 @@ class RecipeAndPipelineTests(unittest.TestCase):
         self.assertFalse(response["success"])
         self.assertEqual(response["skipped_steps"], ["only_model_b"])
 
+    def test_step_success_must_reference_a_previous_step(self):
+        recipe = {
+            "id": "bad_order",
+            "name": "BAD_ORDER",
+            "selected": False,
+            "commissioned": False,
+            "steps": [
+                {
+                    "id": "first",
+                    "tool": "fake",
+                    "enabled": True,
+                    "required": True,
+                    "condition": {
+                        "type": "step_success",
+                        "step_id": "second",
+                    },
+                    "params": {},
+                },
+                {
+                    "id": "second",
+                    "tool": "fake",
+                    "enabled": True,
+                    "required": True,
+                    "condition": {"type": "always"},
+                    "params": {},
+                },
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = RecipeManager(str(Path(temp_dir) / "recipes.json"))
+            with self.assertRaisesRegex(ValueError, "step anterior inexistente"):
+                manager.save(recipe)
+
+    def test_recipe_ids_are_unique(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manager = RecipeManager(str(Path(temp_dir) / "recipes.json"))
+            manager.save({
+                "id": "same_id",
+                "name": "ONE",
+                "selected": True,
+                "commissioned": False,
+                "steps": [],
+            })
+            with self.assertRaisesRegex(ValueError, "Recipe id duplicado"):
+                manager.save({
+                    "id": "same_id",
+                    "name": "TWO",
+                    "selected": False,
+                    "commissioned": False,
+                    "steps": [],
+                })
+
 
 if __name__ == "__main__":
     unittest.main()

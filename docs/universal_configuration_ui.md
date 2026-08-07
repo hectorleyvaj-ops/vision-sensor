@@ -1,0 +1,86 @@
+# Interfaz de configuracion universal
+
+La ventana de configuracion sigue editando una sola aplicacion y una sola
+instalacion. Los botones nuevos no activan perfiles ni agregan logica de una
+maquina concreta.
+
+## Sistema
+
+`SISTEMA` abre un editor por pestanas para:
+
+- identificador y nombre de la instalacion;
+- archivo de recetas y migracion automatica;
+- dispositivo, resolucion, FPS y enfoque predeterminado de la camara;
+- puertos por plataforma, baudrate, timeout y politicas del enlace;
+- mapa entre identificadores externos y nombres de receta;
+- politicas de disponibilidad y tiempo de asentamiento.
+
+El transporte `serial` y el protocolo `vision_controller_v1` se muestran como
+contrato fijo y no pueden cambiarse desde la interfaz. Antes de guardar se
+valida la estructura completa y que cada valor de `model_map` corresponda a una
+receta del catalogo indicado. El guardado es atomico y conserva
+`system.json.bak`.
+
+Cambiar esta configuracion deja el motor en `NOT_READY` hasta reiniciar. Esto
+evita que el archivo en disco describa una camara o controlador mientras la
+sesion activa sigue usando los valores anteriores.
+
+## Receta
+
+`RECETA` permite revisar el ID interno y cambiar el estado de comisionamiento.
+Una receta solo puede marcarse como comisionada cuando:
+
+- tiene al menos un step habilitado;
+- todos sus IDs son unicos;
+- sus herramientas estan registradas;
+- sus parametros obligatorios estan completos;
+- sus condiciones son validas;
+- las herramientas DataMatrix tienen codigo esperado y ROI;
+- las herramientas de histograma tienen imagenes maestras.
+
+Desmarcar el comisionamiento siempre es posible y bloquea inmediatamente la
+produccion con esa receta.
+
+## Steps y condiciones
+
+Al agregar o editar una herramienta se separan dos grupos:
+
+- politica del step: `id`, `enabled`, `required` y `condition`;
+- parametros propios de la herramienta, definidos en `TOOL_SCHEMAS`.
+
+La condicion se edita como JSON para conservar todo el lenguaje declarativo,
+incluyendo condiciones anidadas `all`, `any` y `not`. Una condicion
+`step_success` solo puede depender de un step anterior; las referencias a si
+mismo, a pasos posteriores o a IDs inexistentes se rechazan al guardar.
+
+Ejemplos:
+
+```json
+{"type": "always"}
+```
+
+```json
+{
+  "type": "step_success",
+  "step_id": "code_1",
+  "equals": true
+}
+```
+
+```json
+{
+  "type": "context_equals",
+  "path": "model",
+  "value": "EXTERNAL_MODEL_ID"
+}
+```
+
+## Fuera del alcance de esta fase
+
+- no se agregan recetas, numeros de parte ni sensores de Worksurface;
+- no se crea ni modifica firmware ESP32 o PLC;
+- no se recargan en caliente camara, serial o runtime;
+- no se corrige todavia la diferencia historica entre formatos de ROI de las
+  herramientas;
+- no se cambia todavia el modelo de resultados a
+  `PASS/FAIL/ERROR/TIMEOUT`.

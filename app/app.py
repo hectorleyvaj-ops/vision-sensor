@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
         self.focus_check_busy = False
         self.pending_trigger_after_focus = False
         self.focus_runtime_verified = False
+        self.configuration_restart_required = False
 
         # BLOQUEOS DE PRODUCCION
         self.require_controller_ready = bool(
@@ -663,6 +664,9 @@ class MainWindow(QMainWindow):
         return None
 
     def get_system_ready_error(self):
+        if self.configuration_restart_required:
+            return "Reinicio requerido para aplicar la configuracion"
+
         if not hasattr(self, "state_thread") or not self.state_thread.isRunning():
             return "State thread no esta corriendo"
 
@@ -759,6 +763,7 @@ class MainWindow(QMainWindow):
             "step",
             "expected_code",
             "sensores esp32",
+            "reinicio requerido",
         )
 
         for keyword in warning_keywords:
@@ -940,7 +945,9 @@ class MainWindow(QMainWindow):
             get_frame_callback=self.get_current_frame,
             state_manager=self.state_manager,
             platform=self.platform,
-            camera_worker=self.camera_worker
+            camera_worker=self.camera_worker,
+            system_config=self.system_config,
+            available_tools=self.processor.tool_registry.keys(),
         )
         # CONECTAR SIGNALS DESDE CONFIG WINDOW
         self.config_window.update_rois.connect(
@@ -952,12 +959,26 @@ class MainWindow(QMainWindow):
             self.request_camera_focus_from_config,
             Qt.DirectConnection
         )
+        self.config_window.restart_required.connect(
+            self.on_system_configuration_saved,
+            Qt.UniqueConnection,
+        )
 
         if self.platform == "linux":
             self.config_window.showFullScreen()
         else:
             self.config_window.resize(480, 320)
             self.config_window.show()
+
+    def on_system_configuration_saved(self, _saved_config):
+        self.configuration_restart_required = True
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+        self.publish_rpi_ready_status()
+        print(
+            "[CONFIG] Configuracion guardada. Reinicie la aplicacion para "
+            "aplicar camara, controlador y runtime."
+        )
 
     def request_camera_focus_from_config(self, focus_config):
         print(f"[APP] Solicitud de calibración recibida desde ConfigWindow: {focus_config}")

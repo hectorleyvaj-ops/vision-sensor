@@ -5,8 +5,9 @@ try:
     from PySide6.QtWidgets import (
         QApplication, QWidget, QLabel, QMainWindow,
         QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout,
-        QLineEdit, QDoubleSpinBox, QComboBox, QCheckBox, QDialog, QInputDialog,
-        QScrollArea, QSizePolicy
+        QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox, QDialog,
+        QInputDialog, QScrollArea, QSizePolicy, QTabWidget, QTableWidget,
+        QTableWidgetItem, QMessageBox, QPlainTextEdit
     )
     from PySide6.QtCore import QObject, QThread, Signal, Qt, QTimer, Slot, QMetaObject
     from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QPen
@@ -36,7 +37,8 @@ except ImportError:
         QApplication, QWidget, QLabel, QMainWindow,
         QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout,
         QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox, QDialog,
-        QInputDialog, QScrollArea, QSizePolicy,
+        QInputDialog, QScrollArea, QSizePolicy, QTabWidget, QTableWidget,
+        QTableWidgetItem, QMessageBox, QPlainTextEdit,
     )
     from PyQt5.QtCore import (  # type: ignore
         QObject, QThread, pyqtSignal as Signal, pyqtSlot as Slot,
