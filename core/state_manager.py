@@ -2,14 +2,16 @@
 # CONTROLA EL FLUJO DEL PROCESO Y CORRE EN BUCLE
 
 from utils.qt_compat import Signal, QObject
+import time
 
 class StateManager(QObject):
     inspectionResult = Signal(str)
-    def __init__(self, camera, processor, comunicator):
+    def __init__(self, camera, processor, comunicator, mechanical_settle_ms=0):
         super().__init__()
         self.camera = camera
         self.processor = processor
         self.comm = comunicator
+        self.mechanical_settle_ms = max(0, int(mechanical_settle_ms))
 
         self.state = "IDLE"
         self.context = {}
@@ -21,7 +23,7 @@ class StateManager(QObject):
     def load_selected_recipe(self):
         if not self.recipe_manager:
             return
-        
+
         selected = self.recipe_manager.get_selected()
 
         if selected:
@@ -50,6 +52,13 @@ class StateManager(QObject):
             # CAPTURING
             elif self.state == "CAPTURING":
 
+                if self.mechanical_settle_ms > 0:
+                    print(
+                        f"[FSM] Esperando asentamiento mecanico: "
+                        f"{self.mechanical_settle_ms} ms"
+                    )
+                    time.sleep(self.mechanical_settle_ms / 1000.0)
+
                 def get_capture():
                     return self.camera.capture()
 
@@ -73,13 +82,13 @@ class StateManager(QObject):
                 if not self.recipe_manager or not self.active_recipe_name:
                     self.handle_error("NO_RECIPE", {"error": "No hay receta activa"})
                     return
-                
+
                 recipe = self.recipe_manager.get(self.active_recipe_name)
 
                 if not recipe:
                     self.handle_error("INVALID RECIPE", {"error": f"Receta '{self.active_recipe_name}' no encontrada"})
                     return
-                
+
                 result = self.processor.run(recipe, self.context)
 
                 if result and result.get("success"):
@@ -99,7 +108,7 @@ class StateManager(QObject):
                     self.handle_error("PROCESS_FAILED", {
                         "error": errors
                     })
-                
+
             # COMMUNICATING
             elif self.state == "COMMUNICATING":
                 cmd = self.context.get("final_result", "NG")
@@ -111,7 +120,7 @@ class StateManager(QObject):
                     print("[FSM] Confirmacion recibida desde ESP32")
                 else:
                     print("[FSM] Fallo en comunicacion, reinicio de ciclo")
-                    
+
                 self.reset()
 
         except Exception as e:
@@ -120,7 +129,7 @@ class StateManager(QObject):
     # MANEJA LOS LOGS DE ERROR PARA REDIRECCIONARLOS AL LOG EN LA INTERFAZ PRINCIPAL EN UN FUTURO
     def handle_error(self, stage, details):
         print(f"[STATE_MANAGER][FSM] Error at stage {stage}: {details.get('error')}")
-        
+
         # FORZAR NG PARA CONTINUAR EN ESP
         self.context["final_result"] = "NG"
 

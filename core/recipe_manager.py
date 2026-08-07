@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 class RecipeManager:
     def __init__(self, path="recipes.json"):
@@ -43,7 +44,7 @@ class RecipeManager:
 
         except FileNotFoundError:
             return {"recipes": []}
-        
+
     def _save_file(self, data):
         tmp_path = self.path + ".tmp"
         bak_path = self.path + ".bak"
@@ -86,6 +87,10 @@ class RecipeManager:
             if self.ensure_focus(r):
                 updated = True
 
+            # ASEGURAR IDENTIDAD Y ESTADO DE COMISIONAMIENTO
+            if self.ensure_recipe_metadata(r):
+                updated = True
+
             # ASEGURAR PARAMETROS DE STEPS/HERRAMIENTAS
             if self.ensure_step_params(r):
                 updated = True
@@ -105,23 +110,24 @@ class RecipeManager:
             self._save_file({"recipes": recipes})
 
         return recipes
-    
+
     # SE ENCARGA DE OBETENER EL DICCIONARIO CON LA INFORMACION DE LA RECETA SELECCIONADA
     def get(self, name):    # NAME CONTIENE LA RECETA QUE BUSCAMOS, YA SEA EL MODELO, PIEZA, ETC.
         recipes = self.get_all()
-        
+
         for r in recipes:
             if r["name"] == name:
                 return r    # REGRESA UN UNICO DICCIONARIO CON LA RECETA ENCONTRADA
-        
+
         return None
-            
+
     # GUARDAR O ACTUALIZAR UNA RECETA
     def save(self, recipe):
+        self.ensure_recipe_metadata(recipe)
         self.ensure_focus(recipe)
         self.ensure_step_params(recipe)
         self.validate(recipe)
-        
+
         data = self._load_file()
         recipes = data.get("recipes", [])
 
@@ -138,22 +144,37 @@ class RecipeManager:
         self._save_file(data)
 
     def validate(self, recipe):
-        if "name" not in recipe:
+        if not isinstance(recipe, dict):
+            raise ValueError("La receta debe ser un objeto")
+
+        if not isinstance(recipe.get("name"), str) or not recipe["name"].strip():
             raise ValueError("Falta 'name'")
-        
-        if "steps" not in recipe:
+
+        if not isinstance(recipe.get("steps"), list):
             raise ValueError("Falta 'steps'")
-        
+
+        step_ids = set()
         for step in recipe["steps"]:
-            if "tool" not in step:
+            if not isinstance(step, dict):
+                raise ValueError("Step invalido")
+
+            if not isinstance(step.get("tool"), str) or not step["tool"].strip():
                 raise ValueError("Step sin 'tool'")
+
+            step_id = step.get("id")
+            if not isinstance(step_id, str) or not step_id.strip():
+                raise ValueError("Step sin 'id'")
+
+            if step_id in step_ids:
+                raise ValueError(f"Step id duplicado: {step_id}")
+            step_ids.add(step_id)
 
     def delete(self, name):
         data = self._load_file()
         recipes = data.get("recipes", [])
 
         # GUARDA EN LA VARIABLE R LAS RECETAS QUE CUMPLEN LA CONDICION Y SE LAS ENTREGA A NEW_RECIPES
-        new_recipes = [r for r in recipes if r["name"] != name] 
+        new_recipes = [r for r in recipes if r["name"] != name]
 
         # ACTUALIZA LA LISTA CON LAS RECETAS QUE QUEDARONs
         data["recipes"] = new_recipes
@@ -162,10 +183,13 @@ class RecipeManager:
     def create_recipe(self, name, expected_code="", roi=None, selected=False):
 
         new_recipe = {
+            "id": self.slugify(name),
             "name": name,
             "selected": selected,
+            "commissioned": False,
             "steps": [
                 {
+                    "id": "dmtx_1",
                     "tool": "dmtx",
                     "params": self.default_tool_params("dmtx")
                 }
@@ -181,7 +205,7 @@ class RecipeManager:
 
     def exists(self, name):
         return self.get(name) is not None
-    
+
     def set_selected(self, name):
         data = self._load_file()
         recipes = data.get("recipes", [])
@@ -210,24 +234,27 @@ class RecipeManager:
             if r.get("selected"):
                 print(f"[RECIPES_MANAGER] {r['name']} seleccionada: {r.get('selected')}")
                 return r
-            
+
         if recipes:
             print("[RECIPE_MANAGER] No hay receta seleccionada, usando default...")
             recipes[0]["selected"] = True
             self._save_file({"recipes": recipes})
             return recipes[0]
-        
+
         print("[RECIPES_MANAGER] No hay recetas disponibles, creando DEFAULT...")
         default_recipe = {
+            "id": "default",
             "name": "DEFAULT",
             "selected": True,
+            "commissioned": False,
             "steps": []
         }
         self.save(default_recipe)
         return default_recipe
-        
+
     def default_focus_config(self):
         return{
+            "mode": "calibrated",
             "enabled": False,
             "roi": None,
             "value": None,
@@ -237,7 +264,7 @@ class RecipeManager:
             "verify_on_first_trigger": True,
             "auto_refocus_if_failed": True,
         }
-    
+
     def default_tool_params(self, tool_name):
         """
         Parametros base por herramienta.
@@ -288,11 +315,28 @@ class RecipeManager:
 
         updated = False
 
+        used_ids = set()
+        tool_counters = {}
+
         for step in steps:
             if not isinstance(step, dict):
                 continue
 
             tool_name = step.get("tool")
+            tool_key = self.slugify(tool_name or "step") or "step"
+            tool_counters[tool_key] = tool_counters.get(tool_key, 0) + 1
+
+            step_id = step.get("id")
+            if not isinstance(step_id, str) or not step_id.strip() or step_id in used_ids:
+                candidate = f"{tool_key}_{tool_counters[tool_key]}"
+                while candidate in used_ids:
+                    tool_counters[tool_key] += 1
+                    candidate = f"{tool_key}_{tool_counters[tool_key]}"
+                step["id"] = candidate
+                step_id = candidate
+                updated = True
+
+            used_ids.add(step_id)
 
             if "params" not in step or not isinstance(step["params"], dict):
                 step["params"] = {}
@@ -312,12 +356,39 @@ class RecipeManager:
                 updated = True
 
         return updated
-    
+
+    @staticmethod
+    def slugify(value):
+        value = str(value or "").strip().lower()
+        value = re.sub(r"[^a-z0-9]+", "_", value)
+        return value.strip("_")
+
+    def ensure_recipe_metadata(self, recipe):
+        if not isinstance(recipe, dict):
+            return False
+
+        updated = False
+        if not isinstance(recipe.get("id"), str) or not recipe["id"].strip():
+            recipe["id"] = self.slugify(recipe.get("name")) or "recipe"
+            updated = True
+
+        # Las recetas existentes estaban activas en produccion. Las nuevas plantillas
+        # Worksurface declaran commissioned=false de forma explicita.
+        if "commissioned" not in recipe:
+            recipe["commissioned"] = True
+            updated = True
+
+        if "machine" not in recipe or not isinstance(recipe["machine"], dict):
+            recipe["machine"] = {}
+            updated = True
+
+        return updated
+
     def ensure_focus(self, recipe):
         if "focus" not in recipe or not isinstance(recipe["focus"], dict):
             recipe["focus"] = self.default_focus_config()
             return True
-        
+
         default = self.default_focus_config()
         updated = False
 
@@ -327,35 +398,36 @@ class RecipeManager:
                 updated = True
 
         return updated
-    
+
     def get_focus(self, recipe_name):
         recipe = self.get(recipe_name)
 
         if not recipe:
             return self.default_focus_config()
-        
+
         self.ensure_focus(recipe)
         return recipe.get("focus", self.default_focus_config())
-    
+
     def get_selected_focus(self):
         recipe = self.get_selected()
 
         if not recipe:
             return self.default_focus_config()
-        
+
         self.ensure_focus(recipe)
         return recipe.get("focus", self.default_focus_config())
-    
+
     def update_focus(self, recipe_name, focus_config):
         recipe = self.get(recipe_name)
 
         if not recipe:
             print(f"[RECIPES_MANAGER][ERROR] No se encontro receta para actualizar enfoque: {recipe_name}")
             return False
-        
+
         self.ensure_focus(recipe)
 
         recipe["focus"].update({
+            "mode": focus_config.get("mode", recipe["focus"].get("mode", "calibrated")),
             "enabled": bool(focus_config.get("enabled", True)),
             "roi": focus_config.get("roi"),
             "value": focus_config.get("value"),
@@ -368,4 +440,50 @@ class RecipeManager:
 
         self.save(recipe)
         return True
-    
+
+    def get_execution_error(self, recipe, available_tools=None):
+        """Return a safe, user-facing reason when a recipe cannot run."""
+        try:
+            self.ensure_recipe_metadata(recipe)
+            self.ensure_focus(recipe)
+            self.ensure_step_params(recipe)
+            self.validate(recipe)
+        except ValueError as exc:
+            return str(exc)
+
+        if recipe.get("commissioned") is not True:
+            return f"La receta {recipe.get('name')} aun no esta comisionada"
+
+        steps = recipe.get("steps", [])
+        if not steps:
+            return f"La receta {recipe.get('name')} no tiene steps"
+
+        available = set(available_tools or [])
+        for step in steps:
+            tool_name = step["tool"]
+            step_id = step["id"]
+            params = step.get("params", {})
+
+            if available and tool_name not in available:
+                return f"Herramienta no disponible: {tool_name} ({step_id})"
+
+            if tool_name == "dmtx":
+                expected_code = params.get("expected_code")
+                if not isinstance(expected_code, str) or not expected_code.strip():
+                    return f"El step {step_id} no tiene expected_code valido"
+
+            roi = params.get("roi")
+            if tool_name == "dmtx" and roi is None:
+                return f"El step {step_id} no tiene ROI valida"
+            if roi is not None:
+                if not isinstance(roi, (list, tuple)) or len(roi) != 4:
+                    return f"ROI invalida en {step_id}: {roi}"
+                try:
+                    x1, y1, x2, y2 = [int(float(value)) for value in roi]
+                except (TypeError, ValueError):
+                    return f"ROI invalida en {step_id}: {roi}"
+                if x2 <= x1 or y2 <= y1:
+                    return f"ROI sin area valida en {step_id}: {roi}"
+
+        return None
+

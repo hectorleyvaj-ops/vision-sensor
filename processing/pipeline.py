@@ -14,16 +14,33 @@ class VisionPipeline:
 
     def run(self, recipe: dict, contex: dict):
         results = {}            #DATA QUE VIENE DE CADA HERRAMIENTA
+        execution_order = []
         overall_success = True  #VALIDACION GENERAL DETERMINANTE
         errors = []             #LISTA DE ERRORES ACUMULADOS DEL PROCESO DE CADA HERRAMIENTA
         contex.setdefault("outputs", {})
+        contex.setdefault("outputs_by_tool", {})
         contex.setdefault("debug_images", [])
 
+        steps = recipe.get("steps", []) if isinstance(recipe, dict) else []
+        if not steps:
+            return self._build_response(
+                False,
+                results,
+                ["La receta no contiene herramientas ejecutables"],
+                execution_order,
+            )
+
         #RECABAR INFORMACION DE CADA RECETA GUARDADA {STEPS}
-        for step in recipe["steps"]:
+        for index, step in enumerate(steps):
             tool_name = step["tool"]                #OBTENER EL NOMBRE DE LA HERRAMIENTA
+            step_id = step.get("id") or f"{tool_name}_{index + 1}"
             params = step.get("params", {})         #OBTENER LOS PARAMETROS DESIGNADOS PARA LA HERRAMIENTA
             required = step.get("required", params.get("required", True))   #FLAG DE REQUERIMIENTO
+
+            if step_id in results:
+                error_msg = f"Step id duplicado durante ejecucion: {step_id}"
+                errors.append(error_msg)
+                return self._build_response(False, results, errors, execution_order)
 
             tool = self.tool_registry.get(tool_name)    #PASAR INSTANCIA DE LA HERRAMIENTA ACTUAL A LA VARIABLE TOOL
 
@@ -33,16 +50,17 @@ class VisionPipeline:
                 errors.append(error_msg)    #ANEXAR MENSAJE DE ERROR A LA LISTA DE ERRORS
                 if required:
                     print(f"[ERROR] Tool '{tool_name}' no encontrada")  #PRINT PARA LOG
-                    return self._build_response(False, results, errors) #SALIR DE LA FUNCION Y LLAMAR A BUILD_RESPONSE
+                    return self._build_response(False, results, errors, execution_order) #SALIR DE LA FUNCION Y LLAMAR A BUILD_RESPONSE
                 continue
 
-            print(f"[PIPELINE] Ejecutando {tool_name}") #LOD DE EJECUCION
-            
+            print(f"[PIPELINE] Ejecutando {step_id} ({tool_name})") #LOD DE EJECUCION
+
             #M MERGE CONTEXT (DATOS, FUNCIONES, ETC.) + PARAMETROS DE HERRAMIENTA
-            inputs = {**contex, **params}           
+            inputs = {**contex, **params}
 
             result = tool.run(**inputs)     #EJECUTAR EL RUN DE TOOL_BASE DANDOLE TODA LA INFORMACION QUE A SU VEZ LLAMA A PROCESS DE LA HERRAMIENTA
-            results[tool_name] = result     #ENLISTAR EL RESULTADO DE LA HERRAMIENTA EN UNA COLA
+            results[step_id] = result
+            execution_order.append(step_id)
 
             print(f"[PIPELINE] Resultado: {result.data}")   #LOG DE PROCESO FINALIZADO
 
@@ -52,19 +70,21 @@ class VisionPipeline:
                 errors.append(result.error) #ANEXAR RAZON DE RESULTADO NEGATIVO
 
                 if required:    #SI LA HERRAMIENTA ES REQUERIDA LLAMAR A BUILD_RESPONSE
-                    print(f"[PIPELINE] Error en {tool_name}: {result.error}")   #LOG DEL ERROR
-                    return self._build_response(False, results, errors)
+                    print(f"[PIPELINE] Error en {step_id}: {result.error}")   #LOG DEL ERROR
+                    return self._build_response(False, results, errors, execution_order)
 
             if result.data:
-                contex["outputs"][tool_name] = result.data     #ACTUALIZAR CONTEXT CON LA DATA DE LA HERRAMIENTA PARA OTRAS HERRAMIENTAS
+                contex["outputs"][step_id] = result.data
+                contex["outputs_by_tool"].setdefault(tool_name, []).append(result.data)
 
-        return self._build_response(overall_success, results, errors)
-    
+        return self._build_response(overall_success, results, errors, execution_order)
+
     #FUNCION PARA MANEJAR EL RETURN A PIPELINE
-    def _build_response(self, success, results, errors):
+    def _build_response(self, success, results, errors, execution_order):
         #GARANTIZAR LA ESTRUCTURA BASE DE LOS DATOS EN EL RETURN
         return{
             "success": success,
             "results": results,
-            "errors": errors
+            "errors": errors,
+            "execution_order": execution_order,
         }

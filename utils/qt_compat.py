@@ -3,8 +3,8 @@ QT_LIB = None
 try:
     # PRIORIDAD DE LIBRERIA: PYSIDE6
     from PySide6.QtWidgets import (
-        QApplication, QWidget, QLabel, QMainWindow, 
-        QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout, 
+        QApplication, QWidget, QLabel, QMainWindow,
+        QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout,
         QLineEdit, QDoubleSpinBox, QComboBox, QCheckBox, QDialog, QInputDialog,
         QScrollArea, QSizePolicy
     )
@@ -21,20 +21,28 @@ try:
 
         if not file.open(QFile.ReadOnly):
             raise RuntimeError(f"No se pudo abrir el archivo UI: {path}")
-        
+
         ui = loader.load(file)
         file.close()
 
         if ui is None:
             raise RuntimeError(f"Error cargando UI: {path}")
-        
+
         return ui
-    
+
 except ImportError:
     # FALLBACK: PYQT5
-    from PyQt5.QtWidgets import QApplication, QWidget, QMainWindow  # type: ignore
-    from PyQt5.QtCore import QObject, QThread, pyqtSignal as Signal, Qt # type: ignore
-    from PyQt5.QtGui import QImage, QPixmap # type: ignore
+    from PyQt5.QtWidgets import (  # type: ignore
+        QApplication, QWidget, QLabel, QMainWindow,
+        QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout,
+        QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox, QDialog,
+        QInputDialog, QScrollArea, QSizePolicy,
+    )
+    from PyQt5.QtCore import (  # type: ignore
+        QObject, QThread, pyqtSignal as Signal, pyqtSlot as Slot,
+        Qt, QTimer, QMetaObject,
+    )
+    from PyQt5.QtGui import QImage, QPixmap, QPainter, QColor, QPen  # type: ignore
     from PyQt5 import uic   # type: ignore
 
     QT_LIB = "PyQt5"
@@ -44,4 +52,3 @@ except ImportError:
             return uic.loadUi(path)
         except Exception as e:
             raise RuntimeError(f"Error cargando UI: {path}\n{e}")
-

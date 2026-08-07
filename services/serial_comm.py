@@ -1,4 +1,5 @@
 from utils.qt_compat import QObject, Signal, Slot
+from services.model_mapping import extract_model, normalize_model
 import serial
 import time
 import threading
@@ -16,12 +17,27 @@ class SerialComm(QObject):
     connection_lost = Signal(str)
     connection_restored = Signal()
 
-    def __init__(self, port="COM7", baudrate=115200, timeout=1, reset_on_connect=True):
+    def __init__(
+        self,
+        port="COM7",
+        baudrate=115200,
+        timeout=1,
+        reset_on_connect=True,
+        model_map=None,
+        heartbeat_enabled=False,
+        ready_notifications_enabled=False,
+    ):
         super().__init__()
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
         self.reset_on_connect = reset_on_connect
+        self.model_map = {
+            str(raw).strip().upper(): str(recipe).strip()
+            for raw, recipe in (model_map or {}).items()
+        }
+        self.heartbeat_enabled = bool(heartbeat_enabled)
+        self.ready_notifications_enabled = bool(ready_notifications_enabled)
 
         self.ack_recibido = False
         self._running = False
@@ -87,7 +103,7 @@ class SerialComm(QObject):
 
     def is_connected(self):
         return self.ser is not None and self.ser.is_open
-    
+
     def mark_disconnected(self, reason=""):
         """
         Marca el puerto como desconectado aunque pyserial todavía crea que está abierto.
@@ -206,20 +222,24 @@ class SerialComm(QObject):
         """
         print("[SERIAL] Avisando FOCUS_BUSY a ESP32")
         return self.send_raw_message("FOCUS_BUSY")
-    
+
     def notify_rpi_ready(self):
         """
         Avisa a la ESP que la Raspberry ya puede recibir triggers de inspeccion.
         La ESP sigue siendo la autoridad del ciclo; este mensaje solo habilita
         la disponibilidad del sensor inteligente.
         """
+        if not self.ready_notifications_enabled:
+            return {"status": "SKIPPED", "reason": "Firmware sin RPI_READY"}
         return self.send_raw_message("RPI_READY")
-    
+
     def notify_rpi_not_ready(self):
         """
         Avisa a la ESP que la Raspberry no esta lista para aceptar inspecciones.
         La ESP debe ignorar triggers mientras este estado este activo.
         """
+        if not self.ready_notifications_enabled:
+            return {"status": "SKIPPED", "reason": "Firmware sin RPI_NOT_READY"}
         return self.send_raw_message("RPI_NOT_READY")
 
     def send_raw_ack(self):
@@ -239,11 +259,12 @@ class SerialComm(QObject):
             print(f"[SERIAL][ERROR] No se pudo enviar ACK: {e}")
             return False
 
-    # PRODUCCION ACTUAL: UNA SOLA RECETA/MODELO.
-    # Si en el futuro se vuelven a usar varias recetas, aqui se puede restaurar
-    # el mapeo A/B/C -> MODELO_A/MODELO_B/MODELO_C.
     def normalize_model(self, model):
-        return "MODELO_A"
+        return normalize_model(model, self.model_map)
+
+    @staticmethod
+    def extract_model(message):
+        return extract_model(message)
 
     def process_message(self, msg: str):
         self.last_rx_time = time.time()
@@ -259,7 +280,7 @@ class SerialComm(QObject):
             if now - self.last_trigger_rx_time < self.duplicate_window:
                 print("[SERIAL] TRIGGER duplicado/reitento ignorado")
                 return
-            
+
             self.last_trigger_rx_time = now
             self.trigger_received.emit()
 
@@ -272,8 +293,9 @@ class SerialComm(QObject):
             if now - self.last_result_rx_time < self.duplicate_window and self.last_result_rx == msg:
                 print(f"[SERIAL] Resultado final duplicado/reitento ignorado: {msg}")
                 return
-            
+
             self.last_result_rx_time = now
+            self.last_result_rx = msg
             self.esp_result_received.emit(msg)
 
         elif msg == "RESET":
@@ -284,7 +306,7 @@ class SerialComm(QObject):
             if now - self.last_reset_rx_time < self.duplicate_window:
                 print("[SERIAL] RESET duplicado/reitento ignorado")
                 return
-            
+
             self.last_reset_rx_time = now
             self.reset_received.emit()
 
@@ -297,9 +319,7 @@ class SerialComm(QObject):
             return
 
         elif msg.startswith("MODEL:"):
-            # En esta maquina se fuerza MODELO_A, pero se conserva compatibilidad.
-            model = msg.split(":", 1)[1].strip()
-            model = self.normalize_model(model)
+            model = self.normalize_model(self.extract_model(msg))
 
             if not model:
                 print("[SERIAL][WARNING] Modelo no reconocido, mensaje ignorado")
@@ -312,16 +332,26 @@ class SerialComm(QObject):
             try:
                 was_synced = self.synced
                 self.synced = True
-                self.current_model = "MODELO_A"
+                raw_model = self.extract_model(msg)
+                normalized_model = self.normalize_model(raw_model)
+
+                if raw_model is not None and normalized_model is None:
+                    print(f"[SERIAL][WARNING] Modelo de SYNC no configurado: {raw_model}")
+
+                model_changed = (
+                    normalized_model is not None
+                    and normalized_model != self.current_model
+                )
+                if normalized_model is not None:
+                    self.current_model = normalized_model
 
                 if not was_synced:
                     self.connection_restored.emit()
 
                 print("[SERIAL] Sincronizado con ESP32")
-                # No emitir model_received para evitar recargar receta/enfoque en cada reconexion o handshake
-                # Para la prueba del sistema SUMMIT USB solo tiene un modelo que se carga al iniciar app.py
-                # MEJORAR: AUTOMATIZAR MODEL_RECEIVED PARA QUE DECIDA POR SU CUENTA SI DEBE O NO EMITIR LA RECETA CUANDO SEA VARIAS O UNA Y NO REENVIAR SI NO CAMBIA DE MODELO
-                # self.model_received.emit(self.current_model)
+                if model_changed:
+                    print(f"[SERIAL] Modelo sincronizado: {self.current_model}")
+                    self.model_received.emit(self.current_model)
 
             except Exception as e:
                 print(f"[SERIAL][ERROR] al procesar SYNC_OK: {e}")
@@ -402,11 +432,11 @@ class SerialComm(QObject):
         print("[SERIAL] Handshake fallido")
         self.synced = False
         return False
-    
+
     def is_printable_log(self, text: str) -> bool:
         if not text:
             return False
-        
+
         allowed = 0
         total = len(text)
 
@@ -415,18 +445,18 @@ class SerialComm(QObject):
                 allowed += 1
 
         return total > 0 and (allowed / total) >= 0.85 and "�" not in text
-    
+
     def print_esp_log(self, raw: bytes):
         text = raw.decode("utf-8", errors="replace").strip()
 
         if not text:
             return
-        
+
         # EN ESTA FUNCION SE MANDA A LLAMAR A UNA QUE SE ASEGURA DE MOSTRAR UN MENSAJE VALIDO, SINO, LO INVALIDA
         if not self.is_printable_log(text):
             print("[ESP_LOG][CLEANER] Basura/ruido serial descartado")
             return
-        
+
         print(f"[ESP_LOG] {text}")
 
     @Slot()
@@ -450,11 +480,19 @@ class SerialComm(QObject):
             try:
                 now = time.time()
 
-                if self.synced and now - self.last_ping_time >= self.ping_interval:
+                if (
+                    self.heartbeat_enabled
+                    and self.synced
+                    and now - self.last_ping_time >= self.ping_interval
+                ):
                     self.last_ping_time = now
                     self.send_raw_message("PING")
 
-                if self.synced and now - self.last_rx_time >= self.connection_timeout:
+                if (
+                    self.heartbeat_enabled
+                    and self.synced
+                    and now - self.last_rx_time >= self.connection_timeout
+                ):
                     print("[SERIAL][WATCHDOG] ESP32 sin respuesta, sincronizacion perdida")
                     self.synced = False
 
@@ -463,7 +501,7 @@ class SerialComm(QObject):
                     self.start_handshake()
 
                 if not self.is_connected():
-                        
+
                     if now - last_reconnect_attempt > 2.0:
                         last_reconnect_attempt = now
                         self.reconnect()
@@ -571,4 +609,4 @@ class SerialComm(QObject):
     def stop(self):
         self._running = False
         self.close()
-    
+

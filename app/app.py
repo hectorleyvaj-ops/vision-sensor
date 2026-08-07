@@ -1,5 +1,6 @@
 import sys
 import cv2
+import os
 # IMPORTS DE QT
 from utils.qt_compat import load_ui, QT_LIB, QThread, QImage, QPixmap, QMainWindow, QMetaObject, Qt, QTimer
 from utils.ui_logger import get_ui_logger
@@ -16,6 +17,7 @@ from services.serial_comm import SerialComm
 from app.state_worker import StateWorker
 from vision.camera_worker import CameraWorker
 from core.recipe_manager import RecipeManager
+from core.system_config import SystemConfig
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -29,6 +31,13 @@ class MainWindow(QMainWindow):
 
         self.platform = self.detect_platform()
         print(f"[CAMERA] Sistema operativo detectado: {self.platform}")
+
+        config_path = os.getenv("VISION_SYSTEM_CONFIG", "config/system.json")
+        self.system_config = SystemConfig(config_path)
+        self.camera_config = self.system_config.section("camera")
+        self.serial_config = self.system_config.section("serial")
+        self.production_config = self.system_config.section("production")
+        print(f"[CONFIG] Perfil activo: {self.system_config.profile_name}")
 
         self.apply_main_button_feedbacks()
 
@@ -56,13 +65,18 @@ class MainWindow(QMainWindow):
         self.focus_runtime_verified = False
 
         # BLOQUEOS DE PRODUCCION
-        self.require_serial_ready = True
-        # Dejar False si el firmware actual de la ESP32 aun no responde SYNC_OK.
-        # Cuando agregues handshake al firmware final, cambialo a True.
-        self.require_serial_sync = True
-        self.require_single_dmtx_recipe = True
-        self.production_focus_required = True
-        self.max_frame_age = 0.50
+        self.require_serial_ready = bool(
+            self.production_config.get("require_serial_ready", True)
+        )
+        self.require_serial_sync = bool(
+            self.production_config.get("require_serial_sync", True)
+        )
+        self.production_focus_required = bool(
+            self.production_config.get("require_focus_ready", True)
+        )
+        self.max_frame_age = float(
+            self.production_config.get("max_frame_age_seconds", 0.50)
+        )
         self.last_recipe_result = None
         self.last_esp_result = None
 
@@ -139,7 +153,7 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        self.recipe_manager = RecipeManager("core/models/recipes.json")
+        self.recipe_manager = RecipeManager(self.system_config.recipe_file)
         self.setup_camera()
         self.setup_serial()
         self.setup_state_manager()
@@ -160,16 +174,16 @@ class MainWindow(QMainWindow):
             print("[LOGGER][ERROR] No existe list_log en ui")
 
         print("[LOGGER] Loger de interfaz iniciao")
-        
+
     def detect_platform(self):
         if sys.platform.startswith("win"):
             return "windows"
-        
+
         if sys.platform.startswith("linux"):
             return "linux"
-        
+
         return "other"
-    
+
     def apply_main_button_feedbacks(self):
         buttons = [
             self.ui.btn_config,
@@ -177,7 +191,7 @@ class MainWindow(QMainWindow):
 
         for btn in buttons:
             self.add_button_feedback(btn)
-    
+
     def add_button_feedback(self, button):
         base_style = button.styleSheet().strip()
 
@@ -231,7 +245,15 @@ class MainWindow(QMainWindow):
     def setup_camera(self):
         # CREAR THREAD Y WORKER DE CAMARA
         self.camera_thread = QThread()
-        self.camera_worker = CameraWorker(camera_index=0,width=1920,height=1080,platform=self.platform)
+        self.camera_worker = CameraWorker(
+            camera_index=self.camera_config.get("device", 0),
+            width=int(self.camera_config.get("width", 1920)),
+            height=int(self.camera_config.get("height", 1080)),
+            capture_fps=float(self.camera_config.get("capture_fps", 30)),
+            preview_fps=float(self.camera_config.get("preview_fps", 10)),
+            focus_mode=self.camera_config.get("default_focus_mode", "calibrated"),
+            platform=self.platform,
+        )
 
         # MOVER WORKER AL HILO DE VISION
         self.camera_worker.moveToThread(self.camera_thread)
@@ -287,14 +309,22 @@ class MainWindow(QMainWindow):
             print("[FOCUS][WARNING] La receta activa no tiene enfoque guardado completo")
 
     def setup_serial(self):
-        puerto = None
-        if self.platform == "linux":
-            puerto = "/dev/ttyUSB0"
-        elif self.platform == "windows":
-            puerto = "COM7"
+        puerto = self.system_config.serial_port(self.platform)
 
         self.serial_thread = QThread()
-        self.serial = SerialComm(port=puerto, baudrate=115200)
+        self.serial = SerialComm(
+            port=puerto,
+            baudrate=int(self.serial_config.get("baudrate", 115200)),
+            timeout=float(self.serial_config.get("timeout", 1.0)),
+            reset_on_connect=bool(self.serial_config.get("reset_on_connect", True)),
+            model_map=self.serial_config.get("model_map", {}),
+            heartbeat_enabled=bool(
+                self.serial_config.get("heartbeat_enabled", False)
+            ),
+            ready_notifications_enabled=bool(
+                self.serial_config.get("ready_notifications_enabled", False)
+            ),
+        )
 
         self.serial.moveToThread(self.serial_thread)
 
@@ -338,9 +368,12 @@ class MainWindow(QMainWindow):
         self.comm = self.serial
 
         self.state_manager = StateManager(
-            self.camera, 
+            self.camera,
             self.processor,
-            self.comm
+            self.comm,
+            mechanical_settle_ms=int(
+                self.production_config.get("mechanical_settle_ms", 0)
+            ),
         )
 
         # THREAD + WORKER
@@ -517,61 +550,37 @@ class MainWindow(QMainWindow):
         self.clear_indicator_from_reset()
 
     def is_focus_config_complete(self, focus):
-        if not isinstance(focus, dict) or not focus.get("enabled", False):
+        if not isinstance(focus, dict):
+            return False
+
+        mode = focus.get("mode", "calibrated")
+        if mode == "disabled":
+            return True
+        if mode == "auto_continuous":
+            return bool(focus.get("enabled", True))
+        if not focus.get("enabled", False):
             return False
 
         value = focus.get("value")
-        min_score = focus.get("min_score")
+        if mode == "manual_fixed":
+            return value is not None
 
-        if value is None or min_score is None:
-            return False
-
-        return True
+        return value is not None and focus.get("min_score") is not None
 
     def validate_active_recipe_for_production(self):
         recipe = self.selected_recipe or self.recipe_manager.get_selected()
 
         if not recipe:
             return "No hay receta activa"
+        return self.recipe_manager.get_execution_error(
+            recipe,
+            available_tools=self.processor.tool_registry.keys(),
+        )
 
-        steps = recipe.get("steps")
-        if not isinstance(steps, list) or not steps:
-            return f"La receta {recipe.get('name')} no tiene steps"
-
-        dmtx_steps = [step for step in steps if step.get("tool") == "dmtx"]
-
-        if self.require_single_dmtx_recipe:
-            if len(steps) != 1 or len(dmtx_steps) != 1:
-                return "Produccion configurada para una sola receta con un unico step DMTX"
-
-        if not dmtx_steps:
-            return "La receta activa no contiene step DMTX"
-
-        step = dmtx_steps[0]
-        params = step.get("params", {})
-
-        expected_code = params.get("expected_code")
-        if not isinstance(expected_code, str) or not expected_code.strip():
-            return "El step DMTX no tiene expected_code valido"
-
-        roi = params.get("roi")
-        if not isinstance(roi, (list, tuple)) or len(roi) != 4:
-            return "El step DMTX no tiene ROI valida"
-
-        try:
-            x1, y1, x2, y2 = [int(float(v)) for v in roi]
-        except Exception:
-            return f"ROI DMTX invalida: {roi}"
-
-        if x2 <= x1 or y2 <= y1:
-            return f"ROI DMTX sin area valida: {roi}"
-
-        return None
-    
     def get_focus_ready_error(self):
         if not self.production_focus_required:
             return None
-        
+
         if not hasattr(self, "camera_worker") or self.camera_worker is None:
             return "CameraWorker no disponible"
 
@@ -596,21 +605,21 @@ class MainWindow(QMainWindow):
 
         if not hasattr(self, "state_manager") or self.state_manager is None:
             return "State manager no disponible"
-        
+
         if self.state_manager.state != "IDLE":
             return f"FSM ocupada en estado {self.state_manager.state}"
 
         recipe_error = self.validate_active_recipe_for_production()
         if recipe_error:
             return recipe_error
-        
+
         focus_error = self.get_focus_ready_error()
         if focus_error:
             return focus_error
 
         if not hasattr(self, "camera") or self.camera is None:
             return "Camera no disponible"
-    
+
         if not self.camera.has_fresh_frame(max_age=self.max_frame_age):
             return "No hay frame fresco de camara"
 
@@ -623,12 +632,12 @@ class MainWindow(QMainWindow):
 
             if self.require_serial_sync and not self.serial.synced:
                 return "Serial sin handshake SYNC_OK"
-            
+
         if self.focus_check_busy:
             return "Enfoque/Calibracion en proceso"
 
         return None
-    
+
     def classify_ready_error(self, ready_error):
         """
         Clasifica la razón de bloqueo para decidir color visual.
@@ -686,7 +695,7 @@ class MainWindow(QMainWindow):
 
         # Por seguridad, cualquier error desconocido se trata como crítico.
         return "CRITICAL"
-    
+
     def publish_rpi_ready_status(self):
         if not hasattr(self, "serial") or self.serial is None:
             ready_error = "Serial no disponible"
@@ -757,8 +766,10 @@ class MainWindow(QMainWindow):
         return focus if isinstance(focus, dict) else {}
 
     def focus_check_is_supported_for_current_platform(self):
+        focus = self.get_active_focus_config()
         return (
             self.production_focus_required
+            and focus.get("mode", "calibrated") == "calibrated"
             and self.platform == "linux"
             and getattr(self.camera_worker, "focus_absolute_supported", False)
         )
@@ -782,7 +793,7 @@ class MainWindow(QMainWindow):
             "[FOCUS] Verificando enfoque antes del trigger. "
             "Si el score es bajo o no hay foco guardado, se recalibrara automaticamente."
         )
-        
+
         if hasattr(self, "serial") and self.serial.is_connected():
             self.serial.notify_calibrating()
 
@@ -815,15 +826,15 @@ class MainWindow(QMainWindow):
 
     def on_fsm_finished(self):
         self.fsm_busy = False
-        
+
     def get_current_frame(self):
         return self.current_frame
-    
+
     def on_model_changed(self, model_name):
         if not model_name:
             print("[SERIAL] Modelo vacio, cambio ignorado")
             return
-            
+
         print(f"Cambiando receta a modelo: {model_name}")
 
         self.recipe_manager.set_selected(model_name)
@@ -850,7 +861,7 @@ class MainWindow(QMainWindow):
         )
         # CONECTAR SIGNALS DESDE CONFIG WINDOW
         self.config_window.update_rois.connect(
-            self.apply_rois_from_recipe, 
+            self.apply_rois_from_recipe,
             Qt.UniqueConnection
         )
 
@@ -859,7 +870,7 @@ class MainWindow(QMainWindow):
             Qt.DirectConnection
         )
 
-        if self.platform == "linux": 
+        if self.platform == "linux":
             self.config_window.showFullScreen()
         else:
             self.config_window.resize(480, 320)
@@ -889,6 +900,7 @@ class MainWindow(QMainWindow):
 
         if result.get("focus_updated") and self.selected_recipe:
             focus_data = {
+                "mode": "calibrated",
                 "enabled": True,
                 "roi": result.get("roi"),
                 "value": result.get("focus_value"),
@@ -937,7 +949,7 @@ class MainWindow(QMainWindow):
 
                 if worker:
                     worker.stop()
-                
+
                 if not thread.wait(2000):
                     print(f"Forzando terminate en {name}")
                     thread.terminate()

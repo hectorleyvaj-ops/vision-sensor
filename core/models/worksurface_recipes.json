@@ -1,0 +1,95 @@
+{
+    "schema_version": 2,
+    "recipes": [
+        {
+            "id": "worksurface_model_a",
+            "name": "MODELO_A",
+            "display_name": "MODELO A",
+            "product_code": "0402012XA",
+            "selected": true,
+            "commissioned": false,
+            "commissioning_note": "Configurar y validar herramientas de vision antes de habilitar produccion.",
+            "machine": {
+                "profile": "worksurface",
+                "controller_model": "A",
+                "sensor_expectation": {
+                    "left": "OK",
+                    "right": "NG"
+                },
+                "raw_sensor_levels": "pending_electrical_validation"
+            },
+            "steps": [],
+            "focus": {
+                "mode": "calibrated",
+                "enabled": true,
+                "roi": null,
+                "value": null,
+                "min_score": null,
+                "median_score": null,
+                "peak_score": null,
+                "verify_on_first_trigger": true,
+                "auto_refocus_if_failed": true
+            }
+        },
+        {
+            "id": "worksurface_model_b",
+            "name": "MODELO_B",
+            "display_name": "MODELO B",
+            "product_code": "0402012XB",
+            "selected": false,
+            "commissioned": false,
+            "commissioning_note": "Configurar y validar herramientas de vision antes de habilitar produccion.",
+            "machine": {
+                "profile": "worksurface",
+                "controller_model": "B",
+                "sensor_expectation": {
+                    "left": "NG",
+                    "right": "OK"
+                },
+                "raw_sensor_levels": "pending_electrical_validation"
+            },
+            "steps": [],
+            "focus": {
+                "mode": "calibrated",
+                "enabled": true,
+                "roi": null,
+                "value": null,
+                "min_score": null,
+                "median_score": null,
+                "peak_score": null,
+                "verify_on_first_trigger": true,
+                "auto_refocus_if_failed": true
+            }
+        },
+        {
+            "id": "worksurface_model_c",
+            "name": "MODELO_C",
+            "display_name": "MODELO C",
+            "product_code": "0402012XC",
+            "selected": false,
+            "commissioned": false,
+            "commissioning_note": "Configurar y validar herramientas de vision antes de habilitar produccion.",
+            "machine": {
+                "profile": "worksurface",
+                "controller_model": "C",
+                "sensor_expectation": {
+                    "left": "OK",
+                    "right": "OK"
+                },
+                "raw_sensor_levels": "pending_electrical_validation"
+            },
+            "steps": [],
+            "focus": {
+                "mode": "calibrated",
+                "enabled": true,
+                "roi": null,
+                "value": null,
+                "min_score": null,
+                "median_score": null,
+                "peak_score": null,
+                "verify_on_first_trigger": true,
+                "auto_refocus_if_failed": true
+            }
+        }
+    ]
+}

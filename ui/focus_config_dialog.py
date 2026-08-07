@@ -1,6 +1,6 @@
 from utils.qt_compat import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, Qt, Signal, Slot, QSizePolicy
+    QLabel, QComboBox, Qt, Signal, Slot, QSizePolicy
 )
 
 from ui.widgets.video_widget import VideoWidget
@@ -40,6 +40,15 @@ class FocusConfigDialog(QDialog):
                 border: 1px solid rgb(91, 192, 190);
             }
         """)
+
+        self.cmb_focus_mode = QComboBox()
+        self.cmb_focus_mode.addItems([
+            "calibrated",
+            "manual_fixed",
+            "auto_continuous",
+            "disabled",
+        ])
+        self.cmb_focus_mode.setMinimumHeight(34)
 
         self.video = VideoWidget(
             get_frame_callback=self.get_frame,
@@ -82,6 +91,8 @@ class FocusConfigDialog(QDialog):
         buttons_bott.addWidget(self.btn_save)
 
         layout.addWidget(self.lbl_status)
+        layout.addWidget(QLabel("Modo de enfoque"))
+        layout.addWidget(self.cmb_focus_mode)
         layout.addWidget(self.video, stretch=1)
         layout.addSpacing(6)
         layout.addLayout(buttons_top)
@@ -92,10 +103,14 @@ class FocusConfigDialog(QDialog):
         self.btn_calibrate.clicked.connect(self.request_calibration)
         self.btn_save.clicked.connect(self.save_focus_config)
         self.btn_cancel.clicked.connect(self.reject)
+        self.cmb_focus_mode.currentTextChanged.connect(self.on_focus_mode_changed)
 
     def load_focus_config(self):
         focus = self.recipe.get("focus", {})
 
+        mode = focus.get("mode", "calibrated")
+        mode_index = self.cmb_focus_mode.findText(mode)
+        self.cmb_focus_mode.setCurrentIndex(max(0, mode_index))
         roi = focus.get("roi")
         value = focus.get("value")
         min_score = focus.get("min_score")
@@ -107,8 +122,23 @@ class FocusConfigDialog(QDialog):
             roi_text = "ROI actual: frame completo"
 
         self.lbl_status.setText(
-            f"{roi_text} | Focus: {value} | Min Score: {min_score}"
+            f"Modo: {mode} | {roi_text} | Focus: {value} | Min Score: {min_score}"
         )
+        self.on_focus_mode_changed(mode)
+
+    def on_focus_mode_changed(self, mode):
+        calibration_enabled = mode in ("calibrated", "manual_fixed")
+        self.btn_calibrate.setEnabled(calibration_enabled)
+        self.btn_select_roi.setEnabled(calibration_enabled)
+        self.btn_clear_roi.setEnabled(calibration_enabled)
+
+        descriptions = {
+            "calibrated": "Barrido automatico inicial y foco congelado por receta.",
+            "manual_fixed": "Usa el valor fijo guardado; CALIBRAR permite obtenerlo.",
+            "auto_continuous": "La camara ajusta el foco continuamente.",
+            "disabled": "La aplicacion no administra el enfoque.",
+        }
+        self.lbl_status.setText(descriptions.get(mode, "Modo de enfoque no reconocido"))
 
     def enable_roi_selection(self):
         self.video.enable_edition = True
@@ -119,6 +149,11 @@ class FocusConfigDialog(QDialog):
         self.lbl_status.setText("ROI eliminada. Se usara el frame completo para enfocar.")
 
     def request_calibration(self):
+        mode = self.cmb_focus_mode.currentText()
+        if mode not in ("calibrated", "manual_fixed"):
+            self.lbl_status.setText("Este modo no requiere calibracion manual.")
+            return
+
         roi = self.video.get_roi()
 
         focus_config = {
@@ -143,7 +178,7 @@ class FocusConfigDialog(QDialog):
         if not isinstance(result, dict) or not result.get("ok"):
             self.lbl_status.setText("La calibracion no devolvio un resultado valido")
             return
-        
+
         self.focus_result = result
 
         roi = result.get("roi")
@@ -172,9 +207,11 @@ class FocusConfigDialog(QDialog):
             self.recipe["focus"] = {}
 
         roi = self.video.get_roi()
+        mode = self.cmb_focus_mode.currentText()
 
-        if self.focus_result:
+        if self.focus_result and mode in ("calibrated", "manual_fixed"):
             self.recipe["focus"] = {
+                "mode": mode,
                 "enabled": True,
                 "roi": self.focus_result.get("roi"),
                 "value": self.focus_result.get("focus_value"),
@@ -186,7 +223,8 @@ class FocusConfigDialog(QDialog):
             }
 
         else:
-            self.recipe["focus"]["enabled"] = True
+            self.recipe["focus"]["mode"] = mode
+            self.recipe["focus"]["enabled"] = mode != "disabled"
             self.recipe["focus"]["roi"] = list(roi) if roi is not None else None
             self.recipe["focus"].setdefault("value", None)
             self.recipe["focus"].setdefault("min_score", None)

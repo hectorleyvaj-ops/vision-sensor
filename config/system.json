@@ -1,0 +1,75 @@
+{
+    "schema_version": 1,
+    "active_profile": "general",
+    "profiles": {
+        "general": {
+            "description": "Motor de vision general con la receta actualmente desplegada",
+            "recipe_file": "core/models/recipes.json",
+            "camera": {
+                "device": 0,
+                "width": 1920,
+                "height": 1080,
+                "capture_fps": 30,
+                "preview_fps": 10,
+                "default_focus_mode": "calibrated"
+            },
+            "serial": {
+                "ports": {
+                    "linux": "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0",
+                    "windows": "COM7"
+                },
+                "baudrate": 115200,
+                "timeout": 1.0,
+                "reset_on_connect": true,
+                "heartbeat_enabled": false,
+                "ready_notifications_enabled": false,
+                "model_map": {
+                    "A": "MODELO_A"
+                }
+            },
+            "production": {
+                "require_serial_ready": true,
+                "require_serial_sync": true,
+                "require_focus_ready": true,
+                "max_frame_age_seconds": 0.5,
+                "mechanical_settle_ms": 0
+            }
+        },
+        "worksurface": {
+            "description": "Worksurface V3 con tres modelos y validacion fisica por sensores",
+            "recipe_file": "core/models/worksurface_recipes.json",
+            "camera": {
+                "device": 0,
+                "width": 1280,
+                "height": 720,
+                "capture_fps": 10,
+                "preview_fps": 10,
+                "default_focus_mode": "calibrated"
+            },
+            "serial": {
+                "ports": {
+                    "linux": "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0",
+                    "windows": "COM7"
+                },
+                "baudrate": 115200,
+                "timeout": 1.0,
+                "reset_on_connect": true,
+                "heartbeat_enabled": false,
+                "ready_notifications_enabled": false,
+                "model_map": {
+                    "A": "MODELO_A",
+                    "B": "MODELO_B",
+                    "C": "MODELO_C"
+                }
+            },
+            "production": {
+                "require_serial_ready": true,
+                "require_serial_sync": true,
+                "require_focus_ready": true,
+                "max_frame_age_seconds": 0.5,
+                "mechanical_settle_ms": 0,
+                "mechanical_settle_status": "pending_measurement"
+            }
+        }
+    }
+}
