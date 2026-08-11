@@ -188,6 +188,11 @@ class SystemConfig:
             raise SystemConfigError(
                 "runtime.mechanical_settle_ms debe ser un entero no negativo"
             )
+        inspection_timeout = runtime.get("inspection_timeout_seconds", 20.0)
+        if not cls._is_positive_number(inspection_timeout):
+            raise SystemConfigError(
+                "runtime.inspection_timeout_seconds debe ser mayor que cero"
+            )
 
         return copy.deepcopy(data)
 

@@ -4,6 +4,10 @@ La ventana de configuracion sigue editando una sola aplicacion y una sola
 instalacion. Los botones nuevos no activan perfiles ni agregan logica de una
 maquina concreta.
 
+La geometria de la interfaz tampoco pertenece a la configuracion de estacion.
+Se calcula desde la pantalla activa mediante los modos `compact`, `standard` y
+`wide`; consulte `docs/responsive_interface.md`.
+
 ## Sistema
 
 `SISTEMA` abre un editor por pestanas para:
@@ -13,7 +17,8 @@ maquina concreta.
 - dispositivo, resolucion, FPS y enfoque predeterminado de la camara;
 - puertos por plataforma, baudrate, timeout y politicas del enlace;
 - mapa entre identificadores externos y nombres de receta;
-- politicas de disponibilidad y tiempo de asentamiento.
+- politicas de disponibilidad, tiempo de asentamiento y timeout global de
+  inspeccion.
 
 El transporte `serial` y el protocolo `vision_controller_v1` se muestran como
 contrato fijo y no pueden cambiarse desde la interfaz. Antes de guardar se
@@ -75,12 +80,18 @@ Ejemplos:
 }
 ```
 
-## Fuera del alcance de esta fase
+## Incorporado en la fase 4
+
+- ROI unica `[x1, y1, x2, y2]` para enfoque y herramientas;
+- migracion de ROI heredadas al esquema de recetas v3;
+- resultados `PASS`, `FAIL`, `ERROR` y `TIMEOUT`;
+- comparacion DataMatrix `exact` o `prefix` y votos por intento;
+- cancelacion cooperativa y timeout global de inspeccion.
+
+## Fuera del alcance actual
 
 - no se agregan recetas, numeros de parte ni sensores de Worksurface;
 - no se crea ni modifica firmware ESP32 o PLC;
 - no se recargan en caliente camara, serial o runtime;
-- no se corrige todavia la diferencia historica entre formatos de ROI de las
-  herramientas;
-- no se cambia todavia el modelo de resultados a
-  `PASS/FAIL/ERROR/TIMEOUT`.
+- no se adapta todavia toda la interfaz de forma responsiva a cualquier
+  resolucion de pantalla.

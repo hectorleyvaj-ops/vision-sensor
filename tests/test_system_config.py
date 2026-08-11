@@ -53,6 +53,19 @@ class SystemConfigTests(unittest.TestCase):
             with self.assertRaises(SystemConfigError):
                 SystemConfig(path)
 
+    def test_inspection_timeout_must_be_positive(self):
+        invalid = json.loads(self.config_path.read_text(encoding="utf-8"))
+        invalid["runtime"]["inspection_timeout_seconds"] = 0
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "system.json"
+            path.write_text(json.dumps(invalid), encoding="utf-8")
+            with self.assertRaisesRegex(
+                SystemConfigError,
+                "inspection_timeout_seconds",
+            ):
+                SystemConfig(path)
+
 
 if __name__ == "__main__":
     unittest.main()

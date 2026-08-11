@@ -3,6 +3,9 @@
 
 import cv2
 import numpy
+from core.execution_control import check_execution
+from core.roi import crop_image
+from tools.result import ToolFailure
 from tools.tool_base import ToolBase
 
 class CompareImgHistTool(ToolBase):
@@ -22,6 +25,10 @@ class CompareImgHistTool(ToolBase):
         roi_cfg = kwargs.get("roi")
         show_roi = kwargs.get("show_roi")
         debug_images = kwargs.get("debug_images", None)
+        cancel_event = kwargs.get("cancel_event")
+        deadline = kwargs.get("deadline")
+
+        check_execution(cancel_event=cancel_event, deadline=deadline)
 
         if frame is None:
             raise ValueError("No frame recibido")
@@ -48,6 +55,7 @@ class CompareImgHistTool(ToolBase):
         best_path = None
 
         for path in template_paths:
+            check_execution(cancel_event=cancel_event, deadline=deadline)
             template = cv2.imread(path)
 
             if template is None:
@@ -68,8 +76,20 @@ class CompareImgHistTool(ToolBase):
                 best_percent = percent
                 best_path = path
 
+        if best_path is None:
+            raise ValueError("No se pudo cargar ninguna imagen maestra")
+
         if best_percent < threshold:
-            raise ValueError(f"Baja similitud: {best_percent:.3f} < {threshold}")
+            raise ToolFailure(
+                f"Baja similitud: {best_percent:.3f} < {threshold}",
+                data={
+                    "result": "FAIL",
+                    "score": round(best_percent, 3),
+                    "threshold": threshold,
+                    "best_match": best_path,
+                },
+                code="HISTOGRAM_BELOW_THRESHOLD",
+            )
         
         return {
             "result": "PASS",
@@ -79,11 +99,6 @@ class CompareImgHistTool(ToolBase):
 
 
     def _get_roi(self, frame, roi_cfg=None):
-        if not roi_cfg:
-            return frame
-        
-        x, y, w, h = roi_cfg
-        return frame[y: y+h, x: x+w]
+        return crop_image(frame, roi=roi_cfg)
     
-
 

@@ -1,10 +1,16 @@
 import json
 import os
 import re
+from core.roi import (
+    CANONICAL_FORMAT,
+    LEGACY_XYWH_FORMAT,
+    ROIError,
+    normalize_roi,
+)
 from core.step_conditions import ConditionError, validate_condition
 
 class RecipeManager:
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def __init__(self, path="recipes.json", auto_migrate=True):
         self.path = path
@@ -105,6 +111,11 @@ class RecipeManager:
             if self.ensure_focus(r):
                 updated = True
 
+            # NORMALIZAR TODAS LAS ROI A [x1, y1, x2, y2]. La herramienta
+            # img_hist heredada era la unica que persistia [x, y, w, h].
+            if self.ensure_canonical_rois(r, source_schema=schema_version):
+                updated = True
+
             # ASEGURAR IDENTIDAD Y ESTADO DE COMISIONAMIENTO
             if self.ensure_recipe_metadata(r):
                 updated = True
@@ -146,6 +157,7 @@ class RecipeManager:
         self.ensure_recipe_metadata(recipe)
         self.ensure_focus(recipe)
         self.ensure_step_params(recipe)
+        self.ensure_canonical_rois(recipe, source_schema=self.SCHEMA_VERSION)
         self.validate(recipe)
 
         data = self._load_file()
@@ -328,6 +340,7 @@ class RecipeManager:
             "dmtx": {
                 "roi": None,
                 "expected_code": "",
+                "match_mode": "exact",
                 "retries": 8,
                 "delay": 0.04,
                 "min_expected_reads": 2,
@@ -422,6 +435,58 @@ class RecipeManager:
 
         return updated
 
+    def ensure_canonical_rois(self, recipe, source_schema=None):
+        """Migrate every persisted ROI to the schema-v3 xyxy contract.
+
+        Focus and DataMatrix already used xyxy in legacy recipes. Histogram
+        comparison used xywh, so only that known representation is converted.
+        Invalid rectangles are left untouched and commissioning validation will
+        report them without silently changing the intended region.
+        """
+        if not isinstance(recipe, dict):
+            return False
+
+        updated = False
+        legacy = not isinstance(source_schema, int) or source_schema < 3
+
+        focus = recipe.get("focus")
+        if isinstance(focus, dict) and focus.get("roi") is not None:
+            try:
+                canonical = normalize_roi(
+                    focus.get("roi"),
+                    source_format=CANONICAL_FORMAT,
+                )
+                if canonical != focus.get("roi"):
+                    focus["roi"] = canonical
+                    updated = True
+            except ROIError:
+                pass
+
+        for step in recipe.get("steps", []):
+            if not isinstance(step, dict):
+                continue
+            params = step.get("params")
+            if not isinstance(params, dict) or params.get("roi") is None:
+                continue
+
+            source_format = (
+                LEGACY_XYWH_FORMAT
+                if legacy and step.get("tool") == "img_hist"
+                else CANONICAL_FORMAT
+            )
+            try:
+                canonical = normalize_roi(
+                    params.get("roi"),
+                    source_format=source_format,
+                )
+                if canonical != params.get("roi"):
+                    params["roi"] = canonical
+                    updated = True
+            except ROIError:
+                pass
+
+        return updated
+
     @staticmethod
     def slugify(value):
         value = str(value or "").strip().lower()
@@ -487,10 +552,11 @@ class RecipeManager:
 
         self.ensure_focus(recipe)
 
+        focus_roi = normalize_roi(focus_config.get("roi"))
         recipe["focus"].update({
             "mode": focus_config.get("mode", recipe["focus"].get("mode", "calibrated")),
             "enabled": bool(focus_config.get("enabled", True)),
-            "roi": focus_config.get("roi"),
+            "roi": focus_roi,
             "value": focus_config.get("value"),
             "min_score": focus_config.get("min_score"),
             "median_score": focus_config.get("median_score"),
@@ -554,14 +620,18 @@ class RecipeManager:
             if tool_name == "dmtx" and roi is None:
                 return f"El step {step_id} no tiene ROI valida"
             if roi is not None:
-                if not isinstance(roi, (list, tuple)) or len(roi) != 4:
-                    return f"ROI invalida en {step_id}: {roi}"
                 try:
-                    x1, y1, x2, y2 = [int(float(value)) for value in roi]
-                except (TypeError, ValueError):
-                    return f"ROI invalida en {step_id}: {roi}"
-                if x2 <= x1 or y2 <= y1:
-                    return f"ROI sin area valida en {step_id}: {roi}"
+                    normalize_roi(roi, allow_none=False)
+                except ROIError as exc:
+                    return f"ROI invalida en {step_id}: {exc}"
+
+            if tool_name == "dmtx":
+                match_mode = str(params.get("match_mode", "exact")).lower()
+                if match_mode not in ("exact", "prefix"):
+                    return (
+                        f"Modo de comparacion DataMatrix invalido en "
+                        f"{step_id}: {match_mode}"
+                    )
 
         if not enabled_steps:
             return f"La receta {recipe.get('name')} no tiene steps habilitados"

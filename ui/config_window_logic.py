@@ -12,6 +12,12 @@ from ui.schemas.schemas import TOOL_SCHEMAS
 from ui.focus_config_dialog import FocusConfigDialog
 from ui.recipe_policy_dialogs import RecipeSettingsDialog, StepPolicyEditor
 from ui.system_config_dialog import SystemConfigDialog
+from ui.responsive import (
+    apply_config_window_layout,
+    compact_stylesheet,
+    configure_dialog,
+    profile_from_widget,
+)
 import shutil
 
 class ConfigWindow(QWidget):
@@ -28,14 +34,20 @@ class ConfigWindow(QWidget):
         camera_worker=None,
         system_config=None,
         available_tools=None,
+        display_profile=None,
     ):
         super().__init__()
 
         self.ui = Ui_Form()
         self.ui.setupUi(self)
+        self.display_profile = display_profile or profile_from_widget(self)
         self._build_universal_controls()
+        apply_config_window_layout(self, self.ui, self.display_profile)
         
         self.apply_config_style()
+        self.setStyleSheet(
+            self.styleSheet() + compact_stylesheet(self.display_profile)
+        )
         self.apply_button_feedbakcs()
 
         self.recipe_manager = recipe_manager
@@ -58,13 +70,14 @@ class ConfigWindow(QWidget):
         self.ui.bttm_layout.setSpacing(6)
         self.ui.bttm_layout.insertWidget(1, self.btn_installation_config)
         self.ui.bttm_layout.insertWidget(2, self.btn_recipe_config)
+        max_width = 92 if self.display_profile.compact else 105
         for button in (
             self.btn_installation_config,
             self.btn_recipe_config,
             self.ui.btn_save,
             self.ui.btn_out,
         ):
-            button.setMaximumWidth(105)
+            button.setMaximumWidth(max_width)
 
     def apply_config_style(self):
         self.setStyleSheet("""
@@ -332,13 +345,7 @@ class ConfigWindow(QWidget):
         """)
 
     def get_screen_size(self):
-        screen = self.screen()
-
-        if screen is None:
-            return (480, 320)
-        
-        geo = screen.availableGeometry()
-        return geo.width(), geo.height()
+        return self.display_profile.width, self.display_profile.height
 
     def safe_name(self, name):
         return name.replace(" ","_").replace("/","_").replace("\\","_")
@@ -379,12 +386,15 @@ class ConfigWindow(QWidget):
             recipe_manager=self.recipe_manager,
             platform=self.platform,
             parent=self,
+            display_profile=self.display_profile,
         )
         dialog.configuration_saved.connect(self.restart_required.emit)
-        if self.platform == "linux":
-            dialog.showFullScreen()
-        else:
-            dialog.resize(800, 600)
+        configure_dialog(
+            dialog,
+            self.display_profile,
+            requested=(800, 600),
+            fullscreen=self.platform == "linux",
+        )
         if hasattr(dialog, "exec"):
             dialog.exec()
         else:
@@ -404,12 +414,15 @@ class ConfigWindow(QWidget):
             recipe_manager=self.recipe_manager,
             available_tools=self.available_tools,
             parent=self,
+            display_profile=self.display_profile,
         )
         dialog.recipe_saved.connect(self.on_recipe_settings_saved)
-        if self.platform == "linux":
-            dialog.showFullScreen()
-        else:
-            dialog.resize(520, 320)
+        configure_dialog(
+            dialog,
+            self.display_profile,
+            requested=(520, 320),
+            fullscreen=self.platform == "linux",
+        )
         if hasattr(dialog, "exec"):
             dialog.exec()
         else:
@@ -432,7 +445,8 @@ class ConfigWindow(QWidget):
             recipe=self.current_recipe,
             get_frame_callback=self.get_frame,
             platform=self.platform,
-            parent=self
+            parent=self,
+            display_profile=self.display_profile,
         )
 
         if self.camera_worker is not None:
@@ -445,14 +459,12 @@ class ConfigWindow(QWidget):
             dialog.lbl_status.setText("Error: CameraWorker no está disponible.")
             dialog.btn_calibrate.setEnabled(False)
 
-        screen_size = self.get_screen_size()
-        sw, sh = screen_size
-
-        if self.platform == "linux":
-            dialog.setMinimumSize(sw, sh)
-            dialog.showFullScreen()
-        else:
-            dialog.resize(800, 600)
+        configure_dialog(
+            dialog,
+            self.display_profile,
+            requested=(800, 600),
+            fullscreen=self.platform == "linux",
+        )
 
         if hasattr(dialog, "exec"):
             result = dialog.exec()
@@ -578,12 +590,6 @@ class ConfigWindow(QWidget):
         dialog.setWindowTitle(f"Editar {tool_name}")
 
         screen_size = self.get_screen_size()
-        sw, sh =  screen_size
-
-        if self.platform == "linux": 
-            dialog.setMinimumSize(sw, sh)
-        else:
-            dialog.setMinimumSize(700,520)
 
         dialog.setStyleSheet(self.styleSheet())
 
@@ -609,6 +615,7 @@ class ConfigWindow(QWidget):
         policy_editor = StepPolicyEditor(
             step=step,
             available_step_ids=previous_step_ids,
+            display_profile=self.display_profile,
         )
 
         scroll = QScrollArea()
@@ -665,10 +672,12 @@ class ConfigWindow(QWidget):
         btn_save.clicked.connect(save)
         btn_cancel.clicked.connect(dialog.reject)
 
-        if self.platform == "linux":
-            dialog.showFullScreen()
-        else:
-            dialog.resize(700, 520)
+        configure_dialog(
+            dialog,
+            self.display_profile,
+            requested=(700, 520),
+            fullscreen=self.platform == "linux",
+        )
 
         if hasattr(dialog, "exec"):
             dialog.exec()
@@ -704,12 +713,6 @@ class ConfigWindow(QWidget):
         tool_name, base_path = create_path()
 
         screen_size = self.get_screen_size()
-        sw, sh =  screen_size
-
-        if self.platform == "linux": 
-            dialog.setMinimumSize(sw, sh)
-        else:
-            dialog.setMinimumSize(700,520)
 
         editor = ToolEditor(
             tool_name=tool_name,
@@ -733,6 +736,7 @@ class ConfigWindow(QWidget):
                 for step in self.current_recipe["steps"]
                 if step.get("id")
             ],
+            display_profile=self.display_profile,
         )
 
         scroll = QScrollArea()
@@ -791,10 +795,12 @@ class ConfigWindow(QWidget):
         cmb_tools.currentTextChanged.connect(reload_ui)
 
         # MUESTRA LA NUEVA VENTANA DE EDICION DE FORMA BLOQUEANTE
-        if self.platform == "linux":
-            dialog.showFullScreen()
-        else:
-            dialog.resize(700, 520)
+        configure_dialog(
+            dialog,
+            self.display_profile,
+            requested=(700, 520),
+            fullscreen=self.platform == "linux",
+        )
 
         if hasattr(dialog, "exec"):
             dialog.exec()

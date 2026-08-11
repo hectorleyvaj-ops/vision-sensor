@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from tools.result import ToolResult
+from tools.result import ToolExecutionError, ToolResult, ToolStatus
 
 class ToolBase(ABC):
     def __init__(self, name: str):
@@ -10,16 +10,24 @@ class ToolBase(ABC):
             output = self.process(**kwargs)
 
             return ToolResult(
-                success=True,
+                status=ToolStatus.PASS,
                 tool_name=self.name,
                 data=output
             )
-        
+        except ToolExecutionError as exc:
+            return ToolResult(
+                status=exc.status,
+                tool_name=self.name,
+                data=exc.data,
+                error=str(exc),
+                error_code=exc.code,
+            )
         except Exception as e:
             return ToolResult(
-                success=False,
+                status=ToolStatus.ERROR,
                 tool_name=self.name,
-                error=str(e)
+                error=str(e),
+                error_code="UNEXPECTED_EXCEPTION",
             )
 
     

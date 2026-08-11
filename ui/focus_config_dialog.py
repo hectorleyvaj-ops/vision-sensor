@@ -4,29 +4,42 @@ from utils.qt_compat import (
 )
 
 from ui.widgets.video_widget import VideoWidget
+from ui.responsive import compact_stylesheet, profile_from_widget
 
 class FocusConfigDialog(QDialog):
     calibration_requested = Signal(object)
 
-    def __init__(self, recipe, get_frame_callback, platform="windows", parent=None):
+    def __init__(
+        self,
+        recipe,
+        get_frame_callback,
+        platform="windows",
+        parent=None,
+        display_profile=None,
+    ):
         super().__init__(parent)
 
         self.recipe = recipe
         self.get_frame = get_frame_callback
         self.platform = platform
+        self.display_profile = display_profile or profile_from_widget(parent or self)
 
         self.focus_result = None
 
         self.setWindowTitle("Calibracion de enfoque")
-        self.setStyleSheet(parent.styleSheet() if parent else "")
+        parent_style = parent.styleSheet() if parent else ""
+        self.setStyleSheet(
+            parent_style + compact_stylesheet(self.display_profile)
+        )
 
         self.build_ui()
         self.load_focus_config()
 
     def build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(14)
+        margin = self.display_profile.margin
+        layout.setContentsMargins(margin, margin, margin, margin)
+        layout.setSpacing(self.display_profile.spacing)
 
         self.lbl_status = QLabel("Selecciona una ROI de enfoque o usa la existente")
         self.lbl_status.setAlignment(Qt.AlignCenter)
@@ -57,6 +70,8 @@ class FocusConfigDialog(QDialog):
             fill_mode="fit"
         )
         self.video.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.video.setMinimumSize(120, 80)
+        self.video.setMaximumHeight(self.display_profile.dialog_video_height)
 
         self.btn_select_roi = QPushButton("SELECT ROI")
         self.btn_clear_roi = QPushButton("FRAME COMPLETO")

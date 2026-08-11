@@ -79,7 +79,7 @@ class RecipeAndPipelineTests(unittest.TestCase):
             recipe = manager.get_selected()
             migrated = json.loads(path.read_text(encoding="utf-8"))
 
-        self.assertEqual(migrated["schema_version"], 2)
+        self.assertEqual(migrated["schema_version"], 3)
         self.assertEqual(recipe["id"], "legacy")
         self.assertEqual(recipe["steps"][0]["id"], "fake_1")
         self.assertFalse(recipe["steps"][0]["required"])

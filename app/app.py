@@ -18,6 +18,11 @@ from app.state_worker import StateWorker
 from vision.camera_worker import CameraWorker
 from core.recipe_manager import RecipeManager
 from core.system_config import SystemConfig
+from ui.responsive import (
+    apply_main_window_layout,
+    profile_from_screen,
+    profile_from_widget,
+)
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -25,6 +30,9 @@ class MainWindow(QMainWindow):
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+        self.display_profile = profile_from_widget(self)
+        apply_main_window_layout(self, self.ui, self.display_profile)
+        QTimer.singleShot(0, self._bind_display_screen)
 
         self.setup_ui_logger()
         print(f"Qt backend: {QT_LIB}")
@@ -191,6 +199,24 @@ class MainWindow(QMainWindow):
             return "linux"
 
         return "other"
+
+    def _bind_display_screen(self):
+        """Refresh the layout if the window is moved to another monitor."""
+        handle = self.windowHandle()
+        if handle is None:
+            return
+        try:
+            handle.screenChanged.connect(self.on_display_screen_changed)
+        except (AttributeError, TypeError):
+            pass
+
+    def on_display_screen_changed(self, screen):
+        self.display_profile = profile_from_screen(screen)
+        apply_main_window_layout(self, self.ui, self.display_profile)
+        print(
+            f"[UI] Pantalla activa: {self.display_profile.width}x"
+            f"{self.display_profile.height} ({self.display_profile.mode})"
+        )
 
     def apply_main_button_feedbacks(self):
         buttons = [
@@ -385,6 +411,9 @@ class MainWindow(QMainWindow):
             mechanical_settle_ms=int(
                 self.runtime_config.get("mechanical_settle_ms", 0)
             ),
+            inspection_timeout_seconds=float(
+                self.runtime_config.get("inspection_timeout_seconds", 20.0)
+            ),
         )
 
         # THREAD + WORKER
@@ -417,6 +446,8 @@ class MainWindow(QMainWindow):
             self.ui.indicator_1.setStyleSheet(self.OK_STYLE)
         elif result == "NG":
             self.ui.indicator_1.setStyleSheet(self.NG_STYLE)
+        elif result == "ERROR":
+            self.ui.indicator_1.setStyleSheet(self.CRITICAL_STYLE)
         elif result == "NOT_READY":
             self.ui.indicator_1.setStyleSheet(self.NOT_READY_STYLE)
         elif result == "CRITICAL":
@@ -498,16 +529,24 @@ class MainWindow(QMainWindow):
         """
         Guarda o muestra resultado de inspección.
 
-        Si latch=True, el resultado OK/NG de ESP queda guardado, pero no
+        Si latch=True, el resultado OK/NG/ERROR de ESP queda guardado, pero no
         necesariamente visible. La prioridad visual final la decide
         refresh_indicator_visual().
         """
-        result = "OK" if result == "OK" else "NG"
+        result = str(result or "ERROR").upper()
+        if result not in ("OK", "NG", "ERROR"):
+            result = "ERROR"
 
         if latch:
             self.indicator_epoch += 1
             self.indicator_latched_result = result
             self.last_esp_result = result
+            if result == "ERROR":
+                self.set_system_status_visual(
+                    "CRITICAL",
+                    "El controlador reporto un error de ciclo",
+                )
+                return
             self.refresh_indicator_visual()
             return
 
@@ -585,11 +624,11 @@ class MainWindow(QMainWindow):
     def reject_controller_cycle(self, event, reason):
         cycle_id = event.get("cycle_id") if isinstance(event, dict) else None
         print(
-            f"[APP][CONTROLLER] Reportando NG seguro para ciclo "
+            f"[APP][CONTROLLER] Reportando ERROR seguro para ciclo "
             f"{cycle_id}: {reason}"
         )
         if cycle_id and hasattr(self, "serial"):
-            self.serial.send_command("NG", cycle_id=cycle_id)
+            self.serial.send_command("ERROR", cycle_id=cycle_id)
         if hasattr(self, "state_manager"):
             self.state_manager.cancel_cycle(cycle_id=cycle_id, reason=reason)
 
@@ -948,6 +987,7 @@ class MainWindow(QMainWindow):
             camera_worker=self.camera_worker,
             system_config=self.system_config,
             available_tools=self.processor.tool_registry.keys(),
+            display_profile=self.display_profile,
         )
         # CONECTAR SIGNALS DESDE CONFIG WINDOW
         self.config_window.update_rois.connect(
@@ -967,7 +1007,6 @@ class MainWindow(QMainWindow):
         if self.platform == "linux":
             self.config_window.showFullScreen()
         else:
-            self.config_window.resize(480, 320)
             self.config_window.show()
 
     def on_system_configuration_saved(self, _saved_config):

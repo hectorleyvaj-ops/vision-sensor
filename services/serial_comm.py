@@ -664,7 +664,8 @@ class SerialComm(QObject):
     def send_command(self, cmd: str, cycle_id=None) -> dict:
         """
         Envia comando a ESP32 esperando ACK.
-        Se usa principalmente para resultado de receta OK/NG enviado desde Raspberry.
+        Envia OK/NG cuando existe decision de producto y ERROR cuando vision no
+        pudo obtenerla. TIMEOUT interno se comunica como ERROR.
         """
         if not self.is_connected():
             return {"status": "ERROR", "error": "Puerto no conectado"}

@@ -1,4 +1,8 @@
-# Esquema universal de recetas v2
+# Esquema universal de recetas v2 (historico)
+
+Este documento describe la entrada compatible recibida de la fase 3. El motor
+actual migra automaticamente este formato al esquema v3 documentado en
+`docs/recipe_schema_v3.md` cuando `recipes.auto_migrate=true`.
 
 El motor guarda un catalogo con esta raiz:
 
@@ -55,8 +59,8 @@ Ejemplo neutral:
 | `not` | `condition` | Invierte una condicion. |
 
 Un catalogo heredado sin `schema_version`, IDs de paso o metadatos se migra al
-abrirlo cuando `recipes.auto_migrate=true`. Los valores existentes no se
-reemplazan y el archivo anterior se conserva como `.bak`.
+abrirlo cuando `recipes.auto_migrate=true`. El archivo anterior se conserva
+como `.bak`.
 
 Las politicas `enabled`, `required` y `condition` pertenecen al paso. Los
 parametros dentro de `params` pertenecen exclusivamente a la herramienta.

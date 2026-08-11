@@ -1,7 +1,15 @@
 import cv2
 import time
-from collections import Counter
 from pylibdmtx.pylibdmtx import decode
+from core.execution_control import check_execution, wait_interruptibly
+from core.roi import crop_image
+from tools.dmtx_policy import DataMatrixReadPolicy
+from tools.result import (
+    ToolCancelled,
+    ToolExecutionError,
+    ToolFailure,
+    ToolTimeout,
+)
 from tools.tool_base import ToolBase
 
 
@@ -12,6 +20,7 @@ class DataMatrixTool(ToolBase):
         {
             "roi": [x1, y1, x2, y2],
             "expected_code": "0402010XB",
+            "match_mode": "exact",
             "retries": 8,
             "delay": 0.04,
             "min_expected_reads": 2,
@@ -44,6 +53,7 @@ class DataMatrixTool(ToolBase):
 
         expected_code = kwargs.get("expected_code", self.config.get("expected_code"))
         expected_code = expected_code.strip() if isinstance(expected_code, str) else expected_code
+        match_mode = kwargs.get("match_mode", self.config.get("match_mode", "exact"))
 
         min_expected_reads = kwargs.get("min_expected_reads", self.config.get("min_expected_reads"))
         if min_expected_reads is None:
@@ -63,25 +73,30 @@ class DataMatrixTool(ToolBase):
         decode_timeout_ms = int(float(kwargs.get("decode_timeout_ms", self.config.get("decode_timeout_ms", 250))))
         max_total_time = float(kwargs.get("max_total_time", self.config.get("max_total_time", 15.0)))
 
-        start_time = time.time()
+        start_time = time.monotonic()
+        local_deadline = start_time + max_total_time
+        external_deadline = kwargs.get("deadline")
+        if external_deadline is not None:
+            local_deadline = min(local_deadline, float(external_deadline))
+        cancel_event = kwargs.get("cancel_event")
 
         if direct_frame is None and not frame_provider and not capture_provider:
             raise ValueError("No se recibio frame, frame_provider ni capture_provider")
 
+        policy = DataMatrixReadPolicy(
+            expected_code=expected_code,
+            match_mode=match_mode,
+            min_expected_reads=min_expected_reads,
+            max_wrong_reads=max_wrong_reads,
+        )
         all_reads = []
-        expected_reads = []
-        wrong_reads = []
-        no_read_count = 0
         decode_errors = []
         boxes_by_attempt = []
         last_frame_id = None
+        successful_decode_calls = 0
 
         for i in range(retries):
-            if time.time() - start_time >= max_total_time:
-                decode_errors.append(
-                    f"Tiempo maximo DMTX alcanzado: {max_total_time:.2f}"
-                )
-                break
+            check_execution(cancel_event=cancel_event, deadline=local_deadline)
 
             frame, metadata = self._get_frame(
                 direct_frame=direct_frame,
@@ -90,9 +105,14 @@ class DataMatrixTool(ToolBase):
             )
 
             if frame is None:
-                no_read_count += 1
+                policy.observe([])
                 decode_errors.append(f"Intento {i + 1}: frame no disponible")
-                time.sleep(delay)
+                if i + 1 < retries:
+                    wait_interruptibly(
+                        delay,
+                        cancel_event=cancel_event,
+                        deadline=local_deadline,
+                    )
                 continue
 
             last_frame_id = metadata.get("frame_id", last_frame_id)
@@ -111,23 +131,33 @@ class DataMatrixTool(ToolBase):
                 used_variant = None
 
                 for variant_name, variant_img in variants:
-                    if time.time() - start_time >= max_total_time:
-                        break
+                    check_execution(
+                        cancel_event=cancel_event,
+                        deadline=local_deadline,
+                    )
 
                     decoded = self._safe_decode(
                         variant_img,
                         timeout_ms=decode_timeout_ms
                     )
+                    successful_decode_calls += 1
                     
                     if decoded:
                         used_variant = variant_name
                         print(f"[DMTX] Lectura con variante: {variant_name}")
                         break
 
+            except (ToolCancelled, ToolTimeout):
+                raise
             except Exception as e:
-                no_read_count += 1
+                policy.observe([])
                 decode_errors.append(f"Intento {i + 1}: error preparando ROI/decode: {e}")
-                time.sleep(delay)
+                if i + 1 < retries:
+                    wait_interruptibly(
+                        delay,
+                        cancel_event=cancel_event,
+                        deadline=local_deadline,
+                    )
                 continue
 
             if show_roi and debug_images is not None and len(debug_images) < 10:
@@ -140,8 +170,13 @@ class DataMatrixTool(ToolBase):
 
             if not decoded:
                 print(f"[DMTX] Sin lectura en intento {i + 1}/{retries}")
-                no_read_count += 1
-                time.sleep(delay)
+                policy.observe([])
+                if i + 1 < retries:
+                    wait_interruptibly(
+                        delay,
+                        cancel_event=cancel_event,
+                        deadline=local_deadline,
+                    )
                 continue
 
             attempt_codes = []
@@ -161,89 +196,79 @@ class DataMatrixTool(ToolBase):
             boxes_by_attempt.append(attempt_boxes)
 
             if not attempt_codes:
-                no_read_count += 1
-                time.sleep(delay)
+                policy.observe([])
+                if i + 1 < retries:
+                    wait_interruptibly(
+                        delay,
+                        cancel_event=cancel_event,
+                        deadline=local_deadline,
+                    )
                 continue
 
             print(f"[DMTX] Intento {i + 1}/{retries}: {attempt_codes}")
+            policy.observe(attempt_codes)
+            confirmed_code = policy.confirmed_code
+            if confirmed_code:
+                summary = policy.summary()
+                return self._build_pass(
+                    code=confirmed_code,
+                    expected_code=expected_code,
+                    reads=all_reads,
+                    expected_count=(
+                        summary["expected_attempt_count"]
+                        if expected_code
+                        else summary["votes"].get(confirmed_code, 0)
+                    ),
+                    wrong_count=summary["wrong_attempt_count"],
+                    no_read_count=summary["no_read_count"],
+                    boxes=boxes_by_attempt,
+                    frame_id=last_frame_id,
+                    policy_summary=summary,
+                )
 
-            if expected_code:
-                expected_len = len(expected_code)
+            if i + 1 < retries:
+                wait_interruptibly(
+                    delay,
+                    cancel_event=cancel_event,
+                    deadline=local_deadline,
+                )
 
-                matching_codes = []
-                non_expected = []
-
-                for code in attempt_codes:
-                    base_code = code[:expected_len]
-
-                    if base_code == expected_code:
-                        matching_codes.append(code)
-                    else:
-                        non_expected.append(code)
-
-                if matching_codes:
-                    expected_reads.extend(matching_codes)
-
-                if non_expected:
-                    wrong_reads.extend(non_expected)
-                    
-                if expected_code in attempt_codes:
-                    expected_reads.append(expected_code)
-                    print(
-                        f"[DMTX][WARNING] Codigo base diferente al esperado en intento {i + 1}: "
-                        f"esperado='{expected_code}', leidos={non_expected}"
-                    )
-
-                if len(expected_reads) >= min_expected_reads and len(wrong_reads) <= max_wrong_reads:
-                    return self._build_pass(
-                        code=expected_code,
-                        expected_code=expected_code,
-                        reads=all_reads,
-                        expected_count=len(expected_reads),
-                        wrong_count=len(wrong_reads),
-                        no_read_count=no_read_count,
-                        boxes=boxes_by_attempt,
-                        frame_id=last_frame_id,
-                    )
-
-            else:
-                counts = Counter(all_reads)
-                code, count = counts.most_common(1)[0]
-
-                if count >= min_expected_reads:
-                    return self._build_pass(
-                        code=code,
-                        expected_code=None,
-                        reads=all_reads,
-                        expected_count=count,
-                        wrong_count=0,
-                        no_read_count=no_read_count,
-                        boxes=boxes_by_attempt,
-                        frame_id=last_frame_id,
-                    )
-
-            time.sleep(delay)
-
-        summary = {
-            "expected_code": expected_code,
+        summary = policy.summary()
+        summary.update({
             "reads": all_reads,
-            "expected_count": len(expected_reads),
-            "wrong_reads": wrong_reads,
-            "wrong_count": len(wrong_reads),
-            "no_read_count": no_read_count,
             "decode_errors": decode_errors,
-            "min_expected_reads": min_expected_reads,
-            "max_wrong_reads": max_wrong_reads,
             "frame_id": last_frame_id,
-        }
+        })
 
-        if expected_code and len(wrong_reads) > max_wrong_reads:
-            raise ValueError(f"Datamatrix sospechoso: lecturas incorrectas detectadas {summary}")
-
+        if time.monotonic() >= local_deadline:
+            raise ToolTimeout(
+                f"Tiempo maximo DataMatrix alcanzado: {summary}",
+                data=summary,
+                code="DMTX_TIMEOUT",
+            )
+        if successful_decode_calls == 0 and decode_errors:
+            raise ToolExecutionError(
+                f"DataMatrix no pudo procesar ningun frame valido: {summary}",
+                data=summary,
+                code="DMTX_EXECUTION_ERROR",
+            )
+        if expected_code and policy.wrong_limit_exceeded:
+            raise ToolFailure(
+                f"DataMatrix incorrecto: {summary}",
+                data=summary,
+                code="DMTX_WRONG_CODE",
+            )
         if expected_code:
-            raise ValueError(f"Datamatrix no confirmado por mayoria: {summary}")
-
-        raise ValueError(f"No se detecto Datamatrix confiable: {summary}")
+            raise ToolFailure(
+                f"DataMatrix esperado no confirmado: {summary}",
+                data=summary,
+                code="DMTX_NOT_CONFIRMED",
+            )
+        raise ToolFailure(
+            f"No se detecto DataMatrix confiable: {summary}",
+            data=summary,
+            code="DMTX_NOT_READ",
+        )
 
     # HELPERS
 
@@ -266,37 +291,7 @@ class DataMatrixTool(ToolBase):
         return None, {}
 
     def _get_roi(self, frame, roi_cfg=None, padding=0):
-        if frame is None:
-            raise ValueError("Frame vacio")
-
-        if not hasattr(frame, "shape") or frame.size == 0:
-            raise ValueError("Frame invalido")
-
-        if not roi_cfg:
-            return frame
-
-        if len(roi_cfg) != 4:
-            raise ValueError(f"ROI invalida, se esperaban 4 valores: {roi_cfg}")
-
-        height, width = frame.shape[:2]
-        x1, y1, x2, y2 = [int(float(v)) for v in roi_cfg]
-
-        padding = max(0,int(padding))
-
-        x1 -= padding
-        y1 -= padding
-        x2 += padding
-        y2 += padding
-
-        x1 = max(0, min(width - 1, x1))
-        y1 = max(0, min(height - 1, y1))
-        x2 = max(0, min(width, x2))
-        y2 = max(0, min(height, y2))
-
-        if x2 <= x1 or y2 <= y1:
-            raise ValueError(f"ROI fuera de rango o sin area: {roi_cfg}, frame={width}x{height}")
-
-        return frame[y1:y2, x1:x2]
+        return crop_image(frame, roi=roi_cfg, padding=padding)
 
     def _to_gray(self, image):
         if len(image.shape) == 2:
@@ -326,15 +321,16 @@ class DataMatrixTool(ToolBase):
     
     def _safe_decode(self, image, timeout_ms=250):
         """
-        Intenta decode con timeout si la version de pylibdmtx lo soporta.
-        Si no soporta timeout, cae a decode normal.
+        Decode siempre acotado. Una version antigua sin argumento ``timeout``
+        se rechaza para no introducir una llamada imposible de cancelar.
         """
         try:
             return decode(image, timeout=timeout_ms)
-        except TypeError:
-            return decode(image)
-        except Exception:
-            return []
+        except TypeError as exc:
+            raise RuntimeError(
+                "La version instalada de pylibdmtx no soporta timeout; "
+                "actualice la dependencia antes de produccion"
+            ) from exc
 
 
     def _build_decode_variants(self, gray, preprocess=True, upscale=2.0):
@@ -431,6 +427,7 @@ class DataMatrixTool(ToolBase):
         no_read_count,
         boxes,
         frame_id=None,
+        policy_summary=None,
     ):
         print(
             f"[DMTX] PASS code='{code}', expected_count={expected_count}, "
@@ -446,4 +443,5 @@ class DataMatrixTool(ToolBase):
             "no_read_count": int(no_read_count),
             "boxes": boxes,
             "frame_id": frame_id,
+            "policy": policy_summary or {},
         }

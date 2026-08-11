@@ -29,6 +29,7 @@ from utils.qt_compat import (
     Signal,
     Qt,
 )
+from ui.responsive import compact_stylesheet, profile_from_widget
 
 
 class SystemConfigDialog(QDialog):
@@ -36,33 +37,46 @@ class SystemConfigDialog(QDialog):
 
     configuration_saved = Signal(object)
 
-    def __init__(self, system_config, recipe_manager, platform="windows", parent=None):
+    def __init__(
+        self,
+        system_config,
+        recipe_manager,
+        platform="windows",
+        parent=None,
+        display_profile=None,
+    ):
         super().__init__(parent)
         self.system_config = system_config
         self.recipe_manager = recipe_manager
         self.platform = platform
+        self.display_profile = display_profile or profile_from_widget(parent or self)
         self.setWindowTitle("Configuracion de instalacion")
         if parent is not None:
-            self.setStyleSheet(parent.styleSheet())
+            self.setStyleSheet(
+                parent.styleSheet() + compact_stylesheet(self.display_profile)
+            )
         self._build_ui()
         self._load_values()
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
-        root.setSpacing(8)
+        margin = self.display_profile.margin
+        root.setContentsMargins(margin, margin, margin, margin)
+        root.setSpacing(self.display_profile.spacing)
 
         title = QLabel("INSTALACION DEL MOTOR UNIVERSAL")
         title.setAlignment(Qt.AlignCenter)
         root.addWidget(title)
 
         self.tabs = QTabWidget()
+        self.tabs.setUsesScrollButtons(True)
         root.addWidget(self.tabs, 1)
 
         self._build_station_tab()
         self._build_controller_tab()
         self._build_mapping_tab()
         self._build_runtime_tab()
+        self._apply_help_texts()
 
         notice = QLabel(
             "Los cambios se validan y guardan con respaldo. "
@@ -88,8 +102,9 @@ class SystemConfigDialog(QDialog):
         scroll.setWidgetResizable(True)
         content = QWidget()
         form = QFormLayout(content)
-        form.setContentsMargins(12, 12, 12, 12)
-        form.setVerticalSpacing(10)
+        margin = self.display_profile.margin
+        form.setContentsMargins(margin, margin, margin, margin)
+        form.setVerticalSpacing(self.display_profile.spacing)
         scroll.setWidget(content)
         page_layout.addWidget(scroll)
         self.tabs.addTab(page, title)
@@ -134,8 +149,8 @@ class SystemConfigDialog(QDialog):
         form.addRow("Catalogo de recetas", self.txt_recipe_file)
         form.addRow("Migracion", self.chk_auto_migrate)
         form.addRow("Dispositivo de camara", self.txt_camera_device)
-        form.addRow("Ancho", self.spn_camera_width)
-        form.addRow("Alto", self.spn_camera_height)
+        form.addRow("Ancho de captura", self.spn_camera_width)
+        form.addRow("Alto de captura", self.spn_camera_height)
         form.addRow("FPS de captura", self.spn_capture_fps)
         form.addRow("FPS de vista previa", self.spn_preview_fps)
         form.addRow("Enfoque predeterminado", self.cmb_default_focus)
@@ -192,11 +207,42 @@ class SystemConfigDialog(QDialog):
         self.chk_require_focus_ready = QCheckBox()
         self.spn_max_frame_age = self._float_spin(0.01, 60.0, 2)
         self.spn_mechanical_settle = self._int_spin(0, 600000)
+        self.spn_inspection_timeout = self._float_spin(0.1, 3600.0, 1)
         form.addRow("Exigir controlador READY", self.chk_require_controller_ready)
         form.addRow("Exigir handshake", self.chk_require_controller_sync)
         form.addRow("Exigir enfoque listo", self.chk_require_focus_ready)
         form.addRow("Edad maxima de frame (s)", self.spn_max_frame_age)
         form.addRow("Asentamiento mecanico (ms)", self.spn_mechanical_settle)
+        form.addRow("Timeout de inspeccion (s)", self.spn_inspection_timeout)
+
+    def _apply_help_texts(self):
+        help_texts = {
+            self.txt_installation_id: "ID tecnico estable de esta estacion.",
+            self.txt_installation_name: "Nombre legible mostrado en registros.",
+            self.txt_recipe_file: "Ruta al catalogo JSON de recetas de esta instalacion.",
+            self.chk_auto_migrate: "Convierte esquemas heredados y conserva un archivo .bak.",
+            self.txt_camera_device: "Indice 0, 1, etc. o ruta persistente del dispositivo.",
+            self.spn_camera_width: "Ancho solicitado a la camara; no es el ancho del monitor.",
+            self.spn_camera_height: "Alto solicitado a la camara; no es el alto del monitor.",
+            self.spn_capture_fps: "Frames por segundo adquiridos desde la camara.",
+            self.spn_preview_fps: "Frecuencia visual; puede reducirse para ahorrar CPU.",
+            self.cmb_default_focus: "Modo inicial de enfoque para recetas nuevas.",
+            self.spn_baudrate: "Velocidad serial; debe coincidir con el controlador.",
+            self.spn_timeout: "Espera maxima de lectura/escritura serial.",
+            self.chk_reset_on_connect: "Permite reiniciar el controlador al abrir el puerto.",
+            self.chk_heartbeat: "Supervisa que el enlace con el controlador siga vivo.",
+            self.chk_ready_notifications: "Publica READY o NOT_READY al controlador.",
+            self.tbl_ports: "Puerto por sistema operativo; puede incluir una entrada default.",
+            self.tbl_model_map: "Traduce el ID externo recibido a una receta existente.",
+            self.chk_require_controller_ready: "Bloquea triggers si el controlador no esta listo.",
+            self.chk_require_controller_sync: "Exige negociar vision_controller_v1 antes de producir.",
+            self.chk_require_focus_ready: "Bloquea produccion sin enfoque valido.",
+            self.spn_max_frame_age: "Descarta frames mas antiguos que este limite.",
+            self.spn_mechanical_settle: "Espera cancelable para inmovilizar la pieza tras el trigger.",
+            self.spn_inspection_timeout: "Tiempo total maximo del ciclo de vision.",
+        }
+        for widget, description in help_texts.items():
+            widget.setToolTip(description)
 
     @staticmethod
     def _new_pair_table(first_header, second_header):
@@ -305,6 +351,9 @@ class SystemConfigDialog(QDialog):
         self.spn_mechanical_settle.setValue(
             int(runtime.get("mechanical_settle_ms", 0))
         )
+        self.spn_inspection_timeout.setValue(
+            float(runtime.get("inspection_timeout_seconds", 20.0))
+        )
 
     def _read_ports(self):
         ports = {}
@@ -364,6 +413,7 @@ class SystemConfigDialog(QDialog):
             "require_focus_ready": self.chk_require_focus_ready.isChecked(),
             "max_frame_age_seconds": self.spn_max_frame_age.value(),
             "mechanical_settle_ms": self.spn_mechanical_settle.value(),
+            "inspection_timeout_seconds": self.spn_inspection_timeout.value(),
         })
         return candidate
 

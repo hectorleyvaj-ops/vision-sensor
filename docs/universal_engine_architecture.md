@@ -39,7 +39,7 @@ definiran fuera del nucleo.
 
 - `config/system.json`: configuracion base de una instalacion.
 - `core/models/recipes.json`: catalogo actual; se migra automaticamente al
-  esquema v2 al abrirlo.
+  esquema v3 al abrirlo.
 - `VISION_SYSTEM_CONFIG`: ruta opcional a otro archivo completo de instalacion.
 
 La seleccion por variable de entorno cambia datos, no comportamiento del
@@ -53,7 +53,7 @@ implementar `vision_controller_v1`.
 - acepta identificadores externos arbitrarios y los mapea a recetas;
 - conserva multiples instancias de una herramienta mediante `step.id`;
 - agrega condiciones declarativas de paso;
-- migra recetas heredadas al esquema universal v2 con respaldo `.bak`;
+- migra recetas heredadas al esquema universal v3 con respaldo `.bak`;
 - conserva identificador de ciclo, heartbeat, READY/NOT_READY, ACK tipado,
   cancelacion y rechazo de resultados tardios;
 - no incluye ni modifica firmware ESP32 o programas PLC.
@@ -73,3 +73,7 @@ La primera version del editor universal cubre los puntos 1 a 4 y el
 comisionamiento validado. Los cambios de instalacion requieren reinicio y
 mantienen el motor en `NOT_READY` hasta aplicarse. Consulte
 `docs/universal_configuration_ui.md`.
+
+La fase 4 agrega el contrato unico de ROI, estados tipados de herramientas,
+deadline global de inspeccion y cancelacion cooperativa. Ninguna de estas
+reglas contiene logica especifica de una maquina.

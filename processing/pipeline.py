@@ -1,25 +1,25 @@
-#SE ENCARGA DE MANEJAR LAS HERRAMIENTAS REQUERIDAS POR LAS RECETAS..
-#..Y VALIDAR SUS RESULTADOS PARA DETERMINAR UN UNICO RESULTADO NG/OK
+# SE ENCARGA DE MANEJAR LAS HERRAMIENTAS REQUERIDAS POR LAS RECETAS Y
+# CONSERVAR LA DIFERENCIA ENTRE RECHAZO DE PRODUCTO Y FALLA DE EJECUCION.
 
+from core.execution_control import check_execution
 from core.step_conditions import ConditionError, evaluate_condition
+from tools.result import (
+    ToolCancelled,
+    ToolResult,
+    ToolStatus,
+    ToolTimeout,
+)
+
 
 class VisionPipeline:
     def __init__(self, tool_registry: dict):
-        """
-        tool_registry = {
-            "dmtx": DMTXTool(),
-            ...
-        }
-        """
-        #REGISTRAR HERRAMIENTAS PARA ACCEDER A ELLAS DESDE PIPELINE
         self.tool_registry = tool_registry
 
     def run(self, recipe: dict, contex: dict):
-        results = {}            #DATA QUE VIENE DE CADA HERRAMIENTA
+        results = {}
         execution_order = []
         skipped_steps = []
-        overall_success = True  #VALIDACION GENERAL DETERMINANTE
-        errors = []             #LISTA DE ERRORES ACUMULADOS DEL PROCESO DE CADA HERRAMIENTA
+        errors = []
         contex.setdefault("outputs", {})
         contex.setdefault("outputs_by_tool", {})
         contex.setdefault("debug_images", [])
@@ -27,23 +27,34 @@ class VisionPipeline:
         steps = recipe.get("steps", []) if isinstance(recipe, dict) else []
         if not steps:
             return self._build_response(
-                False,
+                ToolStatus.ERROR,
                 results,
                 ["La receta no contiene herramientas ejecutables"],
                 execution_order,
                 skipped_steps,
+                error_code="EMPTY_RECIPE",
             )
 
-        #RECABAR INFORMACION DE CADA RECETA GUARDADA {STEPS}
         for index, step in enumerate(steps):
-            tool_name = step["tool"]                #OBTENER EL NOMBRE DE LA HERRAMIENTA
+            tool_name = step["tool"]
             step_id = step.get("id") or f"{tool_name}_{index + 1}"
-            params = step.get("params", {})         #OBTENER LOS PARAMETROS DESIGNADOS PARA LA HERRAMIENTA
-            required = step.get("required", params.get("required", True))   #FLAG DE REQUERIMIENTO
+            params = step.get("params", {})
+            required = step.get("required", params.get("required", True))
 
             if not step.get("enabled", True):
                 skipped_steps.append(step_id)
                 continue
+
+            control_error = self._execution_control_result(contex)
+            if control_error:
+                return self._build_response(
+                    control_error.status,
+                    results,
+                    [control_error.error],
+                    execution_order,
+                    skipped_steps,
+                    error_code=control_error.error_code,
+                )
 
             try:
                 should_run = evaluate_condition(
@@ -54,11 +65,12 @@ class VisionPipeline:
             except ConditionError as exc:
                 errors.append(f"Condicion invalida en {step_id}: {exc}")
                 return self._build_response(
-                    False,
+                    ToolStatus.ERROR,
                     results,
                     errors,
                     execution_order,
                     skipped_steps,
+                    error_code="INVALID_CONDITION",
                 )
 
             if not should_run:
@@ -66,77 +78,134 @@ class VisionPipeline:
                 continue
 
             if step_id in results:
-                error_msg = f"Step id duplicado durante ejecucion: {step_id}"
-                errors.append(error_msg)
+                errors.append(f"Step id duplicado durante ejecucion: {step_id}")
                 return self._build_response(
-                    False, results, errors, execution_order, skipped_steps
+                    ToolStatus.ERROR,
+                    results,
+                    errors,
+                    execution_order,
+                    skipped_steps,
+                    error_code="DUPLICATE_STEP_ID",
                 )
 
-            tool = self.tool_registry.get(tool_name)    #PASAR INSTANCIA DE LA HERRAMIENTA ACTUAL A LA VARIABLE TOOL
-
-            #CASO DE HERRAMIENTA NO ENCONTRADA
+            tool = self.tool_registry.get(tool_name)
             if not tool:
-                error_msg = f"Tool '{tool_name}' no encontrada" #MENSAJE DE ERROR
-                errors.append(error_msg)    #ANEXAR MENSAJE DE ERROR A LA LISTA DE ERRORS
+                error_msg = f"Tool '{tool_name}' no encontrada"
+                errors.append(error_msg)
                 if required:
-                    print(f"[ERROR] Tool '{tool_name}' no encontrada")  #PRINT PARA LOG
+                    print(f"[ERROR] {error_msg}")
                     return self._build_response(
-                        False, results, errors, execution_order, skipped_steps
-                    ) #SALIR DE LA FUNCION Y LLAMAR A BUILD_RESPONSE
+                        ToolStatus.ERROR,
+                        results,
+                        errors,
+                        execution_order,
+                        skipped_steps,
+                        error_code="TOOL_NOT_FOUND",
+                    )
                 skipped_steps.append(step_id)
                 continue
 
-            print(f"[PIPELINE] Ejecutando {step_id} ({tool_name})") #LOD DE EJECUCION
-
-            #M MERGE CONTEXT (DATOS, FUNCIONES, ETC.) + PARAMETROS DE HERRAMIENTA
+            print(f"[PIPELINE] Ejecutando {step_id} ({tool_name})")
             inputs = {**contex, **params}
 
-            result = tool.run(**inputs)     #EJECUTAR EL RUN DE TOOL_BASE DANDOLE TODA LA INFORMACION QUE A SU VEZ LLAMA A PROCESS DE LA HERRAMIENTA
+            try:
+                result = tool.run(**inputs)
+            except Exception as exc:
+                result = ToolResult(
+                    status=ToolStatus.ERROR,
+                    tool_name=tool_name,
+                    error=str(exc),
+                    error_code="UNCAUGHT_TOOL_EXCEPTION",
+                )
+
+            if not isinstance(result, ToolResult):
+                result = ToolResult(
+                    status=ToolStatus.ERROR,
+                    tool_name=tool_name,
+                    error="La herramienta no devolvio ToolResult",
+                    error_code="INVALID_TOOL_RESULT",
+                )
+
             results[step_id] = result
             execution_order.append(step_id)
+            print(
+                f"[PIPELINE] Estado: {result.status.value}; "
+                f"resultado: {result.data}"
+            )
 
-            print(f"[PIPELINE] Resultado: {result.data}")   #LOG DE PROCESO FINALIZADO
-
-            #CASO DE RESULTADO NEGATIVO EN LA HERRAMIENTA
-            if not result.success:
-                errors.append(result.error) #ANEXAR RAZON DE RESULTADO NEGATIVO
-
-                if required:    #SI LA HERRAMIENTA ES REQUERIDA LLAMAR A BUILD_RESPONSE
-                    print(f"[PIPELINE] Error en {step_id}: {result.error}")   #LOG DEL ERROR
-                    return self._build_response(
-                        False, results, errors, execution_order, skipped_steps
+            if result.status is ToolStatus.PASS:
+                if result.data is not None:
+                    contex["outputs"][step_id] = result.data
+                    contex["outputs_by_tool"].setdefault(tool_name, []).append(
+                        result.data
                     )
+                continue
 
-            if result.data:
-                contex["outputs"][step_id] = result.data
-                contex["outputs_by_tool"].setdefault(tool_name, []).append(result.data)
+            errors.append(result.error or f"{step_id}: {result.status.value}")
+            if required:
+                print(
+                    f"[PIPELINE] Step requerido {step_id}: "
+                    f"{result.status.value} - {result.error}"
+                )
+                return self._build_response(
+                    result.status,
+                    results,
+                    errors,
+                    execution_order,
+                    skipped_steps,
+                    error_code=result.error_code,
+                )
 
         if not execution_order:
-            errors.append("Ninguna herramienta cumplio su condicion de ejecucion")
-            overall_success = False
+            return self._build_response(
+                ToolStatus.ERROR,
+                results,
+                ["Ninguna herramienta cumplio su condicion de ejecucion"],
+                execution_order,
+                skipped_steps,
+                error_code="NO_EXECUTED_STEPS",
+            )
 
         return self._build_response(
-            overall_success,
+            ToolStatus.PASS,
             results,
             errors,
             execution_order,
             skipped_steps,
         )
 
-    #FUNCION PARA MANEJAR EL RETURN A PIPELINE
+    @staticmethod
+    def _execution_control_result(context):
+        try:
+            check_execution(
+                cancel_event=context.get("cancel_event"),
+                deadline=context.get("deadline"),
+            )
+        except (ToolCancelled, ToolTimeout) as exc:
+            return ToolResult(
+                status=exc.status,
+                tool_name="pipeline",
+                error=str(exc),
+                error_code=exc.code,
+            )
+        return None
+
     def _build_response(
         self,
-        success,
+        status,
         results,
         errors,
         execution_order,
         skipped_steps,
+        error_code=None,
     ):
-        #GARANTIZAR LA ESTRUCTURA BASE DE LOS DATOS EN EL RETURN
-        return{
-            "success": success,
+        status = ToolStatus(status)
+        return {
+            "status": status.value,
+            "success": status is ToolStatus.PASS,
             "results": results,
             "errors": errors,
+            "error_code": error_code,
             "execution_order": execution_order,
             "skipped_steps": skipped_steps,
         }

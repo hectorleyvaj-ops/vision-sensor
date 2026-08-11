@@ -11,6 +11,13 @@ TOOL_SCHEMAS = {
             "default": ""
             },
 
+        "match_mode": {
+            "type": "choice",
+            "label": "Comparacion de codigo",
+            "options": ["exact", "prefix"],
+            "default": "exact"
+            },
+
         "retries": {
             "type": "int", 
             "label": "Intentos/Trigger", 

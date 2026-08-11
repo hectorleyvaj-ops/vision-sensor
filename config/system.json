@@ -37,6 +37,7 @@
         "require_controller_sync": true,
         "require_focus_ready": true,
         "max_frame_age_seconds": 0.5,
-        "mechanical_settle_ms": 0
+        "mechanical_settle_ms": 0,
+        "inspection_timeout_seconds": 20.0
     }
 }
