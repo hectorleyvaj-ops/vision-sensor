@@ -1,0 +1,68 @@
+{
+    "schema_version": 1,
+    "system_config": "system.json",
+    "project_root": "../..",
+    "exact_model_map": true,
+    "required_models": [
+        {
+            "external_id": "A",
+            "recipe": "MODELO_A",
+            "part_number": "0402012XA",
+            "physical_sensor_pattern": {
+                "left": "OK",
+                "right": "NG"
+            }
+        },
+        {
+            "external_id": "B",
+            "recipe": "MODELO_B",
+            "part_number": "0402012XB",
+            "physical_sensor_pattern": {
+                "left": "NG",
+                "right": "OK"
+            }
+        },
+        {
+            "external_id": "C",
+            "recipe": "MODELO_C",
+            "part_number": "0402012XC",
+            "physical_sensor_pattern": {
+                "left": "OK",
+                "right": "OK"
+            }
+        }
+    ],
+    "recipe_policy": {
+        "required_tools": [
+            "dmtx",
+            "img_hist"
+        ],
+        "require_calibrated_focus": true,
+        "required_focus_fields": [
+            "roi",
+            "value",
+            "min_score",
+            "median_score",
+            "peak_score"
+        ],
+        "parameter_rules": [
+            {
+                "tool": "img_hist",
+                "parameter": "threshold",
+                "operator": "gt",
+                "value": 0.0
+            }
+        ]
+    },
+    "pending_physical_values": [
+        "Contenido DataMatrix exacto para A/B/C",
+        "ROI DataMatrix e imagen por modelo",
+        "Umbral de histograma por modelo",
+        "Imagenes maestras buenas por modelo",
+        "ROI y valores de enfoque por modelo",
+        "Tiempo mechanical_settle_ms medido",
+        "Ruta persistente de camara en Raspberry Pi",
+        "Puerto serial definitivo en Raspberry Pi",
+        "Niveles electricos activos y seguros de sensores/PLC"
+    ]
+}

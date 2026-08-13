@@ -1,0 +1,52 @@
+{
+    "schema_version": 2,
+    "installation": {
+        "id": "worksurface",
+        "name": "Worksurface"
+    },
+    "recipes": {
+        "file": "installations/worksurface/recipes.json",
+        "auto_migrate": false
+    },
+    "camera": {
+        "device": 0,
+        "width": 1920,
+        "height": 1080,
+        "capture_fps": 30,
+        "preview_fps": 10,
+        "default_focus_mode": "calibrated"
+    },
+    "controller": {
+        "transport": "serial",
+        "protocol": "vision_controller_v1",
+        "ports": {
+            "linux": "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0",
+            "windows": "COM7"
+        },
+        "baudrate": 115200,
+        "timeout": 1.0,
+        "reset_on_connect": true,
+        "heartbeat_enabled": true,
+        "ready_notifications_enabled": true,
+        "model_map": {
+            "A": "MODELO_A",
+            "B": "MODELO_B",
+            "C": "MODELO_C"
+        }
+    },
+    "runtime": {
+        "require_controller_ready": true,
+        "require_controller_sync": true,
+        "require_focus_ready": true,
+        "max_frame_age_seconds": 0.5,
+        "mechanical_settle_ms": 0,
+        "inspection_timeout_seconds": 20.0
+    },
+    "traceability": {
+        "enabled": true,
+        "directory": "runtime/worksurface/traceability",
+        "max_file_size_mb": 10.0,
+        "retention_files": 10,
+        "retention_days": 30
+    }
+}

@@ -1,0 +1,191 @@
+{
+    "schema_version": 3,
+    "recipes": [
+        {
+            "id": "worksurface_a",
+            "name": "MODELO_A",
+            "selected": true,
+            "commissioned": false,
+            "machine": {
+                "external_model": "A",
+                "part_number": "0402012XA"
+            },
+            "steps": [
+                {
+                    "id": "dmtx_1",
+                    "tool": "dmtx",
+                    "enabled": true,
+                    "required": true,
+                    "condition": {
+                        "type": "always"
+                    },
+                    "params": {
+                        "roi": null,
+                        "expected_code": "",
+                        "match_mode": "exact",
+                        "retries": 8,
+                        "delay": 0.04,
+                        "min_expected_reads": 2,
+                        "max_wrong_reads": 0,
+                        "roi_padding": 12,
+                        "preprocess": true,
+                        "upscale": 2.0,
+                        "decode_timeout_ms": 250,
+                        "max_total_time": 15.0,
+                        "show_roi": false
+                    }
+                },
+                {
+                    "id": "img_hist_1",
+                    "tool": "img_hist",
+                    "enabled": true,
+                    "required": true,
+                    "condition": {
+                        "type": "always"
+                    },
+                    "params": {
+                        "roi": null,
+                        "threshold": 0.0,
+                        "template_paths": [],
+                        "show_roi": true
+                    }
+                }
+            ],
+            "focus": {
+                "mode": "calibrated",
+                "enabled": false,
+                "roi": null,
+                "value": null,
+                "min_score": null,
+                "median_score": null,
+                "peak_score": null,
+                "verify_on_first_trigger": true,
+                "auto_refocus_if_failed": true
+            }
+        },
+        {
+            "id": "worksurface_b",
+            "name": "MODELO_B",
+            "selected": false,
+            "commissioned": false,
+            "machine": {
+                "external_model": "B",
+                "part_number": "0402012XB"
+            },
+            "steps": [
+                {
+                    "id": "dmtx_1",
+                    "tool": "dmtx",
+                    "enabled": true,
+                    "required": true,
+                    "condition": {
+                        "type": "always"
+                    },
+                    "params": {
+                        "roi": null,
+                        "expected_code": "",
+                        "match_mode": "exact",
+                        "retries": 8,
+                        "delay": 0.04,
+                        "min_expected_reads": 2,
+                        "max_wrong_reads": 0,
+                        "roi_padding": 12,
+                        "preprocess": true,
+                        "upscale": 2.0,
+                        "decode_timeout_ms": 250,
+                        "max_total_time": 15.0,
+                        "show_roi": false
+                    }
+                },
+                {
+                    "id": "img_hist_1",
+                    "tool": "img_hist",
+                    "enabled": true,
+                    "required": true,
+                    "condition": {
+                        "type": "always"
+                    },
+                    "params": {
+                        "roi": null,
+                        "threshold": 0.0,
+                        "template_paths": [],
+                        "show_roi": true
+                    }
+                }
+            ],
+            "focus": {
+                "mode": "calibrated",
+                "enabled": false,
+                "roi": null,
+                "value": null,
+                "min_score": null,
+                "median_score": null,
+                "peak_score": null,
+                "verify_on_first_trigger": true,
+                "auto_refocus_if_failed": true
+            }
+        },
+        {
+            "id": "worksurface_c",
+            "name": "MODELO_C",
+            "selected": false,
+            "commissioned": false,
+            "machine": {
+                "external_model": "C",
+                "part_number": "0402012XC"
+            },
+            "steps": [
+                {
+                    "id": "dmtx_1",
+                    "tool": "dmtx",
+                    "enabled": true,
+                    "required": true,
+                    "condition": {
+                        "type": "always"
+                    },
+                    "params": {
+                        "roi": null,
+                        "expected_code": "",
+                        "match_mode": "exact",
+                        "retries": 8,
+                        "delay": 0.04,
+                        "min_expected_reads": 2,
+                        "max_wrong_reads": 0,
+                        "roi_padding": 12,
+                        "preprocess": true,
+                        "upscale": 2.0,
+                        "decode_timeout_ms": 250,
+                        "max_total_time": 15.0,
+                        "show_roi": false
+                    }
+                },
+                {
+                    "id": "img_hist_1",
+                    "tool": "img_hist",
+                    "enabled": true,
+                    "required": true,
+                    "condition": {
+                        "type": "always"
+                    },
+                    "params": {
+                        "roi": null,
+                        "threshold": 0.0,
+                        "template_paths": [],
+                        "show_roi": true
+                    }
+                }
+            ],
+            "focus": {
+                "mode": "calibrated",
+                "enabled": false,
+                "roi": null,
+                "value": null,
+                "min_score": null,
+                "median_score": null,
+                "peak_score": null,
+                "verify_on_first_trigger": true,
+                "auto_refocus_if_failed": true
+            }
+        }
+    ]
+}

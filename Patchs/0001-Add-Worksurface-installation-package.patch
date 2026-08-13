@@ -1,0 +1,1462 @@
+From e36153e22597fc21e23b73ee73779fe796dc9522 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Thu, 13 Aug 2026 09:15:43 -0600
+Subject: [PATCH] Add Worksurface installation package
+
+---
+ .../CONTEXTO_PROYECTO_WORKSURFACE_V13.md      | 228 ++++++++++
+ Guias/GUIA_FASE8_INSTALACION_WORKSURFACE.md   | 207 +++++++++
+ installations/worksurface/README.md           |  66 +++
+ installations/worksurface/commissioning.json  |  68 +++
+ .../model_a/ng/.gitkeep                       |   0
+ .../model_a/ok/.gitkeep                       |   0
+ .../model_b/ng/.gitkeep                       |   0
+ .../model_b/ok/.gitkeep                       |   0
+ .../model_c/ng/.gitkeep                       |   0
+ .../model_c/ok/.gitkeep                       |   0
+ .../master_images/model_a/.gitkeep            |   0
+ .../master_images/model_b/.gitkeep            |   0
+ .../master_images/model_c/.gitkeep            |   0
+ installations/worksurface/recipes.json        | 191 ++++++++
+ installations/worksurface/system.json         |  52 +++
+ scripts/__init__.py                           |   1 +
+ scripts/validate_installation.py              | 424 ++++++++++++++++++
+ tests/test_installation_package.py            |  97 ++++
+ 18 files changed, 1334 insertions(+)
+ create mode 100644 Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V13.md
+ create mode 100644 Guias/GUIA_FASE8_INSTALACION_WORKSURFACE.md
+ create mode 100644 installations/worksurface/README.md
+ create mode 100644 installations/worksurface/commissioning.json
+ create mode 100644 installations/worksurface/commissioning_captures/model_a/ng/.gitkeep
+ create mode 100644 installations/worksurface/commissioning_captures/model_a/ok/.gitkeep
+ create mode 100644 installations/worksurface/commissioning_captures/model_b/ng/.gitkeep
+ create mode 100644 installations/worksurface/commissioning_captures/model_b/ok/.gitkeep
+ create mode 100644 installations/worksurface/commissioning_captures/model_c/ng/.gitkeep
+ create mode 100644 installations/worksurface/commissioning_captures/model_c/ok/.gitkeep
+ create mode 100644 installations/worksurface/master_images/model_a/.gitkeep
+ create mode 100644 installations/worksurface/master_images/model_b/.gitkeep
+ create mode 100644 installations/worksurface/master_images/model_c/.gitkeep
+ create mode 100644 installations/worksurface/recipes.json
+ create mode 100644 installations/worksurface/system.json
+ create mode 100644 scripts/__init__.py
+ create mode 100644 scripts/validate_installation.py
+ create mode 100644 tests/test_installation_package.py
+
+diff --git a/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V13.md b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V13.md
+new file mode 100644
+index 0000000..1c401b9
+--- /dev/null
++++ b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V13.md
+@@ -0,0 +1,228 @@
++# Contexto vivo - Motor universal y despliegue Worksurface V13
++
++**Ultima actualizacion:** 2026-08-13
++
++**Responsable funcional:** Andy
++
++**Estado:** fases 1 a 7 instaladas y verificadas; fase 8 implementada en codigo
++y lista para calibracion fisica, aun no autorizada para produccion
++
++**Sustituye como referencia principal a:**
++`CONTEXTO_PROYECTO_WORKSURFACE_V12.md`
++
++## 1. Objetivo vinculante
++
++Existe un solo motor de vision universal y reutilizable. El motor contiene UI,
++camara, enfoque, recetas, pipeline, herramientas, protocolo, diagnostico y
++trazabilidad. No contiene modelos A/B/C, patrones de sensores, actuadores ni
++secuencias particulares de Worksurface.
++
++Worksurface es una instalacion externa compuesta por configuracion, recetas,
++recursos, firmware ESP32, ladder PLC y datos de comisionamiento propios.
++
++No se reintroducen perfiles `general`/`worksurface` en el motor y no se copia
++logica del producto a `core/`, `app/`, `processing/` o `tools/`.
++
++## 2. Estado de fases
++
++| Fase | Resultado | Estado |
++|---:|---|---|
++| 1 | Configuracion, enfoque y multiples steps | Instalada |
++| Correccion universal | Retiro de perfiles y protocolo unico | Instalada |
++| 3 | Editores, guardado atomico y comisionamiento | Instalada |
++| 4 | ROI v3, estados, deadline, cancelacion y DataMatrix | Instalada |
++| 5 | Interfaz responsiva | Instalada; pulido final en fase 12 |
++| 6 | Diagnostico y trazabilidad | Instalada |
++| 7 | Catalogo extensible y contratos de herramientas | Instalada y verificada |
++| 8 | Paquete externo Worksurface A/B/C | Implementado; calibracion fisica pendiente |
++| 9 | Firmware ESP32 y revision PLC | Pendiente |
++| 10 | Comisionamiento fisico integral | Pendiente |
++| 11 | Paquete instalable y rollback | Pendiente |
++| 12 | Pulido, aceptacion y corte | Pendiente |
++
++## 3. Resultado de fase 8
++
++### 3.1 Paquete externo
++
++`installations/worksurface/` contiene:
++
++| Archivo/directorio | Funcion |
++|---|---|
++| `system.json` | Configuracion completa de la estacion |
++| `recipes.json` | Catalogo schema v3 con `MODELO_A/B/C` |
++| `commissioning.json` | Identidad, reglas de validacion y pendientes fisicos |
++| `commissioning_captures/` | Poblaciones OK/NG por modelo |
++| `master_images/` | Imagenes maestras aprobadas por modelo |
++| `README.md` | Contrato operativo local del paquete |
++
++No se alteraron la configuracion ni la receta predeterminadas del motor.
++Worksurface se activa explicitamente con:
++
++```text
++VISION_SYSTEM_CONFIG=installations/worksurface/system.json
++```
++
++El proceso debe tener como directorio de trabajo la raiz del proyecto, igual
++que el contrato de rutas vigente desde fases anteriores.
++
++### 3.2 Mapeo confirmado
++
++| Modelo externo | Receta | Numero de parte | Sensor izquierdo | Sensor derecho |
++|---|---|---|---|---|
++| A | `MODELO_A` | `0402012XA` | OK | NG |
++| B | `MODELO_B` | `0402012XB` | NG | OK |
++| C | `MODELO_C` | `0402012XC` | OK | OK |
++
++`controller.model_map` solo traduce el ID opaco A/B/C al nombre de receta. Los
++patrones de sensores permanecen como metadatos externos para firmware/PLC; el
++pipeline de vision no los evalua.
++
++### 3.3 Plantillas de receta
++
++Cada receta declara dos pasos requeridos:
++
++1. `dmtx_1`: DataMatrix, pendiente de ROI y contenido exacto;
++2. `img_hist_1`: comparacion visual, pendiente de ROI, umbral e imagenes.
++
++Cada receta tambien contiene el bloque completo de enfoque calibrado, aun sin
++valores. Todos los campos desconocidos son `null`, cadena/lista vacia o cero de
++plantilla. No se reutilizo el codigo, ROI o enfoque historico de otra pieza.
++
++Si el estudio fisico concluye que la comparacion por histograma no corresponde
++a Worksurface, el step y la politica externa deben actualizarse mediante una
++decision documentada. Un umbral cero no es criterio de aceptacion.
++
++### 3.4 Bloqueo de seguridad
++
++Las tres recetas usan `commissioned: false`. Esta condicion es intencional:
++
++- permite instalar y editar el paquete;
++- impide ejecutar una receta incompleta;
++- hace visibles los pendientes en diagnostico;
++- evita presentar una plantilla como configuracion productiva.
++
++El valor `mechanical_settle_ms` sigue en `0` como pendiente de medicion, no como
++confirmacion de que no se requiere asentamiento.
++
++## 4. Validador offline
++
++`scripts/validate_installation.py` valida el paquete sin abrir camara ni serial
++y sin modificar recetas.
++
++Modo estructural:
++
++```bash
++python scripts/validate_installation.py
++```
++
++Estado inicial esperado: `LISTA PARA CALIBRAR`, codigo `0`, sin errores y con
++pendientes explicitamente enumerados.
++
++Modo estricto:
++
++```bash
++python scripts/validate_installation.py --require-commissioned
++```
++
++Codigos:
++
++| Codigo | Significado |
++|---:|---|
++| 0 | Paquete estructural valido; con `--require-commissioned`, listo para produccion |
++| 2 | Configuracion, catalogo, mapeo o recurso invalido |
++| 3 | Estructura valida, pero calibracion/comisionamiento pendiente |
++
++El manifiesto permite que la validacion siga siendo generica y dirigida por
++datos externos. Comprueba:
++
++- schema de sistema y recetas;
++- un solo modelo seleccionado;
++- nombres e IDs de receta unicos;
++- mapeo externo exacto;
++- numeros de parte;
++- herramientas requeridas y sus contratos;
++- recursos existentes y no vacios;
++- umbral de histograma mayor que cero;
++- enfoque calibrado completo;
++- estado de comisionamiento coherente.
++
++Una receta marcada `commissioned: true` con datos incompletos pasa a ser un
++error, no una advertencia.
++
++## 5. Validacion automatizada
++
++Resultado despues de fase 8:
++
++```text
++Ran 63 tests
++OK
++```
++
++Se conservaron las 59 pruebas de fase 7 y se agregaron cuatro para:
++
++- paquete valido pero deliberadamente no comisionado;
++- mapeo y numeros de parte A/B/C;
++- rechazo de mapeo incorrecto;
++- rechazo estricto de calibracion pendiente.
++
++Tambien se verificara `compileall`, validez JSON y aplicacion aislada del parche
++antes de publicar la entrega.
++
++## 6. Datos aun pendientes de fase 8
++
++Se deben medir en el hardware final, por modelo:
++
++- contenido exacto del DataMatrix y politica `exact`/`prefix`;
++- ROI DataMatrix `[x1,y1,x2,y2]` sobre 1920x1080;
++- caracteristica visual, ROI y umbral de histograma;
++- poblaciones OK/NG e imagenes maestras aprobadas;
++- ROI, posicion y scores de enfoque;
++- tiempo real de asentamiento mecanico;
++- ruta persistente de camara;
++- puerto serial definitivo en Raspberry Pi.
++
++No se debe marcar una receta comisionada hasta que el validador estricto pase y
++la evidencia fisica del modelo haya sido revisada.
++
++## 7. Firmware ESP32 y PLC
++
++La actualizacion del firmware permanece en la **fase 9**. La fase 8 no modifica
++`ESP32/FSM/FSM.ino` ni el ladder PLC.
++
++El firmware actual usa el protocolo heredado y no es compatible con el motor
++universal. Cambios obligatorios ya identificados:
++
++- `HELLO/HELLO_ACK`, READY/NOT_READY y PING/PONG;
++- IDs de ciclo y ACK tipados;
++- `TRIGGER`, `VISION_RESULT`, `FINAL_RESULT` y `CANCEL` correlacionados;
++- soporte separado de `OK`, `NG` y `ERROR`;
++- rechazo de resultados tardios;
++- salida GPIO 32 segura ante error, timeout, cancelacion y desconexion;
++- retorno a IDLE despues de NG;
++- timeout alineado con vision.
++
++El PLC puede conservarse como base, sujeto a verificar Y0/Y1, X5, X6,
++Y2/Y3/Y4, polaridades y tiempos. Durante fase 8 no se autoriza liberar PLC ni
++aceptar triggers automaticos con el firmware antiguo.
++
++## 8. Fases restantes
++
++| Fase | Objetivo | Criterio principal |
++|---:|---|---|
++| 8B | Completar calibracion Worksurface | Validador estricto en codigo 0 |
++| 9 | Firmware ESP32 y revision PLC | Protocolo v1 y estados seguros |
++| 10 | Pruebas fisicas integrales | Matriz de fallas y repetibilidad |
++| 11 | Despliegue | Servicio, backup, autoarranque y rollback |
++| 12 | Corte | UI final, paralelo, aceptacion y sustitucion reversible |
++
++La fase 9 puede desarrollarse en paralelo documentalmente, pero Worksurface no
++queda autorizada para produccion hasta cerrar 8B, 9 y 10.
++
++## 9. Proximo paso
++
++1. Aplicar el parche de fase 8 sobre fase 7 confirmada.
++2. Ejecutar las 63 pruebas y el validador estructural.
++3. Capturar y medir A/B/C siguiendo
++   `GUIA_FASE8_INSTALACION_WORKSURFACE.md`.
++4. Ejecutar el validador estricto hasta codigo 0.
++5. Continuar con fase 9 para firmware ESP32 y revision PLC.
+diff --git a/Guias/GUIA_FASE8_INSTALACION_WORKSURFACE.md b/Guias/GUIA_FASE8_INSTALACION_WORKSURFACE.md
+new file mode 100644
+index 0000000..6dd1d05
+--- /dev/null
++++ b/Guias/GUIA_FASE8_INSTALACION_WORKSURFACE.md
+@@ -0,0 +1,207 @@
++# Guia fase 8 - instalacion y recetas Worksurface
++
++## 1. Resultado entregado
++
++La fase 8 separa Worksurface del motor universal mediante un paquete en
++`installations/worksurface/`:
++
++- `system.json`: camara, controlador, runtime y trazabilidad de la estacion;
++- `recipes.json`: recetas A/B/C en schema v3;
++- `commissioning.json`: identidad, politica y datos fisicos pendientes;
++- directorios de capturas OK/NG e imagenes maestras por modelo;
++- validador offline que no abre camara, serial, ESP32 ni PLC.
++
++No se modificaron `config/system.json` ni `core/models/recipes.json`. La
++instalacion predeterminada del motor permanece intacta.
++
++## 2. Seguridad deliberada
++
++Los datos confirmados son:
++
++| ID externo | Receta | Numero de parte | Sensor izquierdo | Sensor derecho |
++|---|---|---|---|---|
++| A | `MODELO_A` | `0402012XA` | OK | NG |
++| B | `MODELO_B` | `0402012XB` | NG | OK |
++| C | `MODELO_C` | `0402012XC` | OK | OK |
++
++Los patrones de sensores solo estan en el manifiesto externo; no intervienen
++en el pipeline de vision.
++
++No estan confirmados el contenido DataMatrix, las ROI, los umbrales, las
++imagenes maestras, el enfoque, el asentamiento mecanico ni los niveles
++electricos. Por ello las tres recetas usan `commissioned: false`. Aunque el
++usuario seleccione una, el motor debe rechazar su ejecucion productiva.
++
++## 3. Aplicar el parche
++
++Partir de fase 7 ya instalada y verificada. Antes de aplicar, comprobar que no
++quedaron archivos de fase 7 solamente agregados al index:
++
++```bash
++git status --short
++```
++
++El arbol debe estar limpio o los cambios propios deben estar guardados en un
++commit. Luego:
++
++```bash
++git apply --check Patchs/0001-Add-Worksurface-installation-package.patch
++git apply --index Patchs/0001-Add-Worksurface-installation-package.patch
++git status --short
++python -m unittest discover -s tests -v
++python -m compileall app core processing services tools ui vision scripts
++```
++
++No volver a aplicar el parche si sus archivos ya aparecen en el index. En ese
++caso primero se revisa `git status`; normalmente significa que el parche ya se
++aplico y solo falta probarlo/confirmarlo.
++
++## 4. Validacion inicial offline
++
++Desde la raiz del repositorio:
++
++```bash
++python scripts/validate_installation.py
++```
++
++Resultado esperado inicial:
++
++```text
++Resultado: LISTA PARA CALIBRAR
++```
++
++Es correcto ver pendientes para cada modelo:
++
++- ROI y codigo maestro DataMatrix;
++- imagen maestra y umbral de histograma;
++- enfoque calibrado;
++- receta no comisionada.
++
++No debe aparecer ningun `[ERROR]`. Para obtener el informe estructurado:
++
++```bash
++python scripts/validate_installation.py --json
++```
++
++El control estricto debe fallar de forma intencional en este punto:
++
++```bash
++python scripts/validate_installation.py --require-commissioned
++```
++
++Codigo esperado: `3`, que significa calibracion pendiente. Codigo `2` significa
++paquete/configuracion invalida.
++
++## 5. Activar la instalacion para calibracion
++
++Ejecutar siempre desde la raiz del proyecto.
++
++PowerShell:
++
++```powershell
++$env:VISION_SYSTEM_CONFIG = "installations/worksurface/system.json"
++python main.py
++```
++
++CMD:
++
++```bat
++set VISION_SYSTEM_CONFIG=installations\worksurface\system.json
++python main.py
++```
++
++Linux/Raspberry Pi:
++
++```bash
++export VISION_SYSTEM_CONFIG=installations/worksurface/system.json
++python main.py
++```
++
++Durante fase 8 mantener desenergizada la liberacion hacia PLC y no aceptar
++triggers automaticos. El firmware actual no implementa el protocolo definitivo;
++el estado esperado del enlace es no listo hasta completar fase 9.
++
++## 6. Comisionar cada modelo
++
++Realizar el procedimiento por separado para A, B y C, sin copiar valores entre
++modelos salvo que una medicion documentada demuestre que son equivalentes.
++
++### 6.1 Capturas
++
++1. Fijar camara, iluminacion, distancia y orientacion mecanica.
++2. Capturar una poblacion de piezas OK en
++   `commissioning_captures/model_x/ok/`.
++3. Capturar defectos conocidos y casos limite en `.../ng/`.
++4. Conservar resolucion original; no recortar ni reescalar los archivos fuente.
++5. Registrar condiciones de captura y numero de pieza en el nombre o bitacora.
++
++### 6.2 DataMatrix
++
++1. Leer varias piezas del mismo modelo.
++2. Confirmar si el numero de parte es el texto completo, solo un prefijo o no
++   coincide con el contenido codificado.
++3. Guardar el texto confirmado en `expected_code`.
++4. Elegir `match_mode: exact` o `prefix` segun evidencia, no por conveniencia.
++5. Dibujar la ROI sobre el frame de 1920x1080 y guardar
++   `[x1,y1,x2,y2]` con limites exclusivos.
++6. Probar giros, contraste, marcados debiles y codigos de otro modelo.
++
++El valor historico de otra receta no se reutilizo porque no prueba el contenido
++de A/B/C.
++
++### 6.3 Imagen e histograma
++
++1. Definir que caracteristica visual debe aceptar o rechazar el step.
++2. Definir su ROI canonica.
++3. Elegir maestras solo de piezas OK representativas.
++4. Copiarlas a `master_images/model_x/`.
++5. Guardar rutas relativas a la raiz, por ejemplo:
++   `installations/worksurface/master_images/model_a/master_01.png`.
++6. Medir scores con muestras OK y NG y fijar un umbral mayor que cero con margen.
++
++Si no existe una caracteristica visual que justifique el histograma, aplicar la
++decision documentada indicada en el README del paquete; no simular aprobacion
++con un umbral cero.
++
++### 6.4 Enfoque
++
++1. Seleccionar una ROI estable de textura real.
++2. Ejecutar el barrido con el hardware final de Raspberry Pi.
++3. Guardar `value`, `min_score`, `median_score` y `peak_score` medidos.
++4. Confirmar `mode: calibrated` y `enabled: true`.
++5. Verificar arranque frio y primer trigger para cada modelo.
++
++### 6.5 Tiempo mecanico y rutas fisicas
++
++- medir desde clamps/trigger hasta inmovilizacion antes de cambiar
++  `mechanical_settle_ms=0`;
++- sustituir `camera.device=0` por `/dev/v4l/by-id/...` si la Raspberry lo ofrece;
++- confirmar que el puerto CP2102 configurado coincide con el adaptador real;
++- no relajar los tres `runtime.require_*` para ocultar un fallo de enlace o foco.
++
++## 7. Cierre de fase 8
++
++Despues de completar y probar una receta, marcarla `commissioned: true`. No
++marcar las tres en bloque.
++
++El cierre tecnico se comprueba con:
++
++```bash
++python scripts/validate_installation.py --require-commissioned
++```
++
++Debe terminar con codigo `0` y:
++
++```text
++Resultado: LISTA PARA PRODUCCION
++```
++
++Esto valida configuracion y recursos, pero no sustituye las pruebas fisicas de
++fallas y repetibilidad previstas en fase 10.
++
++## 8. Limite de esta fase
++
++Fase 8 no cambia firmware ni ladder. Fase 9 migrara el ESP32 a
++`vision_controller_v1` y verificara el PLC, pinout, polaridades y salida segura.
++Hasta entonces no conectar esta plantilla no comisionada como reemplazo de la
++estacion productiva.
+diff --git a/installations/worksurface/README.md b/installations/worksurface/README.md
+new file mode 100644
+index 0000000..4569607
+--- /dev/null
++++ b/installations/worksurface/README.md
+@@ -0,0 +1,66 @@
++# Instalacion externa Worksurface
++
++Este directorio contiene datos de la estacion. No forma parte del motor de
++vision y no agrega reglas A/B/C a `core/`, `app/`, `processing/` ni `tools/`.
++
++## Estado seguro inicial
++
++Las recetas `MODELO_A`, `MODELO_B` y `MODELO_C` existen, pero comienzan con
++`commissioned: false`. Los campos fisicos desconocidos se conservan vacios; no
++se copiaron el codigo, ROI o enfoque de otra pieza.
++
++El motor debe iniciarse desde la raiz del proyecto porque las rutas relativas
++de `system.json` y `recipes.json` siguen el contrato vigente del motor.
++
++## Validacion sin hardware
++
++```bash
++python scripts/validate_installation.py
++```
++
++Mientras falten mediciones, el comando termina con codigo `0` y muestra
++`LISTA PARA CALIBRAR`. Esto significa que la estructura es coherente, no que la
++estacion pueda producir.
++
++El control para produccion es:
++
++```bash
++python scripts/validate_installation.py --require-commissioned
++```
++
++Este segundo comando termina con codigo `3` mientras quede cualquier receta o
++calibracion pendiente. Un error estructural termina con codigo `2`.
++
++## Directorios de imagen
++
++- `commissioning_captures/model_*/ok`: capturas buenas representativas;
++- `commissioning_captures/model_*/ng`: defectos y casos limite;
++- `master_images/model_*`: maestras aprobadas que realmente usara la receta.
++
++No se debe renombrar una captura cualquiera como imagen maestra. Primero se
++evalua con poblacion OK/NG, se fija una ROI canonica `[x1,y1,x2,y2]` y se mide
++un umbral que separe ambos grupos con margen.
++
++Las rutas guardadas en `template_paths` deben comenzar con
++`installations/worksurface/master_images/` para que funcionen al iniciar desde
++la raiz del proyecto.
++
++## Herramientas preparadas
++
++Cada receta contiene:
++
++1. un step `dmtx` requerido, pendiente de codigo exacto y ROI;
++2. un step `img_hist` requerido, pendiente de ROI, umbral e imagenes maestras;
++3. enfoque calibrado pendiente.
++
++Si el estudio fisico demuestra que Worksurface no necesita comparacion por
++histograma, la decision debe documentarse: se retira o deshabilita ese step y
++se actualiza `recipe_policy.required_tools` en `commissioning.json`. No se debe
++aprobar dejando `threshold: 0`.
++
++## Limite con fase 9
++
++Los patrones de sensores del manifiesto son referencia del entorno fisico para
++la siguiente fase. El motor de vision no los interpreta. El firmware ESP32
++actual aun debe migrarse a `vision_controller_v1`; por eso esta instalacion no
++autoriza ciclos automaticos ni liberacion PLC durante fase 8.
+diff --git a/installations/worksurface/commissioning.json b/installations/worksurface/commissioning.json
+new file mode 100644
+index 0000000..d5ffb5e
+--- /dev/null
++++ b/installations/worksurface/commissioning.json
+@@ -0,0 +1,68 @@
++{
++    "schema_version": 1,
++    "system_config": "system.json",
++    "project_root": "../..",
++    "exact_model_map": true,
++    "required_models": [
++        {
++            "external_id": "A",
++            "recipe": "MODELO_A",
++            "part_number": "0402012XA",
++            "physical_sensor_pattern": {
++                "left": "OK",
++                "right": "NG"
++            }
++        },
++        {
++            "external_id": "B",
++            "recipe": "MODELO_B",
++            "part_number": "0402012XB",
++            "physical_sensor_pattern": {
++                "left": "NG",
++                "right": "OK"
++            }
++        },
++        {
++            "external_id": "C",
++            "recipe": "MODELO_C",
++            "part_number": "0402012XC",
++            "physical_sensor_pattern": {
++                "left": "OK",
++                "right": "OK"
++            }
++        }
++    ],
++    "recipe_policy": {
++        "required_tools": [
++            "dmtx",
++            "img_hist"
++        ],
++        "require_calibrated_focus": true,
++        "required_focus_fields": [
++            "roi",
++            "value",
++            "min_score",
++            "median_score",
++            "peak_score"
++        ],
++        "parameter_rules": [
++            {
++                "tool": "img_hist",
++                "parameter": "threshold",
++                "operator": "gt",
++                "value": 0.0
++            }
++        ]
++    },
++    "pending_physical_values": [
++        "Contenido DataMatrix exacto para A/B/C",
++        "ROI DataMatrix e imagen por modelo",
++        "Umbral de histograma por modelo",
++        "Imagenes maestras buenas por modelo",
++        "ROI y valores de enfoque por modelo",
++        "Tiempo mechanical_settle_ms medido",
++        "Ruta persistente de camara en Raspberry Pi",
++        "Puerto serial definitivo en Raspberry Pi",
++        "Niveles electricos activos y seguros de sensores/PLC"
++    ]
++}
+diff --git a/installations/worksurface/commissioning_captures/model_a/ng/.gitkeep b/installations/worksurface/commissioning_captures/model_a/ng/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/installations/worksurface/commissioning_captures/model_a/ok/.gitkeep b/installations/worksurface/commissioning_captures/model_a/ok/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/installations/worksurface/commissioning_captures/model_b/ng/.gitkeep b/installations/worksurface/commissioning_captures/model_b/ng/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/installations/worksurface/commissioning_captures/model_b/ok/.gitkeep b/installations/worksurface/commissioning_captures/model_b/ok/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/installations/worksurface/commissioning_captures/model_c/ng/.gitkeep b/installations/worksurface/commissioning_captures/model_c/ng/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/installations/worksurface/commissioning_captures/model_c/ok/.gitkeep b/installations/worksurface/commissioning_captures/model_c/ok/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/installations/worksurface/master_images/model_a/.gitkeep b/installations/worksurface/master_images/model_a/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/installations/worksurface/master_images/model_b/.gitkeep b/installations/worksurface/master_images/model_b/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/installations/worksurface/master_images/model_c/.gitkeep b/installations/worksurface/master_images/model_c/.gitkeep
+new file mode 100644
+index 0000000..e69de29
+diff --git a/installations/worksurface/recipes.json b/installations/worksurface/recipes.json
+new file mode 100644
+index 0000000..8fb29db
+--- /dev/null
++++ b/installations/worksurface/recipes.json
+@@ -0,0 +1,191 @@
++{
++    "schema_version": 3,
++    "recipes": [
++        {
++            "id": "worksurface_a",
++            "name": "MODELO_A",
++            "selected": true,
++            "commissioned": false,
++            "machine": {
++                "external_model": "A",
++                "part_number": "0402012XA"
++            },
++            "steps": [
++                {
++                    "id": "dmtx_1",
++                    "tool": "dmtx",
++                    "enabled": true,
++                    "required": true,
++                    "condition": {
++                        "type": "always"
++                    },
++                    "params": {
++                        "roi": null,
++                        "expected_code": "",
++                        "match_mode": "exact",
++                        "retries": 8,
++                        "delay": 0.04,
++                        "min_expected_reads": 2,
++                        "max_wrong_reads": 0,
++                        "roi_padding": 12,
++                        "preprocess": true,
++                        "upscale": 2.0,
++                        "decode_timeout_ms": 250,
++                        "max_total_time": 15.0,
++                        "show_roi": false
++                    }
++                },
++                {
++                    "id": "img_hist_1",
++                    "tool": "img_hist",
++                    "enabled": true,
++                    "required": true,
++                    "condition": {
++                        "type": "always"
++                    },
++                    "params": {
++                        "roi": null,
++                        "threshold": 0.0,
++                        "template_paths": [],
++                        "show_roi": true
++                    }
++                }
++            ],
++            "focus": {
++                "mode": "calibrated",
++                "enabled": false,
++                "roi": null,
++                "value": null,
++                "min_score": null,
++                "median_score": null,
++                "peak_score": null,
++                "verify_on_first_trigger": true,
++                "auto_refocus_if_failed": true
++            }
++        },
++        {
++            "id": "worksurface_b",
++            "name": "MODELO_B",
++            "selected": false,
++            "commissioned": false,
++            "machine": {
++                "external_model": "B",
++                "part_number": "0402012XB"
++            },
++            "steps": [
++                {
++                    "id": "dmtx_1",
++                    "tool": "dmtx",
++                    "enabled": true,
++                    "required": true,
++                    "condition": {
++                        "type": "always"
++                    },
++                    "params": {
++                        "roi": null,
++                        "expected_code": "",
++                        "match_mode": "exact",
++                        "retries": 8,
++                        "delay": 0.04,
++                        "min_expected_reads": 2,
++                        "max_wrong_reads": 0,
++                        "roi_padding": 12,
++                        "preprocess": true,
++                        "upscale": 2.0,
++                        "decode_timeout_ms": 250,
++                        "max_total_time": 15.0,
++                        "show_roi": false
++                    }
++                },
++                {
++                    "id": "img_hist_1",
++                    "tool": "img_hist",
++                    "enabled": true,
++                    "required": true,
++                    "condition": {
++                        "type": "always"
++                    },
++                    "params": {
++                        "roi": null,
++                        "threshold": 0.0,
++                        "template_paths": [],
++                        "show_roi": true
++                    }
++                }
++            ],
++            "focus": {
++                "mode": "calibrated",
++                "enabled": false,
++                "roi": null,
++                "value": null,
++                "min_score": null,
++                "median_score": null,
++                "peak_score": null,
++                "verify_on_first_trigger": true,
++                "auto_refocus_if_failed": true
++            }
++        },
++        {
++            "id": "worksurface_c",
++            "name": "MODELO_C",
++            "selected": false,
++            "commissioned": false,
++            "machine": {
++                "external_model": "C",
++                "part_number": "0402012XC"
++            },
++            "steps": [
++                {
++                    "id": "dmtx_1",
++                    "tool": "dmtx",
++                    "enabled": true,
++                    "required": true,
++                    "condition": {
++                        "type": "always"
++                    },
++                    "params": {
++                        "roi": null,
++                        "expected_code": "",
++                        "match_mode": "exact",
++                        "retries": 8,
++                        "delay": 0.04,
++                        "min_expected_reads": 2,
++                        "max_wrong_reads": 0,
++                        "roi_padding": 12,
++                        "preprocess": true,
++                        "upscale": 2.0,
++                        "decode_timeout_ms": 250,
++                        "max_total_time": 15.0,
++                        "show_roi": false
++                    }
++                },
++                {
++                    "id": "img_hist_1",
++                    "tool": "img_hist",
++                    "enabled": true,
++                    "required": true,
++                    "condition": {
++                        "type": "always"
++                    },
++                    "params": {
++                        "roi": null,
++                        "threshold": 0.0,
++                        "template_paths": [],
++                        "show_roi": true
++                    }
++                }
++            ],
++            "focus": {
++                "mode": "calibrated",
++                "enabled": false,
++                "roi": null,
++                "value": null,
++                "min_score": null,
++                "median_score": null,
++                "peak_score": null,
++                "verify_on_first_trigger": true,
++                "auto_refocus_if_failed": true
++            }
++        }
++    ]
++}
+diff --git a/installations/worksurface/system.json b/installations/worksurface/system.json
+new file mode 100644
+index 0000000..0cae7db
+--- /dev/null
++++ b/installations/worksurface/system.json
+@@ -0,0 +1,52 @@
++{
++    "schema_version": 2,
++    "installation": {
++        "id": "worksurface",
++        "name": "Worksurface"
++    },
++    "recipes": {
++        "file": "installations/worksurface/recipes.json",
++        "auto_migrate": false
++    },
++    "camera": {
++        "device": 0,
++        "width": 1920,
++        "height": 1080,
++        "capture_fps": 30,
++        "preview_fps": 10,
++        "default_focus_mode": "calibrated"
++    },
++    "controller": {
++        "transport": "serial",
++        "protocol": "vision_controller_v1",
++        "ports": {
++            "linux": "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0",
++            "windows": "COM7"
++        },
++        "baudrate": 115200,
++        "timeout": 1.0,
++        "reset_on_connect": true,
++        "heartbeat_enabled": true,
++        "ready_notifications_enabled": true,
++        "model_map": {
++            "A": "MODELO_A",
++            "B": "MODELO_B",
++            "C": "MODELO_C"
++        }
++    },
++    "runtime": {
++        "require_controller_ready": true,
++        "require_controller_sync": true,
++        "require_focus_ready": true,
++        "max_frame_age_seconds": 0.5,
++        "mechanical_settle_ms": 0,
++        "inspection_timeout_seconds": 20.0
++    },
++    "traceability": {
++        "enabled": true,
++        "directory": "runtime/worksurface/traceability",
++        "max_file_size_mb": 10.0,
++        "retention_files": 10,
++        "retention_days": 30
++    }
++}
+diff --git a/scripts/__init__.py b/scripts/__init__.py
+new file mode 100644
+index 0000000..eba403d
+--- /dev/null
++++ b/scripts/__init__.py
+@@ -0,0 +1 @@
++"""Maintenance and deployment helpers kept outside the vision engine."""
+diff --git a/scripts/validate_installation.py b/scripts/validate_installation.py
+new file mode 100644
+index 0000000..8de2a84
+--- /dev/null
++++ b/scripts/validate_installation.py
+@@ -0,0 +1,424 @@
++"""Offline validation for an external installation package.
++
++This command never opens the camera or serial port and never edits recipes.
++It validates the generic engine contracts plus the requirements declared by an
++installation-owned ``commissioning.json`` manifest.
++"""
++
++import argparse
++import json
++import sys
++from pathlib import Path
++
++PROJECT_ROOT = Path(__file__).resolve().parents[1]
++if str(PROJECT_ROOT) not in sys.path:
++    sys.path.insert(0, str(PROJECT_ROOT))
++
++from core.recipe_manager import RecipeManager
++from core.system_config import SystemConfig, SystemConfigError
++from tools.registry import discover_tool_registry
++
++
++MANIFEST_SCHEMA_VERSION = 1
++
++
++def _read_json(path, label):
++    try:
++        with Path(path).open("r", encoding="utf-8") as stream:
++            value = json.load(stream)
++    except FileNotFoundError as exc:
++        raise ValueError(f"No existe {label}: {path}") from exc
++    except json.JSONDecodeError as exc:
++        raise ValueError(f"JSON invalido en {label} {path}: {exc}") from exc
++    if not isinstance(value, dict):
++        raise ValueError(f"La raiz de {label} debe ser un objeto")
++    return value
++
++
++def _resolve(base, value):
++    path = Path(str(value))
++    return path if path.is_absolute() else (Path(base) / path).resolve()
++
++
++def _is_missing(value):
++    return value is None or value == "" or value == []
++
++
++def _rule_passes(actual, operator, expected):
++    if operator == "eq":
++        return actual == expected
++    if operator == "gt":
++        return actual is not None and actual > expected
++    if operator == "ge":
++        return actual is not None and actual >= expected
++    raise ValueError(f"Operador de regla no soportado: {operator}")
++
++
++def validate_installation(manifest_path):
++    """Return a deterministic report without accessing physical hardware."""
++    manifest_path = Path(manifest_path).resolve()
++    report = {
++        "manifest": str(manifest_path),
++        "installation": None,
++        "errors": [],
++        "pending": [],
++        "passes": [],
++        "ready_for_commissioning": False,
++        "ready_for_production": False,
++    }
++
++    def add(bucket, code, message, **details):
++        item = {"code": code, "message": message}
++        if details:
++            item["details"] = details
++        report[bucket].append(item)
++
++    try:
++        manifest = _read_json(manifest_path, "commissioning.json")
++    except ValueError as exc:
++        add("errors", "MANIFEST_UNREADABLE", str(exc))
++        return report
++
++    if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
++        add(
++            "errors",
++            "MANIFEST_SCHEMA",
++            f"schema_version de commissioning.json debe ser {MANIFEST_SCHEMA_VERSION}",
++        )
++        return report
++
++    package_dir = manifest_path.parent
++    project_root = _resolve(package_dir, manifest.get("project_root", "."))
++    system_value = manifest.get("system_config")
++    if not isinstance(system_value, str) or not system_value.strip():
++        add("errors", "SYSTEM_PATH", "system_config es obligatorio en el manifiesto")
++        return report
++    system_path = _resolve(package_dir, system_value)
++
++    try:
++        system_config = SystemConfig(system_path)
++    except (SystemConfigError, OSError) as exc:
++        add("errors", "SYSTEM_CONFIG", str(exc))
++        return report
++
++    installation = system_config.section("installation")
++    report["installation"] = installation.get("id")
++    add(
++        "passes",
++        "SYSTEM_CONFIG",
++        f"Configuracion valida para {installation.get('name', installation.get('id'))}",
++        path=str(system_path),
++    )
++
++    recipe_path = _resolve(project_root, system_config.recipe_file)
++    if not recipe_path.is_file():
++        add("errors", "RECIPES_MISSING", f"No existe el catalogo: {recipe_path}")
++        return report
++
++    registry = discover_tool_registry()
++    if registry.discovery_errors:
++        add(
++            "errors",
++            "TOOL_DISCOVERY",
++            "Una o mas herramientas no pudieron cargarse",
++            discovery_errors=registry.discovery_errors,
++        )
++    elif not registry:
++        add("errors", "TOOL_DISCOVERY", "No hay herramientas registradas")
++    else:
++        add(
++            "passes",
++            "TOOL_DISCOVERY",
++            "Catalogo de herramientas disponible",
++            tools=sorted(registry),
++        )
++
++    try:
++        recipe_manager = RecipeManager(
++            recipe_path,
++            auto_migrate=False,
++            tool_registry=registry,
++        )
++        recipes = recipe_manager.get_all()
++    except Exception as exc:
++        add("errors", "RECIPES_INVALID", f"No se pudo cargar el catalogo: {exc}")
++        return report
++
++    names = [recipe.get("name") for recipe in recipes if isinstance(recipe, dict)]
++    ids = [recipe.get("id") for recipe in recipes if isinstance(recipe, dict)]
++    if len(names) != len(set(names)):
++        add("errors", "DUPLICATE_RECIPE_NAME", "Hay nombres de receta duplicados")
++    if len(ids) != len(set(ids)):
++        add("errors", "DUPLICATE_RECIPE_ID", "Hay IDs de receta duplicados")
++    selected = [
++        recipe.get("name")
++        for recipe in recipes
++        if isinstance(recipe, dict) and recipe.get("selected")
++    ]
++    if len(selected) != 1:
++        add(
++            "errors",
++            "RECIPE_SELECTION",
++            "Debe existir exactamente una receta seleccionada",
++            selected=selected,
++        )
++
++    try:
++        SystemConfig.validate_data(system_config.data, recipe_names=names)
++    except SystemConfigError as exc:
++        add("errors", "MODEL_MAP", str(exc))
++
++    recipes_by_name = {
++        recipe.get("name"): recipe
++        for recipe in recipes
++        if isinstance(recipe, dict) and recipe.get("name")
++    }
++    model_map = system_config.section("controller").get("model_map", {})
++    required_models = manifest.get("required_models", [])
++    required_map = {}
++    for model in required_models:
++        if not isinstance(model, dict):
++            add("errors", "MODEL_DECLARATION", "Modelo requerido invalido")
++            continue
++        external_id = str(model.get("external_id", "")).strip()
++        recipe_name = str(model.get("recipe", "")).strip()
++        part_number = str(model.get("part_number", "")).strip()
++        if not external_id or not recipe_name or not part_number:
++            add(
++                "errors",
++                "MODEL_DECLARATION",
++                "Cada modelo requiere external_id, recipe y part_number",
++                model=model,
++            )
++            continue
++        required_map[external_id] = recipe_name
++        if model_map.get(external_id) != recipe_name:
++            add(
++                "errors",
++                "MODEL_MAPPING",
++                f"El modelo externo {external_id} debe apuntar a {recipe_name}",
++            )
++            continue
++        recipe = recipes_by_name.get(recipe_name)
++        if recipe is None:
++            add("errors", "MODEL_RECIPE", f"No existe la receta {recipe_name}")
++            continue
++        machine = recipe.get("machine", {})
++        if machine.get("external_model") != external_id:
++            add(
++                "errors",
++                "MODEL_METADATA",
++                f"{recipe_name} no declara external_model={external_id}",
++            )
++        if machine.get("part_number") != part_number:
++            add(
++                "errors",
++                "PART_NUMBER",
++                f"{recipe_name} no declara part_number={part_number}",
++            )
++
++    if manifest.get("exact_model_map") is True and model_map != required_map:
++        add(
++            "errors",
++            "EXACT_MODEL_MAP",
++            "controller.model_map no coincide exactamente con el manifiesto",
++            expected=required_map,
++            actual=model_map,
++        )
++    elif required_map:
++        add(
++            "passes",
++            "MODEL_MAP",
++            "Mapeo externo coincide con el manifiesto",
++            mappings=required_map,
++        )
++
++    policy = manifest.get("recipe_policy", {})
++    required_tools = set(policy.get("required_tools", []))
++    required_focus_fields = policy.get("required_focus_fields", [])
++    parameter_rules = policy.get("parameter_rules", [])
++
++    for recipe_name in required_map.values():
++        recipe = recipes_by_name.get(recipe_name)
++        if recipe is None:
++            continue
++        commissioned = recipe.get("commissioned") is True
++        try:
++            recipe_manager.validate(recipe)
++        except ValueError as exc:
++            add("errors", "RECIPE_STRUCTURE", f"{recipe_name}: {exc}")
++            continue
++
++        active_steps = [
++            step for step in recipe.get("steps", [])
++            if isinstance(step, dict) and step.get("enabled", True)
++        ]
++        active_tools = {step.get("tool") for step in active_steps}
++        missing_tools = sorted(required_tools - active_tools)
++        if missing_tools:
++            add(
++                "errors",
++                "REQUIRED_TOOLS",
++                f"{recipe_name}: faltan herramientas habilitadas",
++                tools=missing_tools,
++            )
++
++        for step in active_steps:
++            tool_id = step.get("tool")
++            step_id = step.get("id")
++            params = step.get("params", {})
++            if tool_id not in registry:
++                add(
++                    "errors",
++                    "UNKNOWN_TOOL",
++                    f"{recipe_name}/{step_id}: herramienta no registrada {tool_id}",
++                )
++                continue
++            parameter_errors = registry.validate_params(
++                tool_id,
++                params,
++                commissioning=True,
++            )
++            for error in parameter_errors:
++                bucket = "errors" if commissioned else "pending"
++                add(
++                    bucket,
++                    "TOOL_COMMISSIONING",
++                    f"{recipe_name}/{step_id}: {error}",
++                )
++            for resource in registry.resource_paths(tool_id, params):
++                resource_path = _resolve(project_root, resource["path"])
++                if not resource_path.is_file() or resource_path.stat().st_size <= 0:
++                    bucket = "errors" if commissioned else "pending"
++                    add(
++                        bucket,
++                        "RESOURCE_UNAVAILABLE",
++                        f"{recipe_name}/{step_id}: recurso ausente o vacio",
++                        path=str(resource_path),
++                    )
++
++        for rule in parameter_rules:
++            if not isinstance(rule, dict):
++                add("errors", "PARAMETER_RULE", "Regla de parametro invalida")
++                continue
++            tool_id = rule.get("tool")
++            parameter = rule.get("parameter")
++            operator = rule.get("operator", "eq")
++            expected = rule.get("value")
++            matching_steps = [step for step in active_steps if step.get("tool") == tool_id]
++            for step in matching_steps:
++                actual = step.get("params", {}).get(parameter)
++                try:
++                    valid = _rule_passes(actual, operator, expected)
++                except (TypeError, ValueError) as exc:
++                    add("errors", "PARAMETER_RULE", str(exc), rule=rule)
++                    continue
++                if not valid:
++                    bucket = "errors" if commissioned else "pending"
++                    add(
++                        bucket,
++                        "PARAMETER_RULE",
++                        f"{recipe_name}/{step.get('id')}: {parameter} debe cumplir {operator} {expected}",
++                        actual=actual,
++                    )
++
++        if policy.get("require_calibrated_focus") is True:
++            focus = recipe.get("focus", {})
++            focus_missing = [
++                field for field in required_focus_fields
++                if _is_missing(focus.get(field))
++            ]
++            focus_ready = (
++                focus.get("enabled") is True
++                and focus.get("mode") == "calibrated"
++                and not focus_missing
++            )
++            if not focus_ready:
++                bucket = "errors" if commissioned else "pending"
++                add(
++                    bucket,
++                    "FOCUS_COMMISSIONING",
++                    f"{recipe_name}: enfoque calibrado pendiente",
++                    missing_fields=focus_missing,
++                )
++
++        commissioning_error = recipe_manager.get_commissioning_error(
++            recipe,
++            available_tools=registry,
++        )
++        if commissioned and commissioning_error:
++            add(
++                "errors",
++                "UNSAFE_COMMISSIONED_RECIPE",
++                f"{recipe_name} esta comisionada pero es incompleta: {commissioning_error}",
++            )
++        elif not commissioned:
++            add(
++                "pending",
++                "RECIPE_NOT_COMMISSIONED",
++                f"{recipe_name} permanece bloqueada hasta completar calibracion",
++            )
++
++    report["ready_for_commissioning"] = not report["errors"]
++    report["ready_for_production"] = (
++        not report["errors"]
++        and not report["pending"]
++        and bool(required_map)
++    )
++    return report
++
++
++def _print_human(report):
++    print(f"Instalacion: {report.get('installation') or 'desconocida'}")
++    for bucket, label in (
++        ("passes", "PASS"),
++        ("pending", "PENDIENTE"),
++        ("errors", "ERROR"),
++    ):
++        for item in report[bucket]:
++            print(f"[{label}] {item['code']}: {item['message']}")
++    print(
++        "Resultado: "
++        + (
++            "LISTA PARA PRODUCCION"
++            if report["ready_for_production"]
++            else "LISTA PARA CALIBRAR"
++            if report["ready_for_commissioning"]
++            else "PAQUETE INVALIDO"
++        )
++    )
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser(
++        description="Valida una instalacion externa sin acceder al hardware",
++    )
++    parser.add_argument(
++        "manifest",
++        nargs="?",
++        default="installations/worksurface/commissioning.json",
++        help="Ruta al commissioning.json de la instalacion",
++    )
++    parser.add_argument(
++        "--require-commissioned",
++        action="store_true",
++        help="Falla si quedan calibraciones o recetas pendientes",
++    )
++    parser.add_argument("--json", action="store_true", help="Salida JSON")
++    args = parser.parse_args(argv)
++
++    report = validate_installation(args.manifest)
++    if args.json:
++        print(json.dumps(report, indent=2, ensure_ascii=False))
++    else:
++        _print_human(report)
++
++    if report["errors"]:
++        return 2
++    if args.require_commissioned and not report["ready_for_production"]:
++        return 3
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/tests/test_installation_package.py b/tests/test_installation_package.py
+new file mode 100644
+index 0000000..894f65d
+--- /dev/null
++++ b/tests/test_installation_package.py
+@@ -0,0 +1,97 @@
++import json
++import shutil
++import tempfile
++import unittest
++from contextlib import redirect_stdout
++from io import StringIO
++from pathlib import Path
++
++from scripts.validate_installation import main, validate_installation
++
++
++class InstallationPackageTests(unittest.TestCase):
++    def setUp(self):
++        self.project_root = Path(__file__).resolve().parents[1]
++        self.package = self.project_root / "installations" / "worksurface"
++        self.manifest = self.package / "commissioning.json"
++
++    def test_worksurface_package_is_structurally_ready_but_not_commissioned(self):
++        report = validate_installation(self.manifest)
++
++        self.assertEqual(report["errors"], [])
++        self.assertTrue(report["ready_for_commissioning"])
++        self.assertFalse(report["ready_for_production"])
++        pending_codes = {item["code"] for item in report["pending"]}
++        self.assertIn("TOOL_COMMISSIONING", pending_codes)
++        self.assertIn("FOCUS_COMMISSIONING", pending_codes)
++        self.assertIn("RECIPE_NOT_COMMISSIONED", pending_codes)
++        self.assertEqual(
++            Path(report["manifest"]),
++            self.manifest.resolve(),
++        )
++
++    def test_package_declares_exact_external_models_and_part_numbers(self):
++        system = json.loads(
++            (self.package / "system.json").read_text(encoding="utf-8")
++        )
++        recipes = json.loads(
++            (self.package / "recipes.json").read_text(encoding="utf-8")
++        )["recipes"]
++
++        self.assertEqual(
++            system["controller"]["model_map"],
++            {"A": "MODELO_A", "B": "MODELO_B", "C": "MODELO_C"},
++        )
++        self.assertEqual(
++            {
++                recipe["machine"]["external_model"]:
++                recipe["machine"]["part_number"]
++                for recipe in recipes
++            },
++            {
++                "A": "0402012XA",
++                "B": "0402012XB",
++                "C": "0402012XC",
++            },
++        )
++        self.assertTrue(all(recipe["commissioned"] is False for recipe in recipes))
++
++    def test_invalid_model_mapping_is_rejected(self):
++        with tempfile.TemporaryDirectory() as temp_dir:
++            temp_root = Path(temp_dir)
++            package_copy = temp_root / "worksurface"
++            shutil.copytree(self.package, package_copy)
++            manifest = json.loads(
++                (package_copy / "commissioning.json").read_text(encoding="utf-8")
++            )
++            manifest["project_root"] = "."
++            manifest["system_config"] = "system.json"
++            (package_copy / "commissioning.json").write_text(
++                json.dumps(manifest), encoding="utf-8"
++            )
++            system = json.loads(
++                (package_copy / "system.json").read_text(encoding="utf-8")
++            )
++            system["recipes"]["file"] = "recipes.json"
++            system["controller"]["model_map"]["B"] = "MODELO_A"
++            (package_copy / "system.json").write_text(
++                json.dumps(system), encoding="utf-8"
++            )
++
++            report = validate_installation(package_copy / "commissioning.json")
++
++        self.assertFalse(report["ready_for_commissioning"])
++        self.assertIn("MODEL_MAPPING", {item["code"] for item in report["errors"]})
++
++    def test_cli_strict_mode_rejects_pending_calibration(self):
++        output = StringIO()
++        with redirect_stdout(output):
++            self.assertEqual(main([str(self.manifest), "--json"]), 0)
++            self.assertEqual(
++                main([str(self.manifest), "--require-commissioned", "--json"]),
++                3,
++            )
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.51.1
+
