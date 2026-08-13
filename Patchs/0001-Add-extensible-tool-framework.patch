@@ -1,0 +1,1836 @@
+From 19ebc8f407530a5a85117ff19a959087649080f2 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Thu, 13 Aug 2026 08:25:36 -0600
+Subject: [PATCH] Add extensible tool framework
+
+---
+ .../CONTEXTO_PROYECTO_WORKSURFACE_V12.md      | 300 ++++++++++++++++++
+ Guias/GUIA_FASE7_FRAMEWORK_HERRAMIENTAS.md    |  95 ++++++
+ app/app.py                                    |  15 +-
+ core/diagnostics.py                           |  43 ++-
+ core/recipe_manager.py                        |  82 ++---
+ docs/tool_framework.md                        | 111 +++++++
+ docs/universal_configuration_ui.md            |   3 +-
+ docs/universal_engine_architecture.md         |   8 +
+ tests/test_tool_registry.py                   | 153 +++++++++
+ tools/compare_img_hist.py                     |  42 ++-
+ tools/dmtx_tool.py                            | 110 ++++++-
+ tools/registry.py                             | 150 +++++++++
+ tools/tool_base.py                            | 134 +++++++-
+ ui/config_window_logic.py                     |  53 +++-
+ ui/schemas/schemas.py                         | 136 +-------
+ ui/tool_editor.py                             |   9 +-
+ 16 files changed, 1218 insertions(+), 226 deletions(-)
+ create mode 100644 Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V12.md
+ create mode 100644 Guias/GUIA_FASE7_FRAMEWORK_HERRAMIENTAS.md
+ create mode 100644 docs/tool_framework.md
+ create mode 100644 tests/test_tool_registry.py
+ create mode 100644 tools/registry.py
+
+diff --git a/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V12.md b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V12.md
+new file mode 100644
+index 0000000..51ed0ce
+--- /dev/null
++++ b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V12.md
+@@ -0,0 +1,300 @@
++# Contexto vivo - Motor universal y despliegue Worksurface V12
++
++**Ultima actualizacion:** 2026-08-13
++
++**Responsable funcional:** Andy
++
++**Estado:** fases 1 a 6 publicadas; fase 7 implementada y validada en codigo,
++pendiente de aplicacion y prueba visual por Andy
++
++**Sustituye como referencia principal a:**
++`CONTEXTO_PROYECTO_WORKSURFACE_V11.md`
++
++## 1. Objetivo vinculante
++
++Crear un unico motor de vision configurable para distintas Raspberry Pi. El
++motor contiene UI, camara, enfoque, recetas, pipeline, herramientas, protocolo,
++diagnostico y trazabilidad. No contiene modelos A/B/C, sensores, actuadores ni
++secuencias codificadas de Worksurface.
++
++Worksurface sera una instalacion externa compuesta por:
++
++- `system.json` propio;
++- catalogo de recetas A/B/C;
++- imagenes maestras, ROI, codigos y enfoque reales;
++- firmware ESP32 separado compatible con `vision_controller_v1`;
++- ladder PLC separado;
++- paquete de despliegue y rollback.
++
++No existen perfiles `general` o `worksurface` dentro del motor.
++
++## 2. Estado de fases
++
++| Fase | Resultado | Estado |
++|---:|---|---|
++| 1 | Configuracion, enfoque y multiples steps | Publicada |
++| Correccion universal | Retiro de perfiles y protocolo unico | Publicada |
++| 3 | Editores, guardado atomico y comisionamiento | Publicada |
++| 4 | ROI v3, estados, deadline, cancelacion y DataMatrix | Publicada |
++| 5 | Interfaz responsiva por resolucion | Publicada; pulido final pendiente |
++| 6 | Diagnostico y trazabilidad de ciclos | Publicada |
++| 7 | Catalogo extensible y contratos de herramientas | 59 pruebas; pendiente aplicar/probar |
++
++## 3. Fase 7 - framework de herramientas
++
++### 3.1 Problema eliminado
++
++Antes, una herramienta estaba registrada por separado en `app.py`,
++`ui/schemas/schemas.py`, `RecipeManager` y diagnostico. Agregar una nueva
++inspeccion obligaba a modificar varias capas y facilitaba divergencias.
++
++### 3.2 Arquitectura nueva
++
++Cada clase concreta de `ToolBase` publica:
++
++- `TOOL_ID` estable;
++- `DISPLAY_NAME`;
++- `PARAMETER_SCHEMA`;
++- defaults;
++- reglas de comisionamiento;
++- campos de recursos;
++- implementacion ejecutable.
++
++`discover_tool_registry()` descubre las clases automaticamente dentro de
++`tools/`. `ToolRegistry` es la fuente unica para:
++
++- instancias consumidas por `VisionPipeline`;
++- formularios de `ToolEditor`;
++- defaults y migracion en `RecipeManager`;
++- validacion de comisionamiento;
++- comprobacion de recursos en diagnostico.
++
++`app.py` ya no importa ni registra manualmente DataMatrix o histogramas.
++
++### 3.3 Contrato y seguridad
++
++- IDs duplicados, schemas desconocidos o defaults invalidos se rechazan.
++- Toda ejecucion devuelve `ToolResult`.
++- Las herramientas descubiertas deben responder a cancelacion cooperativa.
++- Dependencias pesadas se cargan al ejecutar, no al leer metadatos.
++- Un modulo defectuoso no oculta las herramientas validas.
++- Una receta comisionada con herramienta ausente o invalida bloquea `READY`.
++- Parametros desconocidos se conservan al editar para compatibilidad futura.
++
++### 3.4 Herramientas actuales
++
++| ID | Nombre | Validacion de comisionamiento |
++|---|---|---|
++| `dmtx` | Lectura DataMatrix | ROI y codigo maestro obligatorios; parametros tipados |
++| `img_hist` | Comparacion de histogramas | Al menos una imagen maestra legible |
++
++### 3.5 Validacion
++
++```text
++Ran 59 tests
++OK
++COMPILE_OK
++DIFF_CHECK_OK
++```
++
++Se conservaron las 53 pruebas previas y se agregaron seis pruebas de catalogo,
++schema, recursos, pipeline, cancelacion y comisionamiento.
++
++## 4. Configuracion completa de `system.json`
++
++`system.json` representa una instalacion fisica completa. Se selecciona con
++`VISION_SYSTEM_CONFIG`. El panel SISTEMA guarda atomicamente, crea `.bak` y
++requiere reiniciar para aplicar cambios de hardware, comunicacion o runtime.
++
++### 4.1 Raiz e instalacion
++
++| Parametro | Funcion |
++|---|---|
++| `schema_version` | Version del contrato; actualmente 2, no editar manualmente |
++| `installation.id` | ID tecnico estable usado en trazabilidad |
++| `installation.name` | Nombre legible de la estacion |
++
++### 4.2 Recetas
++
++| Parametro | Funcion |
++|---|---|
++| `recipes.file` | Ruta del catalogo de recetas v3 |
++| `recipes.auto_migrate` | Migra esquemas anteriores y conserva respaldo |
++
++ROI, codigos, imagenes y parametros pertenecen al catalogo, no a
++`system.json`.
++
++### 4.3 Camara
++
++| Parametro | Funcion |
++|---|---|
++| `camera.device` | Indice o ruta persistente del dispositivo |
++| `camera.width` / `height` | Resolucion solicitada de captura, no del monitor |
++| `camera.capture_fps` | FPS solicitados a la camara |
++| `camera.preview_fps` | FPS mostrados; puede ser menor para ahorrar CPU |
++| `camera.default_focus_mode` | Modo inicial de recetas nuevas |
++
++La pantalla se detecta automaticamente. En Linux conviene usar una ruta
++`/dev/v4l/by-id/...` cuando este disponible.
++
++### 4.4 Controlador
++
++| Parametro | Funcion |
++|---|---|
++| `controller.transport` | Fijo `serial` |
++| `controller.protocol` | Fijo `vision_controller_v1` |
++| `controller.ports` | Puerto por Windows/Linux |
++| `controller.baudrate` | Debe coincidir con ESP32; base 115200 |
++| `controller.timeout` | Espera de operacion serial |
++| `controller.reset_on_connect` | Permite pulso DTR si el hardware lo admite |
++| `controller.heartbeat_enabled` | Supervisa enlace con PING/PONG |
++| `controller.ready_notifications_enabled` | Publica READY/NOT_READY |
++| `controller.model_map` | ID externo a nombre exacto de receta |
++
++### 4.5 Ejecucion
++
++| Parametro | Funcion |
++|---|---|
++| `runtime.require_controller_ready` | Exige controlador disponible |
++| `runtime.require_controller_sync` | Exige firmware/protocolo compatible |
++| `runtime.require_focus_ready` | Evita inspeccionar desenfocado |
++| `runtime.max_frame_age_seconds` | Evita decidir con un frame antiguo |
++| `runtime.mechanical_settle_ms` | Espera cancelable para inmovilizar pieza |
++| `runtime.inspection_timeout_seconds` | Limite total; timeout comunica ERROR |
++
++Los tres `require_*` deben permanecer activos en produccion.
++
++### 4.6 Trazabilidad
++
++| Parametro | Funcion |
++|---|---|
++| `traceability.enabled` | Guarda evidencia estructurada por ciclo |
++| `traceability.directory` | Ruta escribible de registros |
++| `traceability.max_file_size_mb` | Tamano de rotacion |
++| `traceability.retention_files` | Cantidad maxima de JSONL |
++| `traceability.retention_days` | Antiguedad maxima; 0 desactiva por edad |
++
++Produce `startup_diagnostics.json`, `cycles.jsonl` y rotaciones. No almacena
++frames dentro del JSONL.
++
++## 5. Contratos vigentes
++
++### ROI
++
++- `[x1,y1,x2,y2]` sobre el frame original;
++- `x2/y2` exclusivos;
++- migracion heredada con respaldo.
++
++### Resultados
++
++| Pipeline | Controlador | Significado |
++|---|---|---|
++| `PASS` | `OK` | Producto aceptado |
++| `FAIL` | `NG` | Producto rechazado |
++| `ERROR` | `ERROR` | No se obtuvo decision |
++| `TIMEOUT` | `ERROR` | Plazo agotado |
++
++### Ciclo
++
++- `cycle_id` unico y opaco;
++- handshake, READY/NOT_READY y heartbeat;
++- ACK asociado a tipo y ciclo;
++- un solo ciclo activo;
++- cancelacion cooperativa;
++- rechazo de resultados tardios;
++- ningun trigger aceptado en NOT_READY.
++
++## 6. Firmware ESP32 y PLC
++
++La actualizacion del firmware corresponde a la **fase 9**, despues de crear las
++recetas reales en fase 8. El firmware actual usa el protocolo heredado y no es
++compatible con el motor universal.
++
++Cambios obligatorios conocidos para fase 9:
++
++- `HELLO/HELLO_ACK`, READY/NOT_READY y PING/PONG;
++- IDs de ciclo y ACK tipados;
++- `TRIGGER`, `VISION_RESULT`, `FINAL_RESULT` y `CANCEL` correlacionados;
++- soporte de `OK`, `NG` y `ERROR`;
++- rechazo de resultados tardios;
++- salida GPIO 32 segura en error, timeout, cancelacion y desconexion;
++- retorno a IDLE despues de NG;
++- timeout alineado con el motor.
++
++El ladder PLC puede conservarse como base. En fases 9-10 se comprobara codigo
++Y0/Y1, nivel seguro X5, llave X6 y asentamiento de Y2/Y3/Y4.
++
++## 7. Estado Worksurface conocido
++
++| Modelo | Numero de parte | Sensor izquierdo | Sensor derecho |
++|---|---|---|---|
++| A | `0402012XA` | OK | NG |
++| B | `0402012XB` | NG | OK |
++| C | `0402012XC` | OK | OK |
++
++PLC conocido:
++
++- `X0/X1`: botones;
++- `X2/X3/X4`: selectores;
++- `X5`: liberacion desde ESP32;
++- `X6`: llave de calidad;
++- `X7`: pieza en posicion;
++- `Y0/Y1`: codigo de modelo;
++- `Y2`: trigger;
++- `Y3/Y4`: clamps;
++- `Y5`: tope del modelo 1.
++
++Raspberry Pi 4 de 8 GB, pantalla ILI9486 480x320 y touch ADS7846. El touch no
++producia eventos/IRQ en la revision anterior y requiere reparacion fisica antes
++del corte final.
++
++## 8. Avance despues de fase 7
++
++Estimacion ponderada de planeacion:
++
++| Area | Peso | Avance | Contribucion |
++|---|---:|---:|---:|
++| Arquitectura/configuracion | 12 % | 100 % | 12.0 % |
++| Recetas, migracion y editores | 13 % | 100 % | 13.0 % |
++| Protocolo y seguridad de ciclo | 12 % | 100 % | 12.0 % |
++| ROI, resultados, timeout y DataMatrix | 13 % | 100 % | 13.0 % |
++| Interfaz responsiva | 8 % | 85 % | 6.8 % |
++| Diagnostico y trazabilidad | 8 % | 85 % | 6.8 % |
++| Framework de herramientas | 10 % | 100 % | 10.0 % |
++| Instalacion/recetas Worksurface | 8 % | 0 % | 0.0 % |
++| Firmware, PLC y comisionamiento | 8 % | 0 % | 0.0 % |
++| Empaquetado, rollback y corte | 8 % | 0 % | 0.0 % |
++| **Sustitucion completa** | **100 %** |  | **73.6 % (~74 %)** |
++
++El motor universal reutilizable esta aproximadamente al **97 %** en codigo.
++No significa que Worksurface pueda sustituirse: falta la configuracion real,
++firmware, pruebas fisicas, paquete y aceptacion.
++
++## 9. Cinco fases restantes
++
++| Fase | Objetivo | Salida |
++|---:|---|---|
++| 8 | Instalacion Worksurface | system.json, recetas A/B/C, ROI, codigos, enfoque e imagenes |
++| 9 | Firmware ESP32 y revision PLC | `vision_controller_v1` y estados seguros |
++| 10 | Comisionamiento fisico | Niveles, tiempos, matriz de fallos y repetibilidad |
++| 11 | Paquete instalable | Dependencias, systemd, backup, autoarranque y rollback |
++| 12 | Pulido y corte | UI final, prueba paralela, aceptacion y sustitucion reversible |
++
++## 10. Datos pendientes para fase 8-10
++
++- contenido exacto esperado en DataMatrix de A/B/C;
++- imagenes buenas y defectuosas representativas;
++- ROI, umbrales y enfoque reales;
++- niveles HIGH/LOW de sensores;
++- pinout Y0/Y1 a GPIO 18/19;
++- estado activo/seguro de X5 y GPIO 32;
++- tiempo desde clamps hasta inmovilizacion;
++- comportamiento medido ante desconexion y reinicio;
++- criterios cuantitativos de repetibilidad.
++
++## 11. Proxima fase
++
++Despues de aplicar y probar fase 7, continuar con fase 8. Debe crear una
++instalacion Worksurface externa sin introducir A/B/C ni reglas de sensores en
++el codigo del motor. Si faltan imagenes/codigos reales, se preparara una
++plantilla no comisionada y una guia de captura; no se inventaran valores.
+diff --git a/Guias/GUIA_FASE7_FRAMEWORK_HERRAMIENTAS.md b/Guias/GUIA_FASE7_FRAMEWORK_HERRAMIENTAS.md
+new file mode 100644
+index 0000000..e0cd864
+--- /dev/null
++++ b/Guias/GUIA_FASE7_FRAMEWORK_HERRAMIENTAS.md
+@@ -0,0 +1,95 @@
++# Guia de aplicacion - Fase 7: framework extensible de herramientas
++
++## Base requerida
++
++El parche se construyo sobre la fase 6 confirmada:
++
++```text
++6f7f6fa Add startup diagnostics and cycle traceability
++```
++
++No modifica `config/system.json`, recetas, firmware ESP32 ni ladder PLC.
++
++## Aplicacion en VS Code/CMD
++
++Desde la rama que contiene la fase 6 y sin cambios locales pendientes:
++
++```cmd
++git status
++git switch -c feature/universal-tool-framework-phase7
++git apply --check "C:\ruta\0001-Add-extensible-tool-framework.patch"
++git apply --index "C:\ruta\0001-Add-extensible-tool-framework.patch"
++```
++
++Si la rama ya existe:
++
++```cmd
++git switch feature/universal-tool-framework-phase7
++```
++
++No excluyas archivos del parche. A diferencia de fases 4 y 6, esta entrega no
++toca configuracion local ni JSON de recetas.
++
++## Validacion
++
++Con el entorno virtual activo:
++
++```cmd
++python -m unittest discover -s tests -p "test_*.py" -v
++python -m compileall -q app core processing services tools ui vision tests
++git diff --cached --check
++```
++
++Resultado esperado:
++
++```text
++Ran 59 tests
++OK
++```
++
++Revision adicional del catalogo:
++
++```cmd
++python -c "from tools.registry import discover_tool_registry; r=discover_tool_registry(); print(list(r)); print(r.discovery_errors)"
++```
++
++Debe mostrar las herramientas `img_hist` y `dmtx`, seguidas por una lista de
++errores vacia.
++
++## Commit y publicacion
++
++```cmd
++git status
++git diff --cached --stat
++git commit -m "Add extensible tool framework"
++git push -u origin feature/universal-tool-framework-phase7
++```
++
++## Prueba visual recomendada
++
++1. Abrir el editor de configuracion.
++2. Seleccionar una receta.
++3. Agregar un step y confirmar que aparecen DataMatrix e histogramas.
++4. Cambiar entre ambas herramientas y comprobar que el formulario se actualiza.
++5. Editar un step existente y verificar que conserva ROI, imagenes y valores.
++6. Intentar comisionar una receta DataMatrix sin ROI/codigo; debe rechazarse.
++7. Intentar comisionar histogramas sin imagen maestra; debe rechazarse.
++
++La prueba visual no sustituye las 59 pruebas automatizadas.
++
++## Como agregar una herramienta despues de fase 7
++
++1. Crear una clase concreta de `ToolBase` dentro de `tools/`.
++2. Declarar `TOOL_ID`, `DISPLAY_NAME` y `PARAMETER_SCHEMA`.
++3. Implementar `process(**kwargs)` y cancelacion cooperativa.
++4. Agregar pruebas funcionales propias.
++5. Ejecutar la suite: `test_tool_registry.py` la descubrira automaticamente.
++
++No se debe editar `app.py`, `RecipeManager`, `ToolEditor` ni la FSM para
++registrarla.
++
++## Siguiente fase
++
++La fase 8 construira la instalacion Worksurface externa: configuracion, mapeo
++A/B/C, recetas, imagenes, ROI y enfoque. La actualizacion de firmware ESP32
++permanece en la fase 9.
+diff --git a/app/app.py b/app/app.py
+index 184f533..7cc64ba 100644
+--- a/app/app.py
++++ b/app/app.py
+@@ -8,8 +8,7 @@ from utils.ui_logger import get_ui_logger
+ from ui.pyside6.ui_main_window import Ui_MainWindow
+ from ui.config_window_logic import ConfigWindow
+ # IMPORTS DE HERRAMIENTAS, SERVICIOS Y LOGICA
+-from tools.compare_img_hist import CompareImgHistTool
+-from tools.dmtx_tool import DataMatrixTool
++from tools.registry import discover_tool_registry
+ from core.state_manager import StateManager
+ from services.camera import Camera
+ from processing.pipeline import VisionPipeline
+@@ -168,11 +167,12 @@ class MainWindow(QMainWindow):
+             }
+         """)
+ 
++        self.tool_registry = discover_tool_registry()
+         self.recipe_manager = RecipeManager(
+             self.system_config.recipe_file,
+             auto_migrate=self.system_config.auto_migrate_recipes,
++            tool_registry=self.tool_registry,
+         )
+-        self.tool_registry = self.build_tool_registry()
+         traceability_config = self.system_config.section("traceability")
+         self.cycle_trace = CycleTraceWriter.from_config(
+             traceability_config,
+@@ -198,13 +198,6 @@ class MainWindow(QMainWindow):
+         self.setup_serial()
+         self.setup_state_manager()
+ 
+-    @staticmethod
+-    def build_tool_registry():
+-        return {
+-            "dmtx": DataMatrixTool(),
+-            "img_hist": CompareImgHistTool(),
+-        }
+-
+     def setup_ui_logger(self):
+         self.ui_logger = get_ui_logger()
+         self.ui_logger.install()
+@@ -1048,7 +1041,7 @@ class MainWindow(QMainWindow):
+             platform=self.platform,
+             camera_worker=self.camera_worker,
+             system_config=self.system_config,
+-            available_tools=self.processor.tool_registry.keys(),
++            tool_registry=self.tool_registry,
+             display_profile=self.display_profile,
+         )
+         # CONECTAR SIGNALS DESDE CONFIG WINDOW
+diff --git a/core/diagnostics.py b/core/diagnostics.py
+index b8c6f29..1c85343 100644
+--- a/core/diagnostics.py
++++ b/core/diagnostics.py
+@@ -194,13 +194,27 @@ def run_static_diagnostics(
+         )
+ 
+     available_tools = set(tool_registry)
++    discovery_errors = list(
++        getattr(tool_registry, "discovery_errors", []) or []
++    )
+     manager.update(
+         "tools.registry",
+-        "PASS" if available_tools else "ERROR",
++        (
++            "PASS"
++            if available_tools and not discovery_errors
++            else "WARNING" if available_tools else "ERROR"
++        ),
+         "tools",
+-        f"Herramientas registradas: {', '.join(sorted(available_tools)) or 'ninguna'}",
+-        action="Registra al menos una herramienta antes de producir",
+-        details={"tools": sorted(available_tools)},
++        (
++            f"Herramientas registradas: {', '.join(sorted(available_tools))}"
++            if not discovery_errors
++            else "Una o mas herramientas no pudieron cargarse"
++        ),
++        action="Corrige dependencias o contratos de las herramientas y reinicia",
++        details={
++            "tools": sorted(available_tools),
++            "discovery_errors": discovery_errors,
++        },
+         blocking=not available_tools,
+     )
+ 
+@@ -222,10 +236,23 @@ def run_static_diagnostics(
+             tool_name = step.get("tool")
+             if tool_name not in available_tools:
+                 missing_tools.append({"step": step.get("id"), "tool": tool_name})
+-            if tool_name != "img_hist":
+-                continue
+-            for raw_path in step.get("params", {}).get("template_paths", []):
+-                template_path = Path(str(raw_path))
++            if hasattr(tool_registry, "resource_paths"):
++                resources = tool_registry.resource_paths(
++                    tool_name,
++                    step.get("params", {}),
++                )
++            else:
++                # Compatibilidad para integraciones antiguas que aun inyectan
++                # un dict simple durante la migracion a ToolRegistry.
++                resources = [
++                    {"parameter": "template_paths", "path": raw_path}
++                    for raw_path in step.get("params", {}).get(
++                        "template_paths", []
++                    )
++                    if tool_name == "img_hist"
++                ]
++            for resource in resources:
++                template_path = Path(str(resource["path"]))
+                 if not template_path.is_file():
+                     missing_templates.append(str(template_path))
+                 elif not os.access(template_path, os.R_OK) or template_path.stat().st_size <= 0:
+diff --git a/core/recipe_manager.py b/core/recipe_manager.py
+index ad5e7ba..93c3bf8 100644
+--- a/core/recipe_manager.py
++++ b/core/recipe_manager.py
+@@ -8,13 +8,24 @@ from core.roi import (
+     normalize_roi,
+ )
+ from core.step_conditions import ConditionError, validate_condition
++from tools.registry import discover_tool_registry
+ 
+ class RecipeManager:
+     SCHEMA_VERSION = 3
+ 
+-    def __init__(self, path="recipes.json", auto_migrate=True):
++    def __init__(
++        self,
++        path="recipes.json",
++        auto_migrate=True,
++        tool_registry=None,
++    ):
+         self.path = os.fspath(path)
+         self.auto_migrate = bool(auto_migrate)
++        self.tool_registry = (
++            tool_registry
++            if tool_registry is not None
++            else discover_tool_registry()
++        )
+         self._ensure_file()
+ 
+     def _empty_data(self):
+@@ -336,33 +347,7 @@ class RecipeManager:
+         Parametros base por herramienta.
+         Sirve para migrar recetas viejas sin romper compatibilidad.
+         """
+-        defaults = {
+-            "dmtx": {
+-                "roi": None,
+-                "expected_code": "",
+-                "match_mode": "exact",
+-                "retries": 8,
+-                "delay": 0.04,
+-                "min_expected_reads": 2,
+-                "max_wrong_reads": 0,
+-                "roi_padding": 12,
+-                "preprocess": True,
+-                "upscale": 2.0,
+-                "decode_timeout_ms": 250,
+-                "max_total_time": 15.0,
+-                "show_roi": False,
+-            },
+-
+-            "img_hist": {
+-                "roi": None,
+-                "threshold": 0.0,
+-                "mode": "below",
+-                "template_paths": [],
+-                "show_roi": True,
+-            }
+-        }
+-
+-        return dict(defaults.get(tool_name, {}))
++        return self.tool_registry.default_params(tool_name)
+ 
+ 
+     def ensure_step_params(self, recipe):
+@@ -593,7 +578,11 @@ class RecipeManager:
+         if not steps:
+             return f"La receta {recipe.get('name')} no tiene steps"
+ 
+-        available = set(available_tools or [])
++        available = (
++            set(available_tools)
++            if available_tools is not None
++            else set(self.tool_registry)
++        )
+         enabled_steps = 0
+         for step in steps:
+             if not step.get("enabled", True):
+@@ -603,35 +592,16 @@ class RecipeManager:
+             step_id = step["id"]
+             params = step.get("params", {})
+ 
+-            if available and tool_name not in available:
++            if tool_name not in available:
+                 return f"Herramienta no disponible: {tool_name} ({step_id})"
+ 
+-            if tool_name == "dmtx":
+-                expected_code = params.get("expected_code")
+-                if not isinstance(expected_code, str) or not expected_code.strip():
+-                    return f"El step {step_id} no tiene expected_code valido"
+-
+-            if tool_name == "img_hist":
+-                template_paths = params.get("template_paths")
+-                if not isinstance(template_paths, list) or not template_paths:
+-                    return f"El step {step_id} no tiene imagenes maestras"
+-
+-            roi = params.get("roi")
+-            if tool_name == "dmtx" and roi is None:
+-                return f"El step {step_id} no tiene ROI valida"
+-            if roi is not None:
+-                try:
+-                    normalize_roi(roi, allow_none=False)
+-                except ROIError as exc:
+-                    return f"ROI invalida en {step_id}: {exc}"
+-
+-            if tool_name == "dmtx":
+-                match_mode = str(params.get("match_mode", "exact")).lower()
+-                if match_mode not in ("exact", "prefix"):
+-                    return (
+-                        f"Modo de comparacion DataMatrix invalido en "
+-                        f"{step_id}: {match_mode}"
+-                    )
++            parameter_errors = self.tool_registry.validate_params(
++                tool_name,
++                params,
++                commissioning=True,
++            )
++            if parameter_errors:
++                return f"Parametros invalidos en {step_id}: {parameter_errors[0]}"
+ 
+         if not enabled_steps:
+             return f"La receta {recipe.get('name')} no tiene steps habilitados"
+diff --git a/docs/tool_framework.md b/docs/tool_framework.md
+new file mode 100644
+index 0000000..5999418
+--- /dev/null
++++ b/docs/tool_framework.md
+@@ -0,0 +1,111 @@
++# Framework extensible de herramientas
++
++## Objetivo
++
++Una herramienta de vision debe poder agregarse sin editar `app.py`, la FSM,
++`RecipeManager`, el diagnostico ni una tabla global de UI. Cada clase concreta
++de `ToolBase` es la fuente autoritativa de:
++
++- ID tecnico estable;
++- nombre visible;
++- esquema y valores predeterminados;
++- validacion de parametros y comisionamiento;
++- recursos externos utilizados;
++- ejecucion y resultado tipado.
++
++`discover_tool_registry()` recorre el paquete `tools`, importa sus modulos y
++registra automaticamente las subclases concretas. `ToolRegistry` implementa
++`Mapping`, por lo que el pipeline sigue consumiendo `registry[tool_id]` sin
++conocer la implementacion concreta.
++
++## Contrato minimo
++
++```python
++from tools.tool_base import ToolBase
++
++
++class PresenceTool(ToolBase):
++    TOOL_ID = "presence"
++    DISPLAY_NAME = "Presencia de componente"
++    PARAMETER_SCHEMA = {
++        "roi": {
++            "type": "roi",
++            "label": "Region de inspeccion",
++            "default": None,
++            "commissioning_required": True,
++        },
++        "threshold": {
++            "type": "float",
++            "label": "Umbral",
++            "min": 0.0,
++            "max": 1.0,
++            "default": 0.5,
++        },
++    }
++
++    def process(self, **kwargs):
++        # Debe consultar cancel_event/deadline durante trabajo prolongado.
++        return {"result": "PASS"}
++```
++
++El archivo puede llamarse `tools/presence_tool.py`. No se agrega un import a
++`app.py`: el catalogo lo descubre al reiniciar.
++
++## Tipos de parametros
++
++| Tipo | Persistido | Editor |
++|---|---|---|
++| `str` | Si | Texto |
++| `int` | Si | Control numerico entero |
++| `float` | Si | Control numerico decimal |
++| `bool` | Si | Casilla |
++| `choice` | Si | Lista de opciones |
++| `roi` | Si | Seleccion sobre video |
++| `image_list` | Si | Lista/captura de imagenes |
++| `video` | No, usar `persist=False` | Vista auxiliar |
++
++Campos relevantes del schema:
++
++- `default`: valor agregado a recetas nuevas o migradas;
++- `min`, `max`, `options`: validacion generica;
++- `commissioning_required`: bloquea comisionamiento si falta;
++- `resource`: identifica rutas que debe verificar el diagnostico;
++- `persist=False`: elemento auxiliar de UI que no es parametro de receta.
++
++Los parametros desconocidos se conservan al editar. Esto permite abrir recetas
++creadas por una version posterior sin borrar datos, aunque una herramienta no
++debe depender de un parametro que no declare.
++
++## Resultados y cancelacion
++
++Toda ejecucion sale de `ToolBase.run()` como `ToolResult`:
++
++- `PASS`: inspeccion aceptada;
++- `FAIL`: defecto de producto;
++- `ERROR`: no se obtuvo una decision;
++- `TIMEOUT`: vencio el plazo.
++
++Una herramienta prolongada debe llamar `check_execution()` entre operaciones y
++usar `wait_interruptibly()` en vez de pausas bloqueantes. `cancel_event` y
++`deadline` llegan dentro de `kwargs`.
++
++Las dependencias pesadas, como OpenCV o un decoder opcional, se importan al
++ejecutar y no al leer el manifiesto. Asi los metadatos pueden validarse sin
++inicializar hardware; cualquier modulo que aun falle al importarse queda
++registrado sin ocultar las demas herramientas.
++
++## Prueba contractual
++
++`tests/test_tool_registry.py` recorre automaticamente las herramientas
++descubiertas y comprueba:
++
++1. IDs estables y no duplicados;
++2. schemas y defaults validos;
++3. construccion sin argumentos;
++4. salida `ToolResult` aun ante error;
++5. cancelacion cooperativa previa;
++6. compatibilidad directa con `VisionPipeline`;
++7. validacion de comisionamiento y recursos desde el catalogo.
++
++Toda herramienta nueva debe pasar esta prueba junto con pruebas funcionales
++propias de su algoritmo.
+diff --git a/docs/universal_configuration_ui.md b/docs/universal_configuration_ui.md
+index 3410d0a..d7d9593 100644
+--- a/docs/universal_configuration_ui.md
++++ b/docs/universal_configuration_ui.md
+@@ -51,7 +51,8 @@ produccion con esa receta.
+ Al agregar o editar una herramienta se separan dos grupos:
+ 
+ - politica del step: `id`, `enabled`, `required` y `condition`;
+-- parametros propios de la herramienta, definidos en `TOOL_SCHEMAS`.
++- parametros propios de la herramienta, definidos en su clase y publicados por
++  `ToolRegistry`.
+ 
+ La condicion se edita como JSON para conservar todo el lenguaje declarativo,
+ incluyendo condiciones anidadas `all`, `any` y `not`. Una condicion
+diff --git a/docs/universal_engine_architecture.md b/docs/universal_engine_architecture.md
+index 8f7c96c..1933f95 100644
+--- a/docs/universal_engine_architecture.md
++++ b/docs/universal_engine_architecture.md
+@@ -77,3 +77,11 @@ mantienen el motor en `NOT_READY` hasta aplicarse. Consulte
+ La fase 4 agrega el contrato unico de ROI, estados tipados de herramientas,
+ deadline global de inspeccion y cancelacion cooperativa. Ninguna de estas
+ reglas contiene logica especifica de una maquina.
++
++## Catalogo de herramientas
++
++Las clases concretas de `ToolBase` se descubren desde el paquete `tools`. Cada
++una publica un ID, schema, defaults, reglas de comisionamiento y recursos. El
++mismo `ToolRegistry` alimenta pipeline, recetas, diagnostico y editor; `app.py`
++no mantiene una lista manual. Consulte `docs/tool_framework.md` para el
++contrato de extension y sus pruebas obligatorias.
+diff --git a/tests/test_tool_registry.py b/tests/test_tool_registry.py
+new file mode 100644
+index 0000000..e753669
+--- /dev/null
++++ b/tests/test_tool_registry.py
+@@ -0,0 +1,153 @@
++import tempfile
++import threading
++import unittest
++from pathlib import Path
++
++from core.recipe_manager import RecipeManager
++from processing.pipeline import VisionPipeline
++from tools.registry import (
++    ToolContractError,
++    ToolRegistry,
++    discover_tool_registry,
++)
++from tools.result import ToolResult, ToolStatus
++from tools.tool_base import ToolBase
++
++
++class ContractTool(ToolBase):
++    TOOL_ID = "contract_tool"
++    DISPLAY_NAME = "Contract tool"
++    PARAMETER_SCHEMA = {
++        "limit": {
++            "type": "int",
++            "min": 1,
++            "max": 10,
++            "default": 3,
++        },
++        "resource": {
++            "type": "image_list",
++            "default": [],
++            "resource": True,
++        },
++    }
++
++    def process(self, **kwargs):
++        return {"limit": kwargs.get("limit", 3)}
++
++
++class DuplicateContractTool(ContractTool):
++    pass
++
++
++class InvalidSchemaTool(ToolBase):
++    TOOL_ID = "invalid_schema"
++    PARAMETER_SCHEMA = {"value": {"type": "mystery"}}
++
++    def process(self, **kwargs):
++        return None
++
++
++class ToolRegistryTests(unittest.TestCase):
++    def test_builtin_tools_are_discovered_without_loading_runtime_dependencies(self):
++        registry = discover_tool_registry()
++
++        self.assertEqual(set(registry), {"dmtx", "img_hist"})
++        self.assertEqual(registry.discovery_errors, [])
++        self.assertEqual(registry["dmtx"].name, "dmtx")
++        self.assertEqual(registry["img_hist"].name, "img_hist")
++
++    def test_every_builtin_satisfies_structural_and_result_contracts(self):
++        registry = discover_tool_registry()
++
++        for tool_id in registry:
++            with self.subTest(tool_id=tool_id):
++                tool_class = registry.tool_class(tool_id)
++                self.assertTrue(tool_class.validate_contract())
++                result = registry[tool_id].run()
++                self.assertIsInstance(result, ToolResult)
++                self.assertEqual(result.tool_name, tool_id)
++                self.assertIn(result.status, set(ToolStatus))
++
++                cancel_event = threading.Event()
++                cancel_event.set()
++                cancelled = registry[tool_id].run(cancel_event=cancel_event)
++                self.assertEqual(cancelled.error_code, "CANCELLED")
++
++    def test_duplicate_ids_and_invalid_schemas_are_rejected(self):
++        registry = ToolRegistry([ContractTool])
++        with self.assertRaises(ToolContractError):
++            registry.register(DuplicateContractTool)
++        with self.assertRaises(ValueError):
++            ToolRegistry([InvalidSchemaTool])
++
++    def test_schema_drives_defaults_validation_and_resources(self):
++        registry = ToolRegistry([ContractTool])
++
++        self.assertEqual(
++            registry.default_params("contract_tool"),
++            {"limit": 3, "resource": []},
++        )
++        self.assertEqual(
++            registry.validate_params("contract_tool", {"limit": 11}),
++            ["limit debe ser <= 10"],
++        )
++        self.assertEqual(
++            registry.resource_paths(
++                "contract_tool",
++                {"resource": ["one.png", "two.png"]},
++            ),
++            [
++                {"parameter": "resource", "path": "one.png"},
++                {"parameter": "resource", "path": "two.png"},
++            ],
++        )
++
++    def test_registry_is_directly_consumable_by_pipeline(self):
++        registry = ToolRegistry([ContractTool])
++        response = VisionPipeline(registry).run(
++            {
++                "steps": [{
++                    "id": "contract_1",
++                    "tool": "contract_tool",
++                    "enabled": True,
++                    "required": True,
++                    "condition": {"type": "always"},
++                    "params": {"limit": 4},
++                }]
++            },
++            {},
++        )
++
++        self.assertEqual(response["status"], "PASS")
++        self.assertEqual(response["results"]["contract_1"].data["limit"], 4)
++
++    def test_recipe_commissioning_uses_tool_owned_rules(self):
++        registry = discover_tool_registry()
++        with tempfile.TemporaryDirectory() as temp_dir:
++            manager = RecipeManager(
++                Path(temp_dir) / "recipes.json",
++                tool_registry=registry,
++            )
++            recipe = {
++                "id": "part",
++                "name": "PART",
++                "selected": True,
++                "commissioned": True,
++                "focus": manager.default_focus_config(),
++                "steps": [{
++                    "id": "dmtx_1",
++                    "tool": "dmtx",
++                    "enabled": True,
++                    "required": True,
++                    "condition": {"type": "always"},
++                    "params": registry.default_params("dmtx"),
++                }],
++            }
++            recipe["steps"][0]["params"]["roi"] = [0, 0, 10, 10]
++
++            error = manager.get_commissioning_error(recipe)
++            self.assertIn("expected_code", error)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tools/compare_img_hist.py b/tools/compare_img_hist.py
+index fca54fa..19c2f2f 100644
+--- a/tools/compare_img_hist.py
++++ b/tools/compare_img_hist.py
+@@ -1,15 +1,48 @@
+ # HERRAMIENTA PARA COMPARAR IMAGENES Y DETECTAR COMPONENTES EN LAS PIEZAS..
+ # USANDO COMPARE HIST BHATTACHARYYA
+ 
+-import cv2
+-import numpy
+ from core.execution_control import check_execution
+ from core.roi import crop_image
+ from tools.result import ToolFailure
+ from tools.tool_base import ToolBase
+ 
+ class CompareImgHistTool(ToolBase):
+-    def __init__(self, name="compare_img_hist"):
++    TOOL_ID = "img_hist"
++    DISPLAY_NAME = "Comparacion de histogramas"
++    PARAMETER_SCHEMA = {
++        "roi": {
++            "type": "roi",
++            "label": "Region de inspeccion",
++            "default": None,
++        },
++        "video": {
++            "type": "video",
++            "label": "Vista de camara",
++            "persist": False,
++        },
++        "threshold": {
++            "type": "float",
++            "label": "Similitud minima (%)",
++            "min": 0.0,
++            "max": 100.0,
++            "decimals": 1,
++            "default": 0.0,
++        },
++        "template_paths": {
++            "type": "image_list",
++            "label": "Imagenes maestras",
++            "default": [],
++            "commissioning_required": True,
++            "resource": True,
++        },
++        "show_roi": {
++            "type": "bool",
++            "label": "Mostrar ROI",
++            "default": True,
++        },
++    }
++
++    def __init__(self, name=None):
+         super().__init__(name)
+ 
+     # MANDA A LLAMAR A LA FUNCION DE LA CLASE PADRE Y LE DA LA INFORMACION EN KWARGS
+@@ -35,6 +68,8 @@ class CompareImgHistTool(ToolBase):
+         
+         if not template_paths or len(template_paths) == 0:
+             raise ValueError("No template_paths definidos")
++
++        import cv2
+         
+         # PROCESAR FRAME A EVALUAR
+         roi = self._get_roi(frame, roi_cfg)
+@@ -101,4 +136,3 @@ class CompareImgHistTool(ToolBase):
+     def _get_roi(self, frame, roi_cfg=None):
+         return crop_image(frame, roi=roi_cfg)
+     
+-
+diff --git a/tools/dmtx_tool.py b/tools/dmtx_tool.py
+index 7391053..dc56cb5 100644
+--- a/tools/dmtx_tool.py
++++ b/tools/dmtx_tool.py
+@@ -1,6 +1,4 @@
+-import cv2
+ import time
+-from pylibdmtx.pylibdmtx import decode
+ from core.execution_control import check_execution, wait_interruptibly
+ from core.roi import crop_image
+ from tools.dmtx_policy import DataMatrixReadPolicy
+@@ -14,6 +12,106 @@ from tools.tool_base import ToolBase
+ 
+ 
+ class DataMatrixTool(ToolBase):
++    TOOL_ID = "dmtx"
++    DISPLAY_NAME = "Lectura DataMatrix"
++    PARAMETER_SCHEMA = {
++        "roi": {
++            "type": "roi",
++            "label": "Region de inspeccion",
++            "default": None,
++            "commissioning_required": True,
++        },
++        "video": {
++            "type": "video",
++            "label": "Vista de camara",
++            "persist": False,
++        },
++        "expected_code": {
++            "type": "str",
++            "label": "Codigo maestro",
++            "default": "",
++            "commissioning_required": True,
++        },
++        "match_mode": {
++            "type": "choice",
++            "label": "Comparacion de codigo",
++            "options": ["exact", "prefix"],
++            "default": "exact",
++        },
++        "retries": {
++            "type": "int",
++            "label": "Intentos por trigger",
++            "min": 1,
++            "max": 20,
++            "default": 8,
++        },
++        "delay": {
++            "type": "float",
++            "label": "Espera entre intentos (s)",
++            "min": 0.0,
++            "max": 5.0,
++            "decimals": 2,
++            "default": 0.04,
++        },
++        "min_expected_reads": {
++            "type": "int",
++            "label": "Lecturas correctas minimas",
++            "min": 1,
++            "max": 20,
++            "default": 2,
++        },
++        "max_wrong_reads": {
++            "type": "int",
++            "label": "Lecturas incorrectas maximas",
++            "min": 0,
++            "max": 20,
++            "default": 0,
++        },
++        "roi_padding": {
++            "type": "int",
++            "label": "Margen adicional de ROI",
++            "min": 0,
++            "max": 100,
++            "default": 12,
++        },
++        "preprocess": {
++            "type": "bool",
++            "label": "Mejorar imagen",
++            "default": True,
++        },
++        "upscale": {
++            "type": "float",
++            "label": "Escalado de imagen",
++            "min": 1.0,
++            "max": 4.0,
++            "decimals": 1,
++            "step": 0.1,
++            "default": 2.0,
++        },
++        "decode_timeout_ms": {
++            "type": "int",
++            "label": "Timeout de decodificacion (ms)",
++            "min": 50,
++            "max": 2000,
++            "step": 50,
++            "default": 250,
++        },
++        "max_total_time": {
++            "type": "float",
++            "label": "Tiempo maximo total (s)",
++            "min": 1.0,
++            "max": 30.0,
++            "decimals": 1,
++            "step": 0.5,
++            "default": 15.0,
++        },
++        "show_roi": {
++            "type": "bool",
++            "label": "Mostrar ROI",
++            "default": False,
++        },
++    }
++
+     def __init__(self, config=None, name="dmtx"):
+         """
+         config esperado:
+@@ -80,6 +178,8 @@ class DataMatrixTool(ToolBase):
+             local_deadline = min(local_deadline, float(external_deadline))
+         cancel_event = kwargs.get("cancel_event")
+ 
++        check_execution(cancel_event=cancel_event, deadline=local_deadline)
++
+         if direct_frame is None and not frame_provider and not capture_provider:
+             raise ValueError("No se recibio frame, frame_provider ni capture_provider")
+ 
+@@ -294,6 +394,8 @@ class DataMatrixTool(ToolBase):
+         return crop_image(frame, roi=roi_cfg, padding=padding)
+ 
+     def _to_gray(self, image):
++        import cv2
++
+         if len(image.shape) == 2:
+             return image
+ 
+@@ -321,6 +423,8 @@ class DataMatrixTool(ToolBase):
+     
+     def _safe_decode(self, image, timeout_ms=250):
+         """
++        from pylibdmtx.pylibdmtx import decode
++
+         Decode siempre acotado. Una version antigua sin argumento ``timeout``
+         se rechaza para no introducir una llamada imposible de cancelar.
+         """
+@@ -338,6 +442,8 @@ class DataMatrixTool(ToolBase):
+         Construye variantes ligeras de la imagen para aumentar probabilidad
+         de lectura sin hacer pesada la inspeccion.
+         """
++        import cv2
++
+         variants = []
+ 
+         if gray is None or gray.size == 0:
+diff --git a/tools/registry.py b/tools/registry.py
+new file mode 100644
+index 0000000..481c35d
+--- /dev/null
++++ b/tools/registry.py
+@@ -0,0 +1,150 @@
++"""Discovery and metadata catalog for generic vision tools.
++
++Tools are self-describing: the execution class owns its stable ID, parameter
++schema, defaults and commissioning rules.  The engine consumes this mapping
++without importing product-specific tools in ``app.py``.
++"""
++
++from collections.abc import Mapping
++from copy import deepcopy
++import importlib
++import inspect
++import pkgutil
++
++from tools.tool_base import ToolBase
++
++
++class ToolContractError(ValueError):
++    """Raised when a tool cannot safely join the execution catalog."""
++
++
++class ToolRegistry(Mapping):
++    """Read-only mapping of stable tool IDs to executable instances."""
++
++    def __init__(self, tool_classes=None, discovery_errors=None):
++        self._instances = {}
++        self._classes = {}
++        self.discovery_errors = list(discovery_errors or [])
++        for tool_class in tool_classes or []:
++            self.register(tool_class)
++
++    def register(self, tool_class):
++        if not inspect.isclass(tool_class) or not issubclass(tool_class, ToolBase):
++            raise ToolContractError("La herramienta debe heredar ToolBase")
++        if inspect.isabstract(tool_class):
++            raise ToolContractError(
++                f"La herramienta {tool_class.__name__} no puede ser abstracta"
++            )
++
++        tool_class.validate_contract()
++        tool_id = tool_class.tool_id()
++        if tool_id in self._classes:
++            other = self._classes[tool_id]
++            raise ToolContractError(
++                f"ID de herramienta duplicado '{tool_id}': "
++                f"{other.__name__} y {tool_class.__name__}"
++            )
++
++        try:
++            instance = tool_class()
++        except Exception as exc:
++            raise ToolContractError(
++                f"No se pudo construir {tool_id}: {exc}"
++            ) from exc
++        if instance.name != tool_id:
++            raise ToolContractError(
++                f"{tool_id} construyo una instancia con nombre '{instance.name}'"
++            )
++
++        self._classes[tool_id] = tool_class
++        self._instances[tool_id] = instance
++        return instance
++
++    def __getitem__(self, tool_id):
++        return self._instances[tool_id]
++
++    def __iter__(self):
++        return iter(self._instances)
++
++    def __len__(self):
++        return len(self._instances)
++
++    def tool_class(self, tool_id):
++        return self._classes.get(str(tool_id or "").strip())
++
++    def schema(self, tool_id):
++        tool_class = self.tool_class(tool_id)
++        return tool_class.parameter_schema() if tool_class else None
++
++    def schemas(self):
++        return {
++            tool_id: tool_class.parameter_schema()
++            for tool_id, tool_class in self._classes.items()
++        }
++
++    def default_params(self, tool_id):
++        tool_class = self.tool_class(tool_id)
++        return tool_class.default_params() if tool_class else {}
++
++    def validate_params(self, tool_id, params, commissioning=False):
++        tool_class = self.tool_class(tool_id)
++        if tool_class is None:
++            return [f"Herramienta no registrada: {tool_id}"]
++        return tool_class.validate_params(
++            params,
++            commissioning=commissioning,
++        )
++
++    def resource_paths(self, tool_id, params):
++        tool_class = self.tool_class(tool_id)
++        if tool_class is None:
++            return []
++        return tool_class.resource_paths(params)
++
++    def manifest(self):
++        return {
++            tool_id: {
++                "id": tool_id,
++                "name": tool_class.display_name(),
++                "schema": tool_class.parameter_schema(),
++                "defaults": tool_class.default_params(),
++            }
++            for tool_id, tool_class in self._classes.items()
++        }
++
++
++def discover_tool_registry(package_name="tools"):
++    """Import tool modules and register every concrete ToolBase subclass.
++
++    A broken optional module is reported through ``discovery_errors`` instead
++    of hiding all other valid tools.  Commissioned recipes using the missing
++    tool are then blocked by startup diagnostics.
++    """
++
++    package = importlib.import_module(package_name)
++    classes = []
++    errors = []
++    prefix = package.__name__ + "."
++
++    for module_info in pkgutil.iter_modules(package.__path__, prefix):
++        module_name = module_info.name
++        try:
++            module = importlib.import_module(module_name)
++        except Exception as exc:
++            errors.append({"module": module_name, "error": str(exc)})
++            continue
++
++        for _, candidate in inspect.getmembers(module, inspect.isclass):
++            if candidate is ToolBase:
++                continue
++            if candidate.__module__ != module.__name__:
++                continue
++            if issubclass(candidate, ToolBase) and not inspect.isabstract(candidate):
++                classes.append(candidate)
++
++    return ToolRegistry(classes, discovery_errors=errors)
++
++
++def copy_schema(schema):
++    """Compatibility helper for consumers that need a mutable UI copy."""
++    return deepcopy(schema or {})
+diff --git a/tools/tool_base.py b/tools/tool_base.py
+index 486cb32..6f03af3 100644
+--- a/tools/tool_base.py
++++ b/tools/tool_base.py
+@@ -1,9 +1,139 @@
+ from abc import ABC, abstractmethod
++from copy import deepcopy
++
++from core.roi import ROIError, normalize_roi
+ from tools.result import ToolExecutionError, ToolResult, ToolStatus
+ 
+ class ToolBase(ABC):
+-    def __init__(self, name: str):
+-        self.name = name
++    TOOL_ID = ""
++    DISPLAY_NAME = ""
++    PARAMETER_SCHEMA = {}
++    SUPPORTED_PARAMETER_TYPES = {
++        "str", "float", "int", "bool", "choice", "roi", "image_list", "video"
++    }
++
++    def __init__(self, name=None):
++        self.name = str(name or self.tool_id())
++
++    @classmethod
++    def tool_id(cls):
++        return str(cls.TOOL_ID or "").strip()
++
++    @classmethod
++    def display_name(cls):
++        return str(cls.DISPLAY_NAME or cls.tool_id()).strip()
++
++    @classmethod
++    def parameter_schema(cls):
++        return deepcopy(cls.PARAMETER_SCHEMA)
++
++    @classmethod
++    def default_params(cls):
++        defaults = {}
++        for key, config in cls.PARAMETER_SCHEMA.items():
++            if config.get("persist", True) and "default" in config:
++                defaults[key] = deepcopy(config["default"])
++        return defaults
++
++    @classmethod
++    def validate_contract(cls):
++        tool_id = cls.tool_id()
++        if not tool_id or tool_id.lower() != tool_id:
++            raise ValueError(
++                f"{cls.__name__}.TOOL_ID debe ser un ID estable en minusculas"
++            )
++        if any(char not in "abcdefghijklmnopqrstuvwxyz0123456789_" for char in tool_id):
++            raise ValueError(f"TOOL_ID invalido: {tool_id}")
++        if not cls.display_name():
++            raise ValueError(f"{tool_id} no tiene nombre visible")
++        if not isinstance(cls.PARAMETER_SCHEMA, dict):
++            raise ValueError(f"{tool_id}.PARAMETER_SCHEMA debe ser un objeto")
++
++        for key, config in cls.PARAMETER_SCHEMA.items():
++            if not isinstance(key, str) or not key.strip():
++                raise ValueError(f"{tool_id} contiene un parametro sin nombre")
++            if not isinstance(config, dict):
++                raise ValueError(f"Schema invalido en {tool_id}.{key}")
++            param_type = config.get("type")
++            if param_type not in cls.SUPPORTED_PARAMETER_TYPES:
++                raise ValueError(
++                    f"Tipo no soportado en {tool_id}.{key}: {param_type}"
++                )
++            if param_type == "choice":
++                options = config.get("options")
++                if not isinstance(options, list) or not options:
++                    raise ValueError(f"{tool_id}.{key} requiere options")
++
++        default_errors = cls.validate_params(cls.default_params())
++        if default_errors:
++            raise ValueError(
++                f"Defaults invalidos en {tool_id}: {'; '.join(default_errors)}"
++            )
++        return True
++
++    @classmethod
++    def validate_params(cls, params, commissioning=False):
++        if not isinstance(params, dict):
++            return ["params debe ser un objeto"]
++
++        errors = []
++        for key, config in cls.PARAMETER_SCHEMA.items():
++            if not config.get("persist", True):
++                continue
++            value = params.get(key)
++            if commissioning and config.get("commissioning_required"):
++                if value is None or value == "" or value == []:
++                    errors.append(f"Falta parametro obligatorio: {key}")
++                    continue
++            if value is None:
++                continue
++
++            param_type = config["type"]
++            valid_type = True
++            if param_type == "str":
++                valid_type = isinstance(value, str)
++            elif param_type == "bool":
++                valid_type = isinstance(value, bool)
++            elif param_type == "int":
++                valid_type = isinstance(value, int) and not isinstance(value, bool)
++            elif param_type == "float":
++                valid_type = isinstance(value, (int, float)) and not isinstance(value, bool)
++            elif param_type == "choice":
++                valid_type = value in config.get("options", [])
++            elif param_type == "image_list":
++                valid_type = isinstance(value, list) and all(
++                    isinstance(item, str) and item.strip() for item in value
++                )
++            elif param_type == "roi":
++                try:
++                    normalize_roi(value, allow_none=False)
++                except ROIError:
++                    valid_type = False
++
++            if not valid_type:
++                errors.append(f"Valor invalido para {key}")
++                continue
++            if param_type in ("int", "float"):
++                if "min" in config and value < config["min"]:
++                    errors.append(f"{key} debe ser >= {config['min']}")
++                if "max" in config and value > config["max"]:
++                    errors.append(f"{key} debe ser <= {config['max']}")
++        return errors
++
++    @classmethod
++    def resource_paths(cls, params):
++        if not isinstance(params, dict):
++            return []
++        resources = []
++        for key, config in cls.PARAMETER_SCHEMA.items():
++            if not config.get("resource"):
++                continue
++            value = params.get(key)
++            values = value if isinstance(value, list) else [value]
++            for path in values:
++                if isinstance(path, str) and path.strip():
++                    resources.append({"parameter": key, "path": path})
++        return resources
+ 
+     def run(self, **kwargs) -> ToolResult:
+         try:
+diff --git a/ui/config_window_logic.py b/ui/config_window_logic.py
+index 467b85f..c44ca6a 100644
+--- a/ui/config_window_logic.py
++++ b/ui/config_window_logic.py
+@@ -8,7 +8,7 @@ from core.editor_models import EditorValueError
+ from utils.ui_logger import get_ui_logger
+ from ui.pyside6.ui_config_window import Ui_Form
+ from ui.tool_editor import ToolEditor
+-from ui.schemas.schemas import TOOL_SCHEMAS
++from ui.schemas.schemas import tool_schemas
+ from ui.focus_config_dialog import FocusConfigDialog
+ from ui.recipe_policy_dialogs import RecipeSettingsDialog, StepPolicyEditor
+ from ui.system_config_dialog import SystemConfigDialog
+@@ -33,6 +33,7 @@ class ConfigWindow(QWidget):
+         platform,
+         camera_worker=None,
+         system_config=None,
++        tool_registry=None,
+         available_tools=None,
+         display_profile=None,
+     ):
+@@ -56,7 +57,15 @@ class ConfigWindow(QWidget):
+         self.platform = platform
+         self.camera_worker = camera_worker
+         self.system_config = system_config
+-        self.available_tools = set(available_tools or [])
++        self.tool_registry = tool_registry
++        self.tool_schemas = tool_schemas(tool_registry)
++        self.tool_labels = {
++            tool_id: tool_registry.tool_class(tool_id).display_name()
++            for tool_id in tool_registry or []
++        }
++        self.available_tools = set(
++            tool_registry.keys() if tool_registry is not None else available_tools or []
++        )
+ 
+         self.current_recipe = None
+         self.loading_recipes = False
+@@ -597,6 +606,7 @@ class ConfigWindow(QWidget):
+ 
+         editor = ToolEditor(
+             tool_name=tool_name,
++            tool_schema=self.tool_schemas.get(tool_name, {}),
+             get_frame_callback=self.get_frame,
+             base_path=base_path,
+             edit=True,
+@@ -687,10 +697,14 @@ class ConfigWindow(QWidget):
+     def add_step(self):
+         self.ensure_steps()  # ASEGURA QUE EXISTE LA CLAVE "steps" Y ES UNA LISTA
+ 
+-        tools = []
+-        # OBETENER LAS HERRAMIENTAS DISPONIBLES PARA AGREGAR
+-        for key in TOOL_SCHEMAS:
+-            tools.append(key)
++        tools = sorted(self.tool_schemas)
++        if not tools:
++            QMessageBox.critical(
++                self,
++                "Sin herramientas",
++                "El catalogo no contiene herramientas editables.",
++            )
++            return
+ 
+         # VENTANA Y WIDGETS
+         dialog = QDialog(self)
+@@ -700,11 +714,18 @@ class ConfigWindow(QWidget):
+         layout = QVBoxLayout()
+ 
+         cmb_tools = QComboBox()
+-        cmb_tools.addItems(tools)
++        for available_tool in tools:
++            cmb_tools.addItem(
++                self.tool_labels.get(available_tool, available_tool),
++                available_tool,
++            )
++
++        def selected_tool_id():
++            return str(cmb_tools.currentData() or cmb_tools.currentText())
+         
+ 
+         def create_path():
+-            tool_name = cmb_tools.currentText()
++            tool_name = selected_tool_id()
+             step_index = len(self.current_recipe["steps"])
+             base_path = self.build_base_path(tool_name, step_index)
+ 
+@@ -716,6 +737,7 @@ class ConfigWindow(QWidget):
+ 
+         editor = ToolEditor(
+             tool_name=tool_name,
++            tool_schema=self.tool_schemas.get(tool_name, {}),
+             get_frame_callback=self.get_frame,
+             base_path=base_path,
+             edit=False,
+@@ -769,7 +791,7 @@ class ConfigWindow(QWidget):
+                 return
+             new_params = editor.get_values()
+             new_step = {
+-                "tool": cmb_tools.currentText(),
++                "tool": selected_tool_id(),
+                 "params": new_params
+             }
+             new_step.update(policy)
+@@ -788,11 +810,15 @@ class ConfigWindow(QWidget):
+         btn_save.clicked.connect(save)
+         btn_cancel.clicked.connect(dialog.reject)
+ 
+-        def reload_ui():
++        def reload_ui(_index=None):
+             tool_name, base_path = create_path()
+-            editor.reload(tool_name, base_path)
++            editor.reload(
++                tool_name,
++                self.tool_schemas.get(tool_name, {}),
++                base_path,
++            )
+ 
+-        cmb_tools.currentTextChanged.connect(reload_ui)
++        cmb_tools.currentIndexChanged.connect(reload_ui)
+ 
+         # MUESTRA LA NUEVA VENTANA DE EDICION DE FORMA BLOQUEANTE
+         configure_dialog(
+@@ -848,6 +874,7 @@ class ConfigWindow(QWidget):
+ 
+         for step in steps:
+             tool_name = step.get("tool", "unknown")
++            tool_label = self.tool_labels.get(tool_name, tool_name)
+             step_id = step.get("id", "sin_id")
+             flags = []
+             if not step.get("enabled", True):
+@@ -855,7 +882,7 @@ class ConfigWindow(QWidget):
+             if not step.get("required", True):
+                 flags.append("OPCIONAL")
+             suffix = f" [{' / '.join(flags)}]" if flags else ""
+-            self.ui.cmb_tools.addItem(f"{step_id} - {tool_name}{suffix}")
++            self.ui.cmb_tools.addItem(f"{step_id} - {tool_label}{suffix}")
+ 
+     def add_recipe(self):
+         dialog = QInputDialog(self)
+diff --git a/ui/schemas/schemas.py b/ui/schemas/schemas.py
+index 29755f9..892bac0 100644
+--- a/ui/schemas/schemas.py
++++ b/ui/schemas/schemas.py
+@@ -1,130 +1,16 @@
+-# schemas/tool_schemas.py
++"""UI adapters for schemas owned by the tool catalog.
+ 
+-TOOL_SCHEMAS = {
+-    "dmtx": {
+-        "roi": {"type": "roi", "label": "Select ROI"},
+-        "video": {"type": "video", "label": "Video"},
++This module intentionally contains no tool definitions.  It returns mutable
++copies for Qt while the authoritative schema remains beside each tool.
++"""
+ 
+-        "expected_code": {
+-            "type": "str", 
+-            "label": "Código Maestro", 
+-            "default": ""
+-            },
++from tools.registry import copy_schema
+ 
+-        "match_mode": {
+-            "type": "choice",
+-            "label": "Comparacion de codigo",
+-            "options": ["exact", "prefix"],
+-            "default": "exact"
+-            },
+ 
+-        "retries": {
+-            "type": "int", 
+-            "label": "Intentos/Trigger", 
+-            "min": 1, 
+-            "max": 20, 
+-            "default": 5
+-            },
+-
+-        "delay": {
+-            "type": "float", 
+-            "label": "Tiempo/ciclo", 
+-            "min": 0.0, 
+-            "max": 5.0, 
+-            "decimals": 2, 
+-            "default": 0.1
+-            },
+-
+-        "min_expected_reads": {
+-            "type": "int", 
+-            "label": "Lecturas OK mínimas", 
+-            "min": 1, 
+-            "max": 20, 
+-            "default": 2
+-            },
+-
+-        "max_wrong_reads": {
+-            "type": "int", 
+-            "label": "Lecturas erróneas máximas", 
+-            "min": 0, 
+-            "max": 20, 
+-            "default": 0
+-            },
+-
+-        "roi_padding": {
+-            "type": "int",
+-            "label": "Margen extra ROI",
+-            "min": 0,
+-            "max": 100,
+-            "default": 12
+-            },
+-
+-        "preprocess": {
+-            "type": "bool",
+-            "label": "Mejorar imagen",
+-            "default": True
+-            },
+-
+-        "upscale": {
+-            "type": "float",
+-            "label": "Escalado imagen",
+-            "min": 1.0,
+-            "max": 4.0,
+-            "decimals": 1,
+-            "step": 0.1,
+-            "default": 2.0
+-            },
+-
+-        "decode_timeout_ms": {
+-            "type": "int",
+-            "label": "Timeout decode ms",
+-            "min": 50,
+-            "max": 2000,
+-            "step": 50,
+-            "default": 250
+-            },
+-
+-        "max_total_time": {
+-            "type": "float",
+-            "label": "Tiempo máximo total",
+-            "min": 1.0,
+-            "max": 30.0,
+-            "decimals": 1,
+-            "step": 0.5,
+-            "default": 15.0
+-            },
+-
+-        "show_roi": {
+-            "type": "bool", 
+-            "label": "Mostrar ROI", 
+-            "default": True
+-            }
+-    },
+-
+-    "img_hist": {
+-        "roi": {
+-            "type": "roi", 
+-            "label": "Select ROI"
+-            },
+-
+-        "video": {
+-            "type": "video", 
+-            "label": "Video"
+-            },
+-
+-        "threshold": {
+-            "type": "float", 
+-            "default": 0.0
+-            },
+-
+-        "mode": {
+-            "type": "choice", 
+-            "options": ["below", "above"], 
+-            "default": "below"
+-            },
+-
+-        "template_paths": {"type": "image_list"},
+-
+-        "show_roi": {"type": "bool", "default": True}
++def tool_schemas(tool_registry):
++    if tool_registry is None:
++        return {}
++    return {
++        tool_id: copy_schema(tool_registry.schema(tool_id))
++        for tool_id in tool_registry
+     }
+-}
+diff --git a/ui/tool_editor.py b/ui/tool_editor.py
+index f67fe14..b929d8a 100644
+--- a/ui/tool_editor.py
++++ b/ui/tool_editor.py
+@@ -2,15 +2,15 @@ from utils.qt_compat import (
+     QWidget, QFormLayout, QLineEdit, QPushButton, QDoubleSpinBox,
+     QComboBox, QCheckBox, QSizePolicy, Qt
+ )
+-from ui.schemas.schemas import TOOL_SCHEMAS
+ from ui.widgets.img_list_widget import ImageListWidget
+ from ui.widgets.video_widget import VideoWidget
+ 
+ class ToolEditor(QWidget):
+-    def __init__(self, tool_name, get_frame_callback, base_path, edit=False, editing_index=None, platform="windows", screen_size=None):
++    def __init__(self, tool_name, tool_schema, get_frame_callback, base_path, edit=False, editing_index=None, platform="windows", screen_size=None):
+         super().__init__()
+ 
+         self.tool_name = tool_name
++        self.tool_schema = dict(tool_schema or {})
+         self.get_frame = get_frame_callback
+         self.base_path = base_path
+         self.edit = edit
+@@ -30,7 +30,7 @@ class ToolEditor(QWidget):
+         self.build_ui()
+ 
+     def build_ui(self):
+-        schema = TOOL_SCHEMAS[self.tool_name]
++        schema = self.tool_schema
+ 
+         # OBTENEMOS EL LABEL Y EL TYPE DEL WIDGET PARA CADA PARAMETRO SEGUN EL ESQUEMA
+         for key, config in schema.items():  
+@@ -40,9 +40,10 @@ class ToolEditor(QWidget):
+             self.form.addRow(label, widget) # AGREGA UNA LINEA DEBAJO PARA INSERTAR LABEL | WIDGET
+             self.fields[key] = widget   # MAPEAMOS UN DICCIONARIO ENTRE KEYS Y WIDGETS CREADOS
+ 
+-    def reload(self, tool_name, base_path):
++    def reload(self, tool_name, tool_schema, base_path):
+         self.setUpdatesEnabled(False)  # DESACTIVA ACTUALIZACIONES PARA EVITAR PARPADEOS
+         self.tool_name = tool_name
++        self.tool_schema = dict(tool_schema or {})
+         self.base_path = base_path
+ 
+         while self.form.count():
+-- 
+2.51.1
+
