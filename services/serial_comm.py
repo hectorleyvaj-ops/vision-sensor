@@ -25,6 +25,7 @@ class SerialComm(QObject):
 
     connection_lost = Signal(str)
     connection_restored = Signal()
+    diagnostic_update = Signal(object)
 
     def __init__(
         self,
@@ -74,6 +75,17 @@ class SerialComm(QObject):
 
         self.connect()
 
+    def emit_diagnostic(self, status, message, action="", details=None, blocking=False):
+        self.diagnostic_update.emit({
+            "key": "controller.runtime",
+            "status": status,
+            "component": "controller",
+            "message": message,
+            "action": action,
+            "details": dict(details or {}),
+            "blocking": bool(blocking),
+        })
+
     def connect(self):
         try:
             with self._serial_lock:
@@ -104,11 +116,34 @@ class SerialComm(QObject):
                 self.last_ping_time = 0
 
             print("[SERIAL] Puerto listo para comunicacion")
+            self.emit_diagnostic(
+                "WARNING",
+                f"Puerto {self.port} abierto; handshake pendiente",
+                details={
+                    "port": self.port,
+                    "baudrate": self.baudrate,
+                    "timeout": self.timeout,
+                    "connected": True,
+                    "synced": False,
+                },
+            )
 
         except Exception as e:
             print(f"[SERIAL][ERROR] No se pudo conectar: {e}")
             self.ser = None
             self.synced = False
+            self.emit_diagnostic(
+                "ERROR",
+                f"No se pudo abrir el controlador en {self.port}: {e}",
+                "Revisa el puerto configurado, el cable USB y los permisos",
+                details={
+                    "port": self.port,
+                    "baudrate": self.baudrate,
+                    "connected": False,
+                    "synced": False,
+                },
+                blocking=True,
+            )
 
     def is_connected(self):
         return self.ser is not None and self.ser.is_open
@@ -124,6 +159,13 @@ class SerialComm(QObject):
             print(f"[SERIAL][DESCONECTADO] {reason}")
 
         self.synced = False
+        self.emit_diagnostic(
+            "ERROR",
+            f"Conexion con controlador perdida: {reason or 'sin detalle'}",
+            "Revisa cable, alimentacion y proceso del firmware",
+            details={"port": self.port, "connected": False, "synced": False},
+            blocking=True,
+        )
         cancelled_cycle = self.cycle_guard.cancel()
         if cancelled_cycle:
             self.cycle_cancelled.emit(
@@ -343,9 +385,28 @@ class SerialComm(QObject):
                     f"[SERIAL][PROTOCOL] Sincronizado con firmware "
                     f"{fields.get('FW', 'desconocido')}"
                 )
+                self.emit_diagnostic(
+                    "PASS",
+                    f"Controlador sincronizado con {PROTOCOL_VERSION}",
+                    details={
+                        "port": self.port,
+                        "baudrate": self.baudrate,
+                        "connected": True,
+                        "synced": True,
+                        "firmware": fields.get("FW", "desconocido"),
+                        "protocol": fields.get("PROTO"),
+                    },
+                )
             except ProtocolError as exc:
                 self.synced = False
                 print(f"[SERIAL][PROTOCOL][ERROR] Handshake rechazado: {exc}")
+                self.emit_diagnostic(
+                    "ERROR",
+                    f"Handshake del controlador rechazado: {exc}",
+                    "Instala firmware compatible con vision_controller_v1",
+                    details={"port": self.port, "connected": self.is_connected(), "synced": False},
+                    blocking=True,
+                )
             return
 
         if kind == "MODEL":
@@ -528,6 +589,13 @@ class SerialComm(QObject):
 
         print("[SERIAL] Handshake fallido")
         self.synced = False
+        self.emit_diagnostic(
+            "ERROR",
+            "El controlador no respondio al handshake",
+            "Verifica firmware, baudrate y protocolo vision_controller_v1",
+            details={"port": self.port, "connected": self.is_connected(), "synced": False},
+            blocking=True,
+        )
         return False
 
     def is_printable_log(self, text: str) -> bool:

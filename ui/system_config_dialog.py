@@ -76,6 +76,7 @@ class SystemConfigDialog(QDialog):
         self._build_controller_tab()
         self._build_mapping_tab()
         self._build_runtime_tab()
+        self._build_traceability_tab()
         self._apply_help_texts()
 
         notice = QLabel(
@@ -215,6 +216,19 @@ class SystemConfigDialog(QDialog):
         form.addRow("Asentamiento mecanico (ms)", self.spn_mechanical_settle)
         form.addRow("Timeout de inspeccion (s)", self.spn_inspection_timeout)
 
+    def _build_traceability_tab(self):
+        form = self._form_tab("Registros")
+        self.chk_traceability_enabled = QCheckBox()
+        self.txt_traceability_directory = QLineEdit()
+        self.spn_trace_file_size = self._float_spin(0.1, 4096.0, 1)
+        self.spn_trace_retention_files = self._int_spin(1, 1000)
+        self.spn_trace_retention_days = self._int_spin(0, 3650)
+        form.addRow("Guardar ciclos", self.chk_traceability_enabled)
+        form.addRow("Directorio", self.txt_traceability_directory)
+        form.addRow("Tamano por archivo (MB)", self.spn_trace_file_size)
+        form.addRow("Archivos retenidos", self.spn_trace_retention_files)
+        form.addRow("Retencion maxima (dias)", self.spn_trace_retention_days)
+
     def _apply_help_texts(self):
         help_texts = {
             self.txt_installation_id: "ID tecnico estable de esta estacion.",
@@ -240,6 +254,11 @@ class SystemConfigDialog(QDialog):
             self.spn_max_frame_age: "Descarta frames mas antiguos que este limite.",
             self.spn_mechanical_settle: "Espera cancelable para inmovilizar la pieza tras el trigger.",
             self.spn_inspection_timeout: "Tiempo total maximo del ciclo de vision.",
+            self.chk_traceability_enabled: "Conserva un registro JSON por cada ciclo.",
+            self.txt_traceability_directory: "Directorio de registros y diagnostico de arranque.",
+            self.spn_trace_file_size: "Rota cycles.jsonl cuando alcanza este tamano.",
+            self.spn_trace_retention_files: "Cantidad maxima de archivos de ciclos conservados.",
+            self.spn_trace_retention_days: "Elimina rotaciones mas antiguas; 0 desactiva este limite.",
         }
         for widget, description in help_texts.items():
             widget.setToolTip(description)
@@ -305,6 +324,7 @@ class SystemConfigDialog(QDialog):
         camera = data.get("camera", {})
         controller = data.get("controller", {})
         runtime = data.get("runtime", {})
+        traceability = data.get("traceability", {})
 
         self.txt_installation_id.setText(str(installation.get("id", "")))
         self.txt_installation_name.setText(str(installation.get("name", "")))
@@ -353,6 +373,21 @@ class SystemConfigDialog(QDialog):
         )
         self.spn_inspection_timeout.setValue(
             float(runtime.get("inspection_timeout_seconds", 20.0))
+        )
+        self.chk_traceability_enabled.setChecked(
+            bool(traceability.get("enabled", True))
+        )
+        self.txt_traceability_directory.setText(
+            str(traceability.get("directory", "runtime/traceability"))
+        )
+        self.spn_trace_file_size.setValue(
+            float(traceability.get("max_file_size_mb", 10.0))
+        )
+        self.spn_trace_retention_files.setValue(
+            int(traceability.get("retention_files", 10))
+        )
+        self.spn_trace_retention_days.setValue(
+            int(traceability.get("retention_days", 30))
         )
 
     def _read_ports(self):
@@ -414,6 +449,13 @@ class SystemConfigDialog(QDialog):
             "max_frame_age_seconds": self.spn_max_frame_age.value(),
             "mechanical_settle_ms": self.spn_mechanical_settle.value(),
             "inspection_timeout_seconds": self.spn_inspection_timeout.value(),
+        })
+        candidate.setdefault("traceability", {}).update({
+            "enabled": self.chk_traceability_enabled.isChecked(),
+            "directory": self.txt_traceability_directory.text().strip(),
+            "max_file_size_mb": self.spn_trace_file_size.value(),
+            "retention_files": self.spn_trace_retention_files.value(),
+            "retention_days": self.spn_trace_retention_days.value(),
         })
         return candidate
 

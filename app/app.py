@@ -18,6 +18,8 @@ from app.state_worker import StateWorker
 from vision.camera_worker import CameraWorker
 from core.recipe_manager import RecipeManager
 from core.system_config import SystemConfig
+from core.diagnostics import DiagnosticsManager, run_static_diagnostics
+from core.traceability import CycleTraceWriter
 from ui.responsive import (
     apply_main_window_layout,
     profile_from_screen,
@@ -170,9 +172,38 @@ class MainWindow(QMainWindow):
             self.system_config.recipe_file,
             auto_migrate=self.system_config.auto_migrate_recipes,
         )
+        self.tool_registry = self.build_tool_registry()
+        traceability_config = self.system_config.section("traceability")
+        self.cycle_trace = CycleTraceWriter.from_config(
+            traceability_config,
+            installation_id=installation.get("id", "vision-station"),
+        )
+        self.diagnostics = DiagnosticsManager(
+            self.cycle_trace.diagnostics_path
+        )
+        startup_report = run_static_diagnostics(
+            manager=self.diagnostics,
+            system_config=self.system_config,
+            recipe_manager=self.recipe_manager,
+            tool_registry=self.tool_registry,
+            trace_writer=self.cycle_trace,
+            platform=self.platform,
+        )
+        print(
+            f"[DIAGNOSTICS] Arranque estatico: "
+            f"{startup_report['overall_status']} "
+            f"({len(startup_report['items'])} comprobaciones)"
+        )
         self.setup_camera()
         self.setup_serial()
         self.setup_state_manager()
+
+    @staticmethod
+    def build_tool_registry():
+        return {
+            "dmtx": DataMatrixTool(),
+            "img_hist": CompareImgHistTool(),
+        }
 
     def setup_ui_logger(self):
         self.ui_logger = get_ui_logger()
@@ -301,6 +332,7 @@ class MainWindow(QMainWindow):
         self.camera_worker.finished.connect(self.camera_worker.deleteLater)
         self.camera_worker.focus_check_finished.connect(self.on_focus_check_finished)
         self.camera_worker.focus_check_failed.connect(self.on_focus_check_failed)
+        self.camera_worker.diagnostic_update.connect(self.on_component_diagnostic)
 
         self.camera_thread.start()
 
@@ -371,6 +403,7 @@ class MainWindow(QMainWindow):
         self.serial.reset_received.connect(self.on_esp_reset_received)
         self.serial.connection_lost.connect(self.on_serial_connection_lost)
         self.serial.connection_restored.connect(self.on_serial_connection_restored)
+        self.serial.diagnostic_update.connect(self.on_component_diagnostic)
 
         self.serial_thread.start()
 
@@ -391,17 +424,9 @@ class MainWindow(QMainWindow):
         self.publish_rpi_ready_status()
 
     def setup_state_manager(self):
-        # TOOLS
-        #REGISTRAR TODAS LAS HERRAMIENTAS POSIBLES EN EL PIPELINE
-        #MEJORA: AUTOMATIZAR EL REGISTRO DE HERRAMIENTAS EN LUGAR DE MANUAL - INLCUIR SOLO LAS NECESARIAS SEGUN LAS RECETAS
-        tool_registry = {
-            "dmtx": DataMatrixTool(),
-            "img_hist": CompareImgHistTool()
-        }
-
         # COMPONENTES DEL STATE_MANAGER
         self.camera = Camera()
-        self.processor = VisionPipeline(tool_registry)
+        self.processor = VisionPipeline(self.tool_registry)
         self.comm = self.serial
 
         self.state_manager = StateManager(
@@ -414,6 +439,7 @@ class MainWindow(QMainWindow):
             inspection_timeout_seconds=float(
                 self.runtime_config.get("inspection_timeout_seconds", 20.0)
             ),
+            cycle_trace=self.cycle_trace,
         )
 
         # THREAD + WORKER
@@ -427,6 +453,7 @@ class MainWindow(QMainWindow):
         self.camera_worker.frame_ready.connect(self.camera.update_frame)
 
         self.state_manager.inspectionResult.connect(self.on_recipe_result)
+        self.state_manager.cycleTraced.connect(self.on_cycle_traced)
 
         self.state_worker.cycle_finished.connect(self.on_fsm_finished)
 
@@ -440,6 +467,36 @@ class MainWindow(QMainWindow):
         self.state_worker.log.connect(print)
 
         self.state_thread.start()
+
+    def on_component_diagnostic(self, item):
+        if not isinstance(item, dict):
+            return
+        blocking = bool(item.get("blocking", False))
+        if item.get("component") == "controller" and not self.require_controller_ready:
+            blocking = False
+        saved = self.diagnostics.update(
+            key=item.get("key", "runtime.unknown"),
+            status=item.get("status", "ERROR"),
+            component=item.get("component", "runtime"),
+            message=item.get("message", "Diagnostico sin mensaje"),
+            action=item.get("action", ""),
+            details=item.get("details", {}),
+            blocking=blocking,
+        )
+        print(
+            f"[DIAGNOSTICS][{saved['status']}] "
+            f"{saved['component']}: {saved['message']}"
+        )
+        self.last_ready_sent = None
+        self.last_ready_reason = None
+
+    def on_cycle_traced(self, record):
+        if not isinstance(record, dict):
+            return
+        print(
+            f"[TRACEABILITY] Ciclo {record.get('cycle_id')} "
+            f"{record.get('final_result')} en {record.get('duration_ms')} ms"
+        )
 
     def set_indicator_result_style(self, result):
         if result == "OK":
@@ -705,6 +762,11 @@ class MainWindow(QMainWindow):
     def get_system_ready_error(self):
         if self.configuration_restart_required:
             return "Reinicio requerido para aplicar la configuracion"
+
+        if hasattr(self, "diagnostics"):
+            diagnostic_error = self.diagnostics.blocking_reason()
+            if diagnostic_error:
+                return diagnostic_error
 
         if not hasattr(self, "state_thread") or not self.state_thread.isRunning():
             return "State thread no esta corriendo"

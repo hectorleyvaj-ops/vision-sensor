@@ -25,6 +25,11 @@ ni cambia el codigo del motor.
 | Ejecucion | Edad de frame | Evita inspeccionar una imagen demasiado antigua. |
 | Ejecucion | Asentamiento | Espera entre trigger y captura para que la pieza quede inmovil. |
 | Ejecucion | Timeout inspeccion | Limite total desde trigger hasta decision de vision. |
+| Registros | Guardar ciclos | Activa el archivo JSONL de trazabilidad. |
+| Registros | Directorio | Ruta para ciclos y diagnostico de arranque. |
+| Registros | Tamano por archivo | Umbral que rota `cycles.jsonl`. |
+| Registros | Archivos retenidos | Maximo de archivos actuales y rotados. |
+| Registros | Retencion maxima | Elimina rotaciones antiguas; `0` desactiva el limite por dias. |
 
 `camera.width` y `camera.height` corresponden a la imagen capturada. No controlan
 el tamano de la ventana ni la resolucion del monitor. La interfaz detecta el
@@ -34,3 +39,18 @@ amplio; no existe un parametro de monitor en `system.json`.
 Todos los cambios de este panel se validan antes de escribirse, conservan un
 respaldo `system.json.bak` y requieren reiniciar la aplicacion para reconstruir
 camara, enlace serial y politicas de ejecucion.
+
+## Salidas operativas
+
+Con los valores predeterminados se generan, fuera de Git:
+
+- `runtime/traceability/startup_diagnostics.json`: fotografia reemplazable del
+  estado de configuracion, recetas, recursos, camara, controlador y escritura;
+- `runtime/traceability/cycles.jsonl`: un objeto JSON por ciclo terminado o
+  cancelado;
+- `cycles.1.jsonl`, `cycles.2.jsonl`, etc.: rotaciones sujetas a los limites de
+  tamano, cantidad y antiguedad.
+
+Las rutas relativas se interpretan desde el directorio de trabajo con el que
+se inicia la aplicacion. El servicio de produccion debe fijar ese directorio en
+la raiz del paquete instalado.

@@ -21,6 +21,7 @@ class CameraWorker(QObject):
     focus_check_started = Signal()
     focus_check_finished = Signal(object)
     focus_check_failed = Signal(str)
+    diagnostic_update = Signal(object)
 
     def __init__(
         self,
@@ -96,6 +97,17 @@ class CameraWorker(QObject):
         self.focus_verify_ratio = 0.70  # UMBRAL DE VALIDACION DE SCORE
 
         self.recalibrate_request.connect(self.recalibrate_focus)
+
+    def emit_diagnostic(self, status, message, action="", details=None, blocking=False):
+        self.diagnostic_update.emit({
+            "key": "camera.runtime",
+            "status": status,
+            "component": "camera",
+            "message": message,
+            "action": action,
+            "details": dict(details or {}),
+            "blocking": bool(blocking),
+        })
 
     def is_linux(self):
         return self.platform == "linux"
@@ -186,6 +198,13 @@ class CameraWorker(QObject):
 
         if self.device is None:
             print("[CAMERA] No hay camara disponible")
+            self.emit_diagnostic(
+                "ERROR",
+                "No se encontro una camara que entregue frames validos",
+                "Revisa USB/alimentacion y camera.device; despues reinicia",
+                details={"requested_device": self.camera_index},
+                blocking=True,
+            )
             return False
 
         if self.is_linux():
@@ -197,16 +216,28 @@ class CameraWorker(QObject):
 
         if self.cap is None or not self.cap.isOpened():
             print(f"[CAMERA][ERROR] No se pudo abrir la camara {self.device}")
+            self.emit_diagnostic(
+                "ERROR",
+                f"No se pudo abrir la camara {self.device}",
+                "Cierra otras aplicaciones que usen la camara y revisa permisos",
+                details={"requested_device": self.camera_index, "resolved_device": self.device},
+                blocking=True,
+            )
             return False
 
-        self.configure_resolution()
+        active_format = self.configure_resolution()
+        self.emit_diagnostic(
+            "PASS",
+            f"Camara operativa en {active_format['actual_width']}x{active_format['actual_height']}",
+            details=active_format,
+        )
 
         return True
 
     def configure_resolution(self):
         # INTENTA DEFINIR LA RESOLUCION DADA
         if self.cap is None:
-            return
+            return {}
 
         if self.is_linux():
             self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
@@ -226,6 +257,20 @@ class CameraWorker(QObject):
         print(f"[CAMERA] Resolucion solicitada: {self.width} x {self.height}")
         print(f"[CAMERA] Resolucion activa: {real_width} x {real_height}")
         print(f"[CAMERA] FPS activo: {real_fps:.2f}")
+        return {
+            "requested_device": self.camera_index,
+            "resolved_device": self.device,
+            "requested_width": self.width,
+            "requested_height": self.height,
+            "requested_fps": self.capture_fps,
+            "actual_width": real_width,
+            "actual_height": real_height,
+            "actual_fps": round(float(real_fps), 3),
+            "format_matches_request": (
+                real_width == int(self.width)
+                and real_height == int(self.height)
+            ),
+        }
 
     def warmup_camera(self, frames=30, delay=0.02):
         # LEE CIERTOS FRAMES PARA ESTABILIZAR CAMARA
@@ -1437,6 +1482,13 @@ class CameraWorker(QObject):
 
         except Exception as e:
             print(f"[CAMERA][ERROR] Error en camara: {e}")
+            self.emit_diagnostic(
+                "ERROR",
+                f"El worker de camara termino por error: {e}",
+                "Revisa el reporte de arranque, el dispositivo y el driver",
+                details={"resolved_device": self.device},
+                blocking=True,
+            )
 
         finally:
             print("[CAMERA] Liberando camara...")

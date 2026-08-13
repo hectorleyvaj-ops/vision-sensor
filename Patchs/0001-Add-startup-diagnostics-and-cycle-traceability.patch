@@ -1,0 +1,1980 @@
+From 03c1b47fd2a06d15fe411a4fae2907c5c448f5cc Mon Sep 17 00:00:00 2001
+From: Codex Phase Builder <phase-builder@localhost>
+Date: Tue, 11 Aug 2026 16:30:20 -0600
+Subject: [PATCH] Add startup diagnostics and cycle traceability
+
+---
+ .gitignore                             |   3 +-
+ PROJECT_CONTEXT.md                     | 140 +++--------
+ app/app.py                             |  80 +++++-
+ app/state_worker.py                    |   4 +-
+ config/system.json                     |   7 +
+ core/diagnostics.py                    | 327 +++++++++++++++++++++++++
+ core/recipe_manager.py                 |   2 +-
+ core/state_manager.py                  |  78 ++++++
+ core/system_config.py                  |  36 +++
+ core/traceability.py                   | 186 ++++++++++++++
+ docs/operations_and_traceability.md    |  70 ++++++
+ docs/system_configuration_reference.md |  20 ++
+ main.py                                |  16 +-
+ processing/pipeline.py                 |  18 ++
+ services/serial_comm.py                |  68 +++++
+ tests/test_startup_diagnostics.py      | 106 ++++++++
+ tests/test_system_config.py            |  10 +
+ tests/test_traceability.py             |  85 +++++++
+ ui/system_config_dialog.py             |  42 ++++
+ vision/camera_worker.py                |  56 ++++-
+ 20 files changed, 1232 insertions(+), 122 deletions(-)
+ create mode 100644 core/diagnostics.py
+ create mode 100644 core/traceability.py
+ create mode 100644 docs/operations_and_traceability.md
+ create mode 100644 tests/test_startup_diagnostics.py
+ create mode 100644 tests/test_traceability.py
+
+diff --git a/.gitignore b/.gitignore
+index d292270..157aa1a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -14,6 +14,7 @@ vision_env/
+ 
+ # Logs
+ *.log
++runtime/
+ 
+ # Archivos temporales
+ *.tmp
+@@ -23,4 +24,4 @@ vision_env/
+ 
+ # Qt / builds
+ *.qmlc
+-*.jsc
+\ No newline at end of file
++*.jsc
+diff --git a/PROJECT_CONTEXT.md b/PROJECT_CONTEXT.md
+index 1ee647d..cdf033a 100644
+--- a/PROJECT_CONTEXT.md
++++ b/PROJECT_CONTEXT.md
+@@ -1,115 +1,47 @@
+-# Vision Sensor System - PROJECT CONTEXT
++# Motor universal de vision - contexto del repositorio
+ 
+-## 📌 Propósito del sistema
+-Sistema de visión industrial para inspección automatizada con:
+-- Cámara en tiempo real
+-- Máquina de estados (FSM)
+-- Pipeline de procesamiento por recetas
+-- Comunicación con ESP32
+-- UI en PyQt (pyside6 principalmente y pyqt5 como opcion para modelos viejos)
++## Objetivo
+ 
+----
++Este repositorio contiene un unico motor configurable para distintas
++instalaciones. No contiene perfiles de producto, reglas de sensores de
++Worksurface, ladder PLC ni firmware especifico de una maquina.
+ 
+-## 🧠 Arquitectura general
++Una instalacion se define con `VISION_SYSTEM_CONFIG`, su `system.json` completo
++y un catalogo externo de recetas. El controlador implementa el contrato fijo
++`vision_controller_v1`.
+ 
+-### Main.py
+-- importa MainWindow de app.py y ejecuta para mostrarlo
+-- Separa Mainwindow de la ejecucion inicial
++## Flujo de produccion
+ 
+-### UI Layer
+-- app.py (MainWindow)
+-- Qt Threads (Camera, State, Serial)
++```text
++diagnostico -> READY -> TRIGGER/CYCLE -> CAPTURING -> PROCESSING
++            -> VISION_RESULT/ACK -> IDLE -> trazabilidad
++```
+ 
+-### Core Logic
+-- StateManager → FSM principal
+-- VisionPipeline → ejecución de herramientas
++El motor distingue `PASS/FAIL/ERROR/TIMEOUT`; solamente `PASS/FAIL` se traducen
++a decisiones de producto `OK/NG`. Una cancelacion cierra el ciclo sin publicar
++un resultado tardio.
+ 
+-### Data Layer
+-- RecipeManager → manejo de recetas JSON
++## Componentes principales
+ 
+-### Hardware Layer
+-- Camera (captura de frames)
+-- SerialComm (ESP32 comunicación)
++- `core/system_config.py`: contrato de una instalacion;
++- `core/recipe_manager.py`: recetas v3, migracion y comisionamiento;
++- `processing/pipeline.py`: steps, condiciones, resultados y tiempos;
++- `services/controller_protocol.py`: protocolo universal y guarda de ciclos;
++- `core/state_manager.py`: FSM y entrega del resultado;
++- `core/diagnostics.py`: diagnostico estatico/dinamico persistido;
++- `core/traceability.py`: evidencia JSONL, rotacion y retencion;
++- `ui/`: operacion y editores configurables;
++- `vision/`: captura y enfoque.
+ 
+----
++## Documentacion vigente
+ 
+-## 🔁 Flujo del sistema
+-Cuando TRIGGER desde SerialComm:
+-IDLE → CAPTURING → PROCESSING → COMMUNICATING → IDLE
++- `docs/universal_engine_architecture.md`;
++- `docs/controller_protocol_v1.md`;
++- `docs/recipe_schema_v3.md`;
++- `docs/system_configuration_reference.md`;
++- `docs/responsive_interface.md`;
++- `docs/operations_and_traceability.md`.
+ 
+----
+-
+-## ⚙️ Componentes clave
+-
+-### StateManager
+-Controla toda la máquina de estados.
+-
+-### VisionPipeline
+-Ejecuta tools definidos por receta.
+-
+-### RecipeManager
+-Carga y selecciona configuraciones de inspección.
+-
+-### ConfigWindow
+-Controla la interfaz de edicion de recetas y steps (herramientas) por receta.
+-Llama a ToolEditor quien crea una interfaz dinamica para modificar los parametros de cada herramienta segun dicha herramienta, usa schemas.py para vaciar la informacion de los widgets y parametros requeridos
+-Debe llamar a otra ventana para calibracion del enfoque de la camara
+-
+-### Camera Worker
+-Controla la camara, emite frames, contrla el enfoque manual por barrido.
+-
+----
+-
+-## ⚠️ Notas importantes
+-- UI usa Qt Threads
+-- Pipeline es dinámico por recetas
+-- Sistema depende de sincronización de frame en tiempo real
+-- ESP32 recibe resultado OK/NG
+-
+----
+-
+-## 📌 Objetivo actual
+-- Estabilizar UI (evitar freezes)
+-- Congelar foco usando un autofocus manual, barrido de frames y calcular mejor focus usando score
+-- Mejorar diseño de interfaz de configuracion, tanto la ventana dinamica (ventana escalada y en pantalla completa, widgets escaldos, copiar paleta de colores de la ventana principal)
+-- Mejorar FSM
+-- Preparar V2.0 para producción en otra máquina
+-
+-## Ramas para avanzar
+-1. stabilize-system-base   / COMPLETADO
+-   - hilos
+-   - cierre seguro
+-   - FSM
+-   - SerialComm
+-   - triggers dobles
+-
+-2. improve-camera-worker   / EN PROCESOR DE MEJORA
+-   - autofocus inicial
+-   - estabilización
+-   - recalibración segura
+-   - enfoque basado en focus_score
+-   - Windows: OpenCV autofocus
+-   - Linux: autofocus apagado + barrido de frames para buscar score y focus_absolute + freeze focus en mejor valor
+-
+-3. improve-config-ui
+-   - fullscreen
+-   - mejor diseño visual
+-   - consistencia con ventana principal
+-
+-4. improve-tool-editor-ui
+-   - UI dinámica más clara
+-   - mejor selección de ROI
+-   - widgets más grandes y ordenados
+-
+-
+-5. add logger
+-   - crear el handler del logger
+-   - redirigir los logs al txtlog de mi interfaz
+-   - agregar logger en cada script y reemplazar por print
+-   - mostrar logs tanto en ui como en la terminal
+-
+-6. Mejoras en logica del sistema
+-   - Bloquear fsm hasta que camara haya calibrado para evitar triggers prematuros
+-   - Agregar retroalimentacion visual para el usuario usando el indicador de la interfaz, modificar segun el resultado del plc, esp o master (via Serial)
+-   - Utilizar datos que actualmente no se usan de los parametros de las recetas en sus debidas herramientas o quitar si no son necesarios
+-   - Hacer pruebas intensivas en el sistema de crear, editar y eliminar recetas y etiquetas para encontrar mejoras y bugs
+\ No newline at end of file
++Worksurface debe construirse despues como datos externos y firmware/PLC
++separados. No se deben volver a introducir `profiles`, `active_profile`, modelos
++A/B/C o pines de la maquina dentro del motor.
+diff --git a/app/app.py b/app/app.py
+index aa448ed..184f533 100644
+--- a/app/app.py
++++ b/app/app.py
+@@ -18,6 +18,8 @@ from app.state_worker import StateWorker
+ from vision.camera_worker import CameraWorker
+ from core.recipe_manager import RecipeManager
+ from core.system_config import SystemConfig
++from core.diagnostics import DiagnosticsManager, run_static_diagnostics
++from core.traceability import CycleTraceWriter
+ from ui.responsive import (
+     apply_main_window_layout,
+     profile_from_screen,
+@@ -170,10 +172,39 @@ class MainWindow(QMainWindow):
+             self.system_config.recipe_file,
+             auto_migrate=self.system_config.auto_migrate_recipes,
+         )
++        self.tool_registry = self.build_tool_registry()
++        traceability_config = self.system_config.section("traceability")
++        self.cycle_trace = CycleTraceWriter.from_config(
++            traceability_config,
++            installation_id=installation.get("id", "vision-station"),
++        )
++        self.diagnostics = DiagnosticsManager(
++            self.cycle_trace.diagnostics_path
++        )
++        startup_report = run_static_diagnostics(
++            manager=self.diagnostics,
++            system_config=self.system_config,
++            recipe_manager=self.recipe_manager,
++            tool_registry=self.tool_registry,
++            trace_writer=self.cycle_trace,
++            platform=self.platform,
++        )
++        print(
++            f"[DIAGNOSTICS] Arranque estatico: "
++            f"{startup_report['overall_status']} "
++            f"({len(startup_report['items'])} comprobaciones)"
++        )
+         self.setup_camera()
+         self.setup_serial()
+         self.setup_state_manager()
+ 
++    @staticmethod
++    def build_tool_registry():
++        return {
++            "dmtx": DataMatrixTool(),
++            "img_hist": CompareImgHistTool(),
++        }
++
+     def setup_ui_logger(self):
+         self.ui_logger = get_ui_logger()
+         self.ui_logger.install()
+@@ -301,6 +332,7 @@ class MainWindow(QMainWindow):
+         self.camera_worker.finished.connect(self.camera_worker.deleteLater)
+         self.camera_worker.focus_check_finished.connect(self.on_focus_check_finished)
+         self.camera_worker.focus_check_failed.connect(self.on_focus_check_failed)
++        self.camera_worker.diagnostic_update.connect(self.on_component_diagnostic)
+ 
+         self.camera_thread.start()
+ 
+@@ -371,6 +403,7 @@ class MainWindow(QMainWindow):
+         self.serial.reset_received.connect(self.on_esp_reset_received)
+         self.serial.connection_lost.connect(self.on_serial_connection_lost)
+         self.serial.connection_restored.connect(self.on_serial_connection_restored)
++        self.serial.diagnostic_update.connect(self.on_component_diagnostic)
+ 
+         self.serial_thread.start()
+ 
+@@ -391,17 +424,9 @@ class MainWindow(QMainWindow):
+         self.publish_rpi_ready_status()
+ 
+     def setup_state_manager(self):
+-        # TOOLS
+-        #REGISTRAR TODAS LAS HERRAMIENTAS POSIBLES EN EL PIPELINE
+-        #MEJORA: AUTOMATIZAR EL REGISTRO DE HERRAMIENTAS EN LUGAR DE MANUAL - INLCUIR SOLO LAS NECESARIAS SEGUN LAS RECETAS
+-        tool_registry = {
+-            "dmtx": DataMatrixTool(),
+-            "img_hist": CompareImgHistTool()
+-        }
+-
+         # COMPONENTES DEL STATE_MANAGER
+         self.camera = Camera()
+-        self.processor = VisionPipeline(tool_registry)
++        self.processor = VisionPipeline(self.tool_registry)
+         self.comm = self.serial
+ 
+         self.state_manager = StateManager(
+@@ -414,6 +439,7 @@ class MainWindow(QMainWindow):
+             inspection_timeout_seconds=float(
+                 self.runtime_config.get("inspection_timeout_seconds", 20.0)
+             ),
++            cycle_trace=self.cycle_trace,
+         )
+ 
+         # THREAD + WORKER
+@@ -427,6 +453,7 @@ class MainWindow(QMainWindow):
+         self.camera_worker.frame_ready.connect(self.camera.update_frame)
+ 
+         self.state_manager.inspectionResult.connect(self.on_recipe_result)
++        self.state_manager.cycleTraced.connect(self.on_cycle_traced)
+ 
+         self.state_worker.cycle_finished.connect(self.on_fsm_finished)
+ 
+@@ -441,6 +468,36 @@ class MainWindow(QMainWindow):
+ 
+         self.state_thread.start()
+ 
++    def on_component_diagnostic(self, item):
++        if not isinstance(item, dict):
++            return
++        blocking = bool(item.get("blocking", False))
++        if item.get("component") == "controller" and not self.require_controller_ready:
++            blocking = False
++        saved = self.diagnostics.update(
++            key=item.get("key", "runtime.unknown"),
++            status=item.get("status", "ERROR"),
++            component=item.get("component", "runtime"),
++            message=item.get("message", "Diagnostico sin mensaje"),
++            action=item.get("action", ""),
++            details=item.get("details", {}),
++            blocking=blocking,
++        )
++        print(
++            f"[DIAGNOSTICS][{saved['status']}] "
++            f"{saved['component']}: {saved['message']}"
++        )
++        self.last_ready_sent = None
++        self.last_ready_reason = None
++
++    def on_cycle_traced(self, record):
++        if not isinstance(record, dict):
++            return
++        print(
++            f"[TRACEABILITY] Ciclo {record.get('cycle_id')} "
++            f"{record.get('final_result')} en {record.get('duration_ms')} ms"
++        )
++
+     def set_indicator_result_style(self, result):
+         if result == "OK":
+             self.ui.indicator_1.setStyleSheet(self.OK_STYLE)
+@@ -706,6 +763,11 @@ class MainWindow(QMainWindow):
+         if self.configuration_restart_required:
+             return "Reinicio requerido para aplicar la configuracion"
+ 
++        if hasattr(self, "diagnostics"):
++            diagnostic_error = self.diagnostics.blocking_reason()
++            if diagnostic_error:
++                return diagnostic_error
++
+         if not hasattr(self, "state_thread") or not self.state_thread.isRunning():
+             return "State thread no esta corriendo"
+ 
+diff --git a/app/state_worker.py b/app/state_worker.py
+index e24c930..ec20ccf 100644
+--- a/app/state_worker.py
++++ b/app/state_worker.py
+@@ -43,7 +43,7 @@ class StateWorker(QObject):
+ 
+                 if steps > MAX_STEPS:
+                     self.log.emit("[FSM][ERROR] Se alcanzo el maximo de pasos, forzando reset...")
+-                    self.sm.reset()
++                    self.sm.abort_cycle("FSM_MAX_STEPS")
+                     break
+ 
+                 time.sleep(0.01)
+@@ -52,7 +52,7 @@ class StateWorker(QObject):
+         except Exception as e:
+             self.log.emit(f"[FSM][ERROR] Error en StateWorker: {e}")
+             try:
+-                self.sm.reset()
++                self.sm.abort_cycle(f"STATE_WORKER_EXCEPTION: {e}")
+             except Exception:
+                 pass
+ 
+diff --git a/config/system.json b/config/system.json
+index 9db0a58..42f11d0 100644
+--- a/config/system.json
++++ b/config/system.json
+@@ -39,5 +39,12 @@
+         "max_frame_age_seconds": 0.5,
+         "mechanical_settle_ms": 0,
+         "inspection_timeout_seconds": 20.0
++    },
++    "traceability": {
++        "enabled": true,
++        "directory": "runtime/traceability",
++        "max_file_size_mb": 10.0,
++        "retention_files": 10,
++        "retention_days": 30
+     }
+ }
+diff --git a/core/diagnostics.py b/core/diagnostics.py
+new file mode 100644
+index 0000000..b8c6f29
+--- /dev/null
++++ b/core/diagnostics.py
+@@ -0,0 +1,327 @@
++import json
++import os
++import threading
++from datetime import datetime, timezone
++from pathlib import Path
++
++
++VALID_DIAGNOSTIC_STATUSES = {"PASS", "WARNING", "ERROR"}
++
++
++def utc_now_iso():
++    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
++
++
++class DiagnosticsManager:
++    """Thread-safe, persisted health report for one installation.
++
++    Checks are keyed so camera/serial workers can replace their startup state
++    instead of appending an unbounded history.  Only ERROR items explicitly
++    marked as blocking prevent READY.
++    """
++
++    SCHEMA_VERSION = 1
++
++    def __init__(self, report_path):
++        self.report_path = Path(report_path)
++        self._items = {}
++        self._lock = threading.RLock()
++        self.last_persist_error = None
++
++    def update(
++        self,
++        key,
++        status,
++        component,
++        message,
++        action="",
++        details=None,
++        blocking=False,
++    ):
++        normalized_status = str(status or "").strip().upper()
++        if normalized_status not in VALID_DIAGNOSTIC_STATUSES:
++            raise ValueError(f"Estado de diagnostico no soportado: {status}")
++        item = {
++            "key": str(key),
++            "status": normalized_status,
++            "component": str(component),
++            "message": str(message),
++            "action": str(action or ""),
++            "blocking": bool(blocking and normalized_status == "ERROR"),
++            "details": dict(details or {}),
++            "updated_at": utc_now_iso(),
++        }
++        with self._lock:
++            self._items[item["key"]] = item
++            try:
++                self._persist_locked()
++                self.last_persist_error = None
++            except OSError as exc:
++                # Runtime health must remain available in memory even when the
++                # storage failure being diagnosed prevents report persistence.
++                self.last_persist_error = str(exc)
++        return dict(item)
++
++    def snapshot(self):
++        with self._lock:
++            items = [dict(item) for item in self._items.values()]
++        items.sort(key=lambda item: item["key"])
++        if any(item["status"] == "ERROR" for item in items):
++            overall = "ERROR"
++        elif any(item["status"] == "WARNING" for item in items):
++            overall = "WARNING"
++        else:
++            overall = "PASS"
++        return {
++            "schema_version": self.SCHEMA_VERSION,
++            "generated_at": utc_now_iso(),
++            "overall_status": overall,
++            "blocking": any(item["blocking"] for item in items),
++            "items": items,
++        }
++
++    def blocking_reason(self):
++        with self._lock:
++            blocking = [
++                item for item in self._items.values()
++                if item.get("blocking")
++            ]
++        if not blocking:
++            return None
++        blocking.sort(key=lambda item: item["key"])
++        item = blocking[0]
++        if item.get("action"):
++            return f"{item['message']}. Accion: {item['action']}"
++        return item["message"]
++
++    def _persist_locked(self):
++        self.report_path.parent.mkdir(parents=True, exist_ok=True)
++        tmp_path = self.report_path.with_name(self.report_path.name + ".tmp")
++        payload = self.snapshot()
++        try:
++            with tmp_path.open("w", encoding="utf-8", newline="\n") as stream:
++                json.dump(payload, stream, indent=2, ensure_ascii=False)
++                stream.write("\n")
++            os.replace(tmp_path, self.report_path)
++        finally:
++            if tmp_path.exists():
++                tmp_path.unlink()
++
++
++def run_static_diagnostics(
++    manager,
++    system_config,
++    recipe_manager,
++    tool_registry,
++    trace_writer,
++    platform,
++):
++    """Validate files and declarative resources before production starts."""
++    config_path = Path(system_config.path)
++    manager.update(
++        "config.system",
++        "PASS",
++        "configuration",
++        f"Configuracion valida: {config_path}",
++        details={"path": str(config_path), "schema_version": system_config.SCHEMA_VERSION},
++    )
++
++    recipe_path = Path(recipe_manager.path)
++    try:
++        recipes = recipe_manager.get_all()
++        manager.update(
++            "recipes.catalog",
++            "PASS",
++            "recipes",
++            f"Catalogo de recetas legible: {recipe_path}",
++            details={"path": str(recipe_path), "recipes": len(recipes)},
++        )
++    except Exception as exc:
++        recipes = []
++        manager.update(
++            "recipes.catalog",
++            "ERROR",
++            "recipes",
++            f"No se pudo cargar el catalogo de recetas: {exc}",
++            action="Restaura el JSON o su respaldo .bak y reinicia la aplicacion",
++            details={"path": str(recipe_path)},
++            blocking=True,
++        )
++
++    recipe_names = {
++        recipe.get("name") for recipe in recipes
++        if isinstance(recipe, dict) and recipe.get("name")
++    }
++    if not recipes:
++        manager.update(
++            "recipes.available",
++            "ERROR",
++            "recipes",
++            "El catalogo no contiene recetas",
++            action="Crea o importa al menos una receta antes de producir",
++            blocking=True,
++        )
++    else:
++        manager.update(
++            "recipes.available",
++            "PASS",
++            "recipes",
++            f"Catalogo con {len(recipes)} receta(s)",
++            details={"recipes": sorted(recipe_names)},
++        )
++    model_map = system_config.section("controller").get("model_map", {})
++    missing_targets = sorted({
++        recipe_name for recipe_name in model_map.values()
++        if recipe_name not in recipe_names
++    })
++    if missing_targets:
++        manager.update(
++            "recipes.model_map",
++            "ERROR",
++            "recipes",
++            "El mapeo del controlador apunta a recetas inexistentes",
++            action="Corrige controller.model_map o crea las recetas indicadas",
++            details={"missing_recipes": missing_targets},
++            blocking=True,
++        )
++    else:
++        manager.update(
++            "recipes.model_map",
++            "PASS",
++            "recipes",
++            "Todos los modelos externos apuntan a recetas existentes",
++            details={"mappings": len(model_map)},
++        )
++
++    available_tools = set(tool_registry)
++    manager.update(
++        "tools.registry",
++        "PASS" if available_tools else "ERROR",
++        "tools",
++        f"Herramientas registradas: {', '.join(sorted(available_tools)) or 'ninguna'}",
++        action="Registra al menos una herramienta antes de producir",
++        details={"tools": sorted(available_tools)},
++        blocking=not available_tools,
++    )
++
++    for recipe in recipes:
++        if not isinstance(recipe, dict):
++            continue
++        recipe_name = str(recipe.get("name") or "sin_nombre")
++        commissioned = recipe.get("commissioned") is True
++        commissioning_error = recipe_manager.get_commissioning_error(
++            recipe,
++            available_tools=available_tools,
++        )
++        missing_tools = []
++        missing_templates = []
++        unreadable_templates = []
++        for step in recipe.get("steps", []):
++            if not isinstance(step, dict) or not step.get("enabled", True):
++                continue
++            tool_name = step.get("tool")
++            if tool_name not in available_tools:
++                missing_tools.append({"step": step.get("id"), "tool": tool_name})
++            if tool_name != "img_hist":
++                continue
++            for raw_path in step.get("params", {}).get("template_paths", []):
++                template_path = Path(str(raw_path))
++                if not template_path.is_file():
++                    missing_templates.append(str(template_path))
++                elif not os.access(template_path, os.R_OK) or template_path.stat().st_size <= 0:
++                    unreadable_templates.append(str(template_path))
++
++        problems = []
++        if missing_tools:
++            problems.append("herramientas no registradas")
++        if missing_templates:
++            problems.append("imagenes maestras inexistentes")
++        if unreadable_templates:
++            problems.append("imagenes maestras no legibles")
++        if commissioning_error:
++            problems.append("definicion de receta incompleta")
++        if problems:
++            manager.update(
++                f"recipe.resources.{recipe_name}",
++                "ERROR" if commissioned else "WARNING",
++                "recipes",
++                f"Receta {recipe_name}: {', '.join(problems)}",
++                action="Corrige los recursos y vuelve a comisionar la receta",
++                details={
++                    "commissioned": commissioned,
++                    "missing_tools": missing_tools,
++                    "missing_templates": missing_templates,
++                    "unreadable_templates": unreadable_templates,
++                    "commissioning_error": commissioning_error,
++                },
++                blocking=commissioned,
++            )
++        else:
++            manager.update(
++                f"recipe.resources.{recipe_name}",
++                "PASS",
++                "recipes",
++                f"Recursos disponibles para la receta {recipe_name}",
++                details={"commissioned": commissioned},
++            )
++
++    try:
++        storage_details = trace_writer.check_storage()
++        manager.update(
++            "traceability.storage",
++            "PASS" if trace_writer.enabled else "WARNING",
++            "traceability",
++            "Almacenamiento de trazabilidad disponible"
++            if trace_writer.enabled else "Trazabilidad de ciclos deshabilitada",
++            action="Habilita traceability.enabled para conservar evidencia de produccion",
++            details=storage_details,
++        )
++    except OSError as exc:
++        manager.update(
++            "traceability.storage",
++            "ERROR",
++            "traceability",
++            f"No se puede escribir la trazabilidad: {exc}",
++            action="Corrige la ruta o los permisos del directorio de trazabilidad",
++            details={"directory": str(trace_writer.directory)},
++            blocking=trace_writer.enabled,
++        )
++
++    controller = system_config.section("controller")
++    try:
++        port = system_config.controller_port(platform)
++        manager.update(
++            "controller.configuration",
++            "WARNING",
++            "controller",
++            f"Controlador configurado en {port}; conexion pendiente",
++            details={
++                "port": port,
++                "baudrate": controller.get("baudrate"),
++                "protocol": controller.get("protocol"),
++            },
++        )
++    except Exception as exc:
++        manager.update(
++            "controller.configuration",
++            "ERROR",
++            "controller",
++            str(exc),
++            action=f"Agrega un puerto para la plataforma {platform}",
++            blocking=True,
++        )
++
++    camera = system_config.section("camera")
++    manager.update(
++        "camera.runtime",
++        "WARNING",
++        "camera",
++        "Camara configurada; apertura y formato real pendientes",
++        details={
++            "requested_device": camera.get("device"),
++            "requested_width": camera.get("width"),
++            "requested_height": camera.get("height"),
++            "requested_fps": camera.get("capture_fps"),
++        },
++    )
++    return manager.snapshot()
+diff --git a/core/recipe_manager.py b/core/recipe_manager.py
+index bc7949b..ad5e7ba 100644
+--- a/core/recipe_manager.py
++++ b/core/recipe_manager.py
+@@ -13,7 +13,7 @@ class RecipeManager:
+     SCHEMA_VERSION = 3
+ 
+     def __init__(self, path="recipes.json", auto_migrate=True):
+-        self.path = path
++        self.path = os.fspath(path)
+         self.auto_migrate = bool(auto_migrate)
+         self._ensure_file()
+ 
+diff --git a/core/state_manager.py b/core/state_manager.py
+index d73b0cb..95631a0 100644
+--- a/core/state_manager.py
++++ b/core/state_manager.py
+@@ -9,6 +9,7 @@ from tools.result import ToolStatus
+ 
+ class StateManager(QObject):
+     inspectionResult = Signal(str)
++    cycleTraced = Signal(object)
+     def __init__(
+         self,
+         camera,
+@@ -16,6 +17,7 @@ class StateManager(QObject):
+         comunicator,
+         mechanical_settle_ms=0,
+         inspection_timeout_seconds=20.0,
++        cycle_trace=None,
+     ):
+         super().__init__()
+         self.camera = camera
+@@ -26,6 +28,7 @@ class StateManager(QObject):
+             0.1,
+             float(inspection_timeout_seconds),
+         )
++        self.cycle_trace = cycle_trace
+ 
+         self.state = "IDLE"
+         self.context = {}
+@@ -37,6 +40,28 @@ class StateManager(QObject):
+         self.cancel_requested = threading.Event()
+         self.cancel_reason = None
+ 
++    def _record_cycle(self, final_result, reason=None, communication=None):
++        if not self.context or self.context.get("_trace_closed"):
++            return None
++        self.context["_trace_closed"] = True
++        if self.cycle_trace is None:
++            return None
++        try:
++            record = self.cycle_trace.record_cycle(
++                context=self.context,
++                recipe_name=self.active_recipe_name,
++                final_result=final_result,
++                pipeline_result=self.context.get("pipeline_result"),
++                communication=communication,
++                reason=reason,
++            )
++            if record is not None:
++                self.cycleTraced.emit(record)
++            return record
++        except Exception as exc:
++            print(f"[TRACEABILITY][ERROR] No se pudo registrar el ciclo: {exc}")
++            return None
++
+     def prepare_cycle(self, cycle_context):
+         if not isinstance(cycle_context, dict):
+             raise ValueError("El contexto de ciclo debe ser un diccionario")
+@@ -48,6 +73,7 @@ class StateManager(QObject):
+         self.cancel_requested.clear()
+         self.cancel_reason = None
+         self.pending_cycle = dict(cycle_context)
++        self.pending_cycle["prepared_at_wall"] = time.time()
+ 
+     def cancel_cycle(self, cycle_id=None, reason="CANCELLED"):
+         active_cycle = self.context.get("cycle_id") if self.context else None
+@@ -64,6 +90,22 @@ class StateManager(QObject):
+             )
+             return False
+ 
++        if known_cycle is None:
++            return False
++
++        if active_cycle is None and isinstance(self.pending_cycle, dict):
++            self.context = dict(self.pending_cycle)
++            self.context["started_at_wall"] = self.context.get(
++                "prepared_at_wall",
++                time.time(),
++            )
++            self._record_cycle("CANCELLED", reason=reason)
++            self.context = {}
++            self.pending_cycle = None
++            self.cancel_reason = None
++            self.cancel_requested.clear()
++            return True
++
+         self.cancel_reason = reason
+         self.cancel_requested.set()
+         return True
+@@ -92,6 +134,7 @@ class StateManager(QObject):
+         try:
+             if self.cancel_requested.is_set():
+                 print(f"[FSM] Ciclo cancelado: {self.cancel_reason}")
++                self._record_cycle("CANCELLED", reason=self.cancel_reason)
+                 self.reset()
+                 return
+ 
+@@ -103,6 +146,7 @@ class StateManager(QObject):
+                     self.pending_cycle = None
+                     self.context["cancel_event"] = self.cancel_requested
+                     self.context["started_at"] = time.monotonic()
++                    self.context["started_at_wall"] = time.time()
+                     self.context["deadline"] = (
+                         self.context["started_at"]
+                         + self.inspection_timeout_seconds
+@@ -124,6 +168,7 @@ class StateManager(QObject):
+                             f"[FSM] Ciclo cancelado durante asentamiento: "
+                             f"{self.cancel_reason}"
+                         )
++                        self._record_cycle("CANCELLED", reason=self.cancel_reason)
+                         self.reset()
+                         return
+ 
+@@ -165,12 +210,14 @@ class StateManager(QObject):
+                     return
+ 
+                 result = self.processor.run(recipe, self.context)
++                self.context["pipeline_result"] = result
+ 
+                 if self.cancel_requested.is_set():
+                     print(
+                         f"[FSM] Resultado descartado por cancelacion: "
+                         f"{self.cancel_reason}"
+                     )
++                    self._record_cycle("CANCELLED", reason=self.cancel_reason)
+                     self.reset()
+                     return
+ 
+@@ -180,6 +227,9 @@ class StateManager(QObject):
+                 controller_result = controller_result_for_pipeline(
+                     pipeline_status
+                 )
++                self.context["pipeline_status"] = (
++                    pipeline_status or ToolStatus.ERROR.value
++                )
+ 
+                 if controller_result == "OK":
+                     self.inspectionResult.emit("OK")
+@@ -230,6 +280,23 @@ class StateManager(QObject):
+                 else:
+                     print("[FSM] Fallo en comunicacion, reinicio de ciclo")
+ 
++                trace_reason = None
++                if cmd in ("NG", "ERROR"):
++                    errors = self.context.get("pipeline_errors") or []
++                    trace_reason = "; ".join(str(item) for item in errors)
++                    if cmd == "ERROR" and not trace_reason:
++                        trace_reason = "Falla de ejecucion"
++                if not result or result.get("status") != "OK":
++                    communication_error = (
++                        result.get("error") if isinstance(result, dict) else "Respuesta serial invalida"
++                    )
++                    trace_reason = trace_reason or f"Comunicacion: {communication_error}"
++                self._record_cycle(
++                    cmd,
++                    reason=trace_reason,
++                    communication=result,
++                )
++
+                 self.reset()
+ 
+         except Exception as e:
+@@ -242,10 +309,21 @@ class StateManager(QObject):
+         # ERROR significa que vision no obtuvo una decision de producto. El
+         # controlador conserva la autoridad para llevar la maquina a seguro.
+         self.context["final_result"] = "ERROR"
++        error_details = details.get("error")
++        self.context["pipeline_errors"] = (
++            list(error_details)
++            if isinstance(error_details, (list, tuple))
++            else [error_details]
++        )
+ 
+         # ENVIAR ERROR DE EJECUCION SIN DISFRAZARLO COMO RECHAZO DE PIEZA
+         self.state = "COMMUNICATING"
+ 
++    def abort_cycle(self, reason="ABORTED"):
++        """Close a stuck/aborted cycle with evidence before returning to IDLE."""
++        self._record_cycle("ERROR", reason=reason)
++        self.reset()
++
+     def reset(self):
+         print("[FSM] Reset - IDLE")
+         self.state = "IDLE"
+diff --git a/core/system_config.py b/core/system_config.py
+index c9764ce..916f836 100644
+--- a/core/system_config.py
++++ b/core/system_config.py
+@@ -194,6 +194,42 @@ class SystemConfig:
+                 "runtime.inspection_timeout_seconds debe ser mayor que cero"
+             )
+ 
++        traceability = cls._section_from(data, "traceability")
++        if traceability:
++            if not isinstance(traceability.get("enabled", True), bool):
++                raise SystemConfigError(
++                    "traceability.enabled debe ser booleano"
++                )
++            directory = traceability.get("directory", "runtime/traceability")
++            if not isinstance(directory, str) or not directory.strip():
++                raise SystemConfigError(
++                    "traceability.directory es obligatorio"
++                )
++            if not cls._is_positive_number(
++                traceability.get("max_file_size_mb", 10.0)
++            ):
++                raise SystemConfigError(
++                    "traceability.max_file_size_mb debe ser mayor que cero"
++                )
++            retention_files = traceability.get("retention_files", 10)
++            if (
++                not isinstance(retention_files, int)
++                or isinstance(retention_files, bool)
++                or retention_files <= 0
++            ):
++                raise SystemConfigError(
++                    "traceability.retention_files debe ser un entero positivo"
++                )
++            retention_days = traceability.get("retention_days", 30)
++            if (
++                not isinstance(retention_days, int)
++                or isinstance(retention_days, bool)
++                or retention_days < 0
++            ):
++                raise SystemConfigError(
++                    "traceability.retention_days debe ser un entero no negativo"
++                )
++
+         return copy.deepcopy(data)
+ 
+     def save(self, data, recipe_names=None):
+diff --git a/core/traceability.py b/core/traceability.py
+new file mode 100644
+index 0000000..103d35d
+--- /dev/null
++++ b/core/traceability.py
+@@ -0,0 +1,186 @@
++import json
++import os
++import threading
++import time
++from datetime import datetime, timezone
++from enum import Enum
++from pathlib import Path
++
++
++def _utc_iso(timestamp=None):
++    value = time.time() if timestamp is None else float(timestamp)
++    return datetime.fromtimestamp(value, timezone.utc).isoformat(timespec="milliseconds")
++
++
++def _json_safe(value):
++    if hasattr(value, "to_dict") and callable(value.to_dict):
++        return _json_safe(value.to_dict())
++    if isinstance(value, Enum):
++        return value.value
++    if isinstance(value, dict):
++        return {str(key): _json_safe(item) for key, item in value.items()}
++    if isinstance(value, (list, tuple)):
++        return [_json_safe(item) for item in value]
++    if value is None or isinstance(value, (str, int, float, bool)):
++        return value
++    return str(value)
++
++
++class CycleTraceWriter:
++    """Append-only JSONL cycle evidence with bounded local retention."""
++
++    SCHEMA_VERSION = 1
++
++    def __init__(
++        self,
++        directory="runtime/traceability",
++        installation_id="vision-station",
++        enabled=True,
++        max_file_size_mb=10.0,
++        retention_files=10,
++        retention_days=30,
++        max_file_size_bytes=None,
++    ):
++        self.directory = Path(directory)
++        self.installation_id = str(installation_id)
++        self.enabled = bool(enabled)
++        self.max_file_size_bytes = (
++            max(1, int(max_file_size_bytes))
++            if max_file_size_bytes is not None
++            else max(1024, int(float(max_file_size_mb) * 1024 * 1024))
++        )
++        self.retention_files = max(1, int(retention_files))
++        self.retention_days = max(0, int(retention_days))
++        self.active_path = self.directory / "cycles.jsonl"
++        self.diagnostics_path = self.directory / "startup_diagnostics.json"
++        self._lock = threading.RLock()
++
++    @classmethod
++    def from_config(cls, config, installation_id):
++        values = dict(config or {})
++        return cls(
++            directory=values.get("directory", "runtime/traceability"),
++            installation_id=installation_id,
++            enabled=values.get("enabled", True),
++            max_file_size_mb=values.get("max_file_size_mb", 10.0),
++            retention_files=values.get("retention_files", 10),
++            retention_days=values.get("retention_days", 30),
++        )
++
++    def check_storage(self):
++        details = {
++            "enabled": self.enabled,
++            "directory": str(self.directory),
++            "max_file_size_bytes": self.max_file_size_bytes,
++            "retention_files": self.retention_files,
++            "retention_days": self.retention_days,
++        }
++        if not self.enabled:
++            return details
++        self.directory.mkdir(parents=True, exist_ok=True)
++        probe = self.directory / ".write_probe.tmp"
++        try:
++            with probe.open("w", encoding="utf-8") as stream:
++                stream.write("ok")
++            probe.unlink()
++        finally:
++            if probe.exists():
++                probe.unlink()
++        return details
++
++    def record_cycle(
++        self,
++        context,
++        recipe_name,
++        final_result,
++        pipeline_result=None,
++        communication=None,
++        reason=None,
++    ):
++        if not self.enabled:
++            return None
++        context = dict(context or {})
++        now_wall = time.time()
++        started_wall = float(context.get("started_at_wall", now_wall))
++        started_monotonic = context.get("started_at")
++        if started_monotonic is None:
++            duration_ms = max(0.0, (now_wall - started_wall) * 1000.0)
++        else:
++            duration_ms = max(0.0, (time.monotonic() - float(started_monotonic)) * 1000.0)
++
++        pipeline = _json_safe(pipeline_result or {})
++        raw_results = pipeline.get("results", {}) if isinstance(pipeline, dict) else {}
++        step_durations = pipeline.get("step_durations_ms", {}) if isinstance(pipeline, dict) else {}
++        steps = []
++        for step_id in pipeline.get("execution_order", []) if isinstance(pipeline, dict) else []:
++            result = raw_results.get(step_id, {})
++            steps.append({
++                "step_id": step_id,
++                "tool": result.get("tool"),
++                "status": result.get("status"),
++                "duration_ms": step_durations.get(step_id),
++                "error_code": result.get("error_code"),
++                "error": result.get("error"),
++                "data": result.get("data"),
++            })
++
++        record = {
++            "schema_version": self.SCHEMA_VERSION,
++            "record_type": "vision_cycle",
++            "installation_id": self.installation_id,
++            "cycle_id": context.get("cycle_id"),
++            "external_model": context.get("model"),
++            "recipe": recipe_name,
++            "started_at": _utc_iso(started_wall),
++            "finished_at": _utc_iso(now_wall),
++            "duration_ms": round(duration_ms, 3),
++            "final_result": str(final_result or "ERROR"),
++            "pipeline_status": pipeline.get("status") if isinstance(pipeline, dict) else None,
++            "reason": reason,
++            "execution_order": pipeline.get("execution_order", []) if isinstance(pipeline, dict) else [],
++            "skipped_steps": pipeline.get("skipped_steps", []) if isinstance(pipeline, dict) else [],
++            "steps": steps,
++            "communication": _json_safe(communication or {}),
++        }
++        self._append(record)
++        return record
++
++    def _append(self, record):
++        encoded = json.dumps(_json_safe(record), ensure_ascii=False, separators=(",", ":")) + "\n"
++        payload = encoded.encode("utf-8")
++        with self._lock:
++            self.directory.mkdir(parents=True, exist_ok=True)
++            self._prune_by_age()
++            if self.active_path.exists() and self.active_path.stat().st_size + len(payload) > self.max_file_size_bytes:
++                self._rotate()
++            with self.active_path.open("ab") as stream:
++                stream.write(payload)
++                stream.flush()
++                os.fsync(stream.fileno())
++
++    def _rotate(self):
++        if self.retention_files <= 1:
++            if self.active_path.exists():
++                self.active_path.unlink()
++            return
++        oldest = self.directory / f"cycles.{self.retention_files - 1}.jsonl"
++        if oldest.exists():
++            oldest.unlink()
++        for index in range(self.retention_files - 2, 0, -1):
++            source = self.directory / f"cycles.{index}.jsonl"
++            target = self.directory / f"cycles.{index + 1}.jsonl"
++            if source.exists():
++                os.replace(source, target)
++        if self.active_path.exists():
++            os.replace(self.active_path, self.directory / "cycles.1.jsonl")
++
++    def _prune_by_age(self):
++        if self.retention_days <= 0:
++            return
++        cutoff = time.time() - self.retention_days * 86400
++        for path in self.directory.glob("cycles.*.jsonl"):
++            try:
++                if path.stat().st_mtime < cutoff:
++                    path.unlink()
++            except FileNotFoundError:
++                pass
+diff --git a/docs/operations_and_traceability.md b/docs/operations_and_traceability.md
+new file mode 100644
+index 0000000..a96e5e1
+--- /dev/null
++++ b/docs/operations_and_traceability.md
+@@ -0,0 +1,70 @@
++# Diagnostico operativo y trazabilidad
++
++## Objetivo
++
++Una estacion no se considera lista solo porque la interfaz abra. Antes de
++publicar `READY`, el motor valida la configuracion, el catalogo, los mapeos, las
++herramientas, las imagenes maestras de recetas comisionadas y el almacenamiento
++de evidencia. Camara y controlador actualizan el mismo reporte al terminar sus
++pruebas reales.
++
++## Estados de diagnostico
++
++| Estado | Significado | Efecto |
++|---|---|---|
++| `PASS` | Comprobacion aprobada | No bloquea produccion |
++| `WARNING` | Pendiente o degradacion no concluyente | Se muestra en log; no bloquea por si sola |
++| `ERROR` | Recurso o componente incorrecto | Bloquea `READY` cuando el item esta marcado como obligatorio |
++
++Cada item tiene una clave estable. Por ejemplo, `camera.runtime` comienza como
++pendiente y despues se reemplaza con el dispositivo, resolucion y FPS reales.
++El reporte no crece indefinidamente.
++
++## Comprobaciones estaticas
++
++- `system.json` cargado con el esquema vigente;
++- catalogo de recetas legible y no vacio;
++- destinos de `controller.model_map` existentes;
++- herramientas registradas;
++- definicion, ROI y parametros de cada receta;
++- existencia y lectura de imagenes maestras de `img_hist`;
++- directorio de trazabilidad escribible;
++- puerto correspondiente a la plataforma configurado;
++- parametros solicitados de camara disponibles para la prueba dinamica.
++
++Una receta no comisionada con recursos incompletos produce `WARNING`. La misma
++falla en una receta marcada `commissioned=true` produce un `ERROR` bloqueante.
++
++## Comprobaciones dinamicas
++
++La camara publica el dispositivo resuelto, resolucion/FPS solicitados y reales.
++Un dispositivo ausente o un worker que termina por excepcion bloquea
++produccion. El controlador publica puerto y baudrate, y despues firmware y
++version de protocolo cuando completa `HELLO/HELLO_ACK`.
++
++Si `runtime.require_controller_ready=false`, una falla serial queda registrada
++pero no se convierte en bloqueo por diagnostico. Esta excepcion solo es
++apropiada para pruebas controladas.
++
++## Registro de ciclos
++
++Cada linea de `cycles.jsonl` es independiente y contiene:
++
++- instalacion, `cycle_id`, modelo externo y receta;
++- fecha UTC de inicio/fin y duracion total;
++- resultado final `OK`, `NG`, `ERROR` o `CANCELLED`;
++- estado del pipeline, causa y steps omitidos;
++- orden, tool, estado, duracion, error y datos de cada step ejecutado;
++- estado de entrega/ACK al controlador.
++
++No se guardan frames ni imagenes de depuracion en este archivo. La escritura es
++serializada, fuerza el vaciado a disco y rota antes de superar el limite
++configurado. Un error al guardar evidencia nunca se convierte en `NG`.
++
++## Recuperacion
++
++1. Consultar el mensaje visible y `startup_diagnostics.json`.
++2. Ejecutar la accion indicada por el item bloqueante.
++3. Reiniciar cuando se haya cambiado hardware, puerto, configuracion o rutas.
++4. Confirmar que camara y controlador pasen de pendiente/error a `PASS`.
++5. No forzar `READY` ni comisionar una receta con recursos faltantes.
+diff --git a/docs/system_configuration_reference.md b/docs/system_configuration_reference.md
+index bbcaef3..756b03e 100644
+--- a/docs/system_configuration_reference.md
++++ b/docs/system_configuration_reference.md
+@@ -25,6 +25,11 @@ ni cambia el codigo del motor.
+ | Ejecucion | Edad de frame | Evita inspeccionar una imagen demasiado antigua. |
+ | Ejecucion | Asentamiento | Espera entre trigger y captura para que la pieza quede inmovil. |
+ | Ejecucion | Timeout inspeccion | Limite total desde trigger hasta decision de vision. |
++| Registros | Guardar ciclos | Activa el archivo JSONL de trazabilidad. |
++| Registros | Directorio | Ruta para ciclos y diagnostico de arranque. |
++| Registros | Tamano por archivo | Umbral que rota `cycles.jsonl`. |
++| Registros | Archivos retenidos | Maximo de archivos actuales y rotados. |
++| Registros | Retencion maxima | Elimina rotaciones antiguas; `0` desactiva el limite por dias. |
+ 
+ `camera.width` y `camera.height` corresponden a la imagen capturada. No controlan
+ el tamano de la ventana ni la resolucion del monitor. La interfaz detecta el
+@@ -34,3 +39,18 @@ amplio; no existe un parametro de monitor en `system.json`.
+ Todos los cambios de este panel se validan antes de escribirse, conservan un
+ respaldo `system.json.bak` y requieren reiniciar la aplicacion para reconstruir
+ camara, enlace serial y politicas de ejecucion.
++
++## Salidas operativas
++
++Con los valores predeterminados se generan, fuera de Git:
++
++- `runtime/traceability/startup_diagnostics.json`: fotografia reemplazable del
++  estado de configuracion, recetas, recursos, camara, controlador y escritura;
++- `runtime/traceability/cycles.jsonl`: un objeto JSON por ciclo terminado o
++  cancelado;
++- `cycles.1.jsonl`, `cycles.2.jsonl`, etc.: rotaciones sujetas a los limites de
++  tamano, cantidad y antiguedad.
++
++Las rutas relativas se interpretan desde el directorio de trabajo con el que
++se inicia la aplicacion. El servicio de produccion debe fijar ese directorio en
++la raiz del paquete instalado.
+diff --git a/main.py b/main.py
+index 89e2edc..3ee0a2e 100644
+--- a/main.py
++++ b/main.py
+@@ -1,11 +1,21 @@
+ import sys
+ from app.app import MainWindow
+-from utils.qt_compat import QApplication
++from utils.qt_compat import QApplication, QMessageBox
+ 
+ if __name__ == "__main__":
+     app = QApplication(sys.argv)
+     
+-    window = MainWindow()
++    try:
++        window = MainWindow()
++    except Exception as exc:
++        message = (
++            "La aplicacion no puede iniciar porque su configuracion base no "
++            f"es utilizable.\n\nDetalle: {exc}\n\n"
++            "Revisa VISION_SYSTEM_CONFIG, system.json y el catalogo de recetas."
++        )
++        print(f"[STARTUP][FATAL] {message}", file=sys.stderr)
++        QMessageBox.critical(None, "Error de arranque", message)
++        sys.exit(2)
+ 
+     if sys.platform.startswith("linux"):
+         window.showFullScreen()
+@@ -17,4 +27,4 @@ if __name__ == "__main__":
+     if hasattr(app, "exec"):
+         sys.exit(app.exec())
+     else:
+-        sys.exit(app.exec_())
+\ No newline at end of file
++        sys.exit(app.exec_())
+diff --git a/processing/pipeline.py b/processing/pipeline.py
+index 37de3e8..6638601 100644
+--- a/processing/pipeline.py
++++ b/processing/pipeline.py
+@@ -3,6 +3,7 @@
+ 
+ from core.execution_control import check_execution
+ from core.step_conditions import ConditionError, evaluate_condition
++import time
+ from tools.result import (
+     ToolCancelled,
+     ToolResult,
+@@ -20,6 +21,7 @@ class VisionPipeline:
+         execution_order = []
+         skipped_steps = []
+         errors = []
++        step_durations_ms = {}
+         contex.setdefault("outputs", {})
+         contex.setdefault("outputs_by_tool", {})
+         contex.setdefault("debug_images", [])
+@@ -32,6 +34,7 @@ class VisionPipeline:
+                 ["La receta no contiene herramientas ejecutables"],
+                 execution_order,
+                 skipped_steps,
++                step_durations_ms,
+                 error_code="EMPTY_RECIPE",
+             )
+ 
+@@ -53,6 +56,7 @@ class VisionPipeline:
+                     [control_error.error],
+                     execution_order,
+                     skipped_steps,
++                    step_durations_ms,
+                     error_code=control_error.error_code,
+                 )
+ 
+@@ -70,6 +74,7 @@ class VisionPipeline:
+                     errors,
+                     execution_order,
+                     skipped_steps,
++                    step_durations_ms,
+                     error_code="INVALID_CONDITION",
+                 )
+ 
+@@ -85,6 +90,7 @@ class VisionPipeline:
+                     errors,
+                     execution_order,
+                     skipped_steps,
++                    step_durations_ms,
+                     error_code="DUPLICATE_STEP_ID",
+                 )
+ 
+@@ -100,6 +106,7 @@ class VisionPipeline:
+                         errors,
+                         execution_order,
+                         skipped_steps,
++                        step_durations_ms,
+                         error_code="TOOL_NOT_FOUND",
+                     )
+                 skipped_steps.append(step_id)
+@@ -107,6 +114,7 @@ class VisionPipeline:
+ 
+             print(f"[PIPELINE] Ejecutando {step_id} ({tool_name})")
+             inputs = {**contex, **params}
++            step_started = time.monotonic()
+ 
+             try:
+                 result = tool.run(**inputs)
+@@ -117,6 +125,11 @@ class VisionPipeline:
+                     error=str(exc),
+                     error_code="UNCAUGHT_TOOL_EXCEPTION",
+                 )
++            finally:
++                step_durations_ms[step_id] = round(
++                    (time.monotonic() - step_started) * 1000.0,
++                    3,
++                )
+ 
+             if not isinstance(result, ToolResult):
+                 result = ToolResult(
+@@ -153,6 +166,7 @@ class VisionPipeline:
+                     errors,
+                     execution_order,
+                     skipped_steps,
++                    step_durations_ms,
+                     error_code=result.error_code,
+                 )
+ 
+@@ -163,6 +177,7 @@ class VisionPipeline:
+                 ["Ninguna herramienta cumplio su condicion de ejecucion"],
+                 execution_order,
+                 skipped_steps,
++                step_durations_ms,
+                 error_code="NO_EXECUTED_STEPS",
+             )
+ 
+@@ -172,6 +187,7 @@ class VisionPipeline:
+             errors,
+             execution_order,
+             skipped_steps,
++            step_durations_ms,
+         )
+ 
+     @staticmethod
+@@ -197,6 +213,7 @@ class VisionPipeline:
+         errors,
+         execution_order,
+         skipped_steps,
++        step_durations_ms,
+         error_code=None,
+     ):
+         status = ToolStatus(status)
+@@ -208,4 +225,5 @@ class VisionPipeline:
+             "error_code": error_code,
+             "execution_order": execution_order,
+             "skipped_steps": skipped_steps,
++            "step_durations_ms": step_durations_ms,
+         }
+diff --git a/services/serial_comm.py b/services/serial_comm.py
+index 9c6ff7f..5800479 100644
+--- a/services/serial_comm.py
++++ b/services/serial_comm.py
+@@ -25,6 +25,7 @@ class SerialComm(QObject):
+ 
+     connection_lost = Signal(str)
+     connection_restored = Signal()
++    diagnostic_update = Signal(object)
+ 
+     def __init__(
+         self,
+@@ -74,6 +75,17 @@ class SerialComm(QObject):
+ 
+         self.connect()
+ 
++    def emit_diagnostic(self, status, message, action="", details=None, blocking=False):
++        self.diagnostic_update.emit({
++            "key": "controller.runtime",
++            "status": status,
++            "component": "controller",
++            "message": message,
++            "action": action,
++            "details": dict(details or {}),
++            "blocking": bool(blocking),
++        })
++
+     def connect(self):
+         try:
+             with self._serial_lock:
+@@ -104,11 +116,34 @@ class SerialComm(QObject):
+                 self.last_ping_time = 0
+ 
+             print("[SERIAL] Puerto listo para comunicacion")
++            self.emit_diagnostic(
++                "WARNING",
++                f"Puerto {self.port} abierto; handshake pendiente",
++                details={
++                    "port": self.port,
++                    "baudrate": self.baudrate,
++                    "timeout": self.timeout,
++                    "connected": True,
++                    "synced": False,
++                },
++            )
+ 
+         except Exception as e:
+             print(f"[SERIAL][ERROR] No se pudo conectar: {e}")
+             self.ser = None
+             self.synced = False
++            self.emit_diagnostic(
++                "ERROR",
++                f"No se pudo abrir el controlador en {self.port}: {e}",
++                "Revisa el puerto configurado, el cable USB y los permisos",
++                details={
++                    "port": self.port,
++                    "baudrate": self.baudrate,
++                    "connected": False,
++                    "synced": False,
++                },
++                blocking=True,
++            )
+ 
+     def is_connected(self):
+         return self.ser is not None and self.ser.is_open
+@@ -124,6 +159,13 @@ class SerialComm(QObject):
+             print(f"[SERIAL][DESCONECTADO] {reason}")
+ 
+         self.synced = False
++        self.emit_diagnostic(
++            "ERROR",
++            f"Conexion con controlador perdida: {reason or 'sin detalle'}",
++            "Revisa cable, alimentacion y proceso del firmware",
++            details={"port": self.port, "connected": False, "synced": False},
++            blocking=True,
++        )
+         cancelled_cycle = self.cycle_guard.cancel()
+         if cancelled_cycle:
+             self.cycle_cancelled.emit(
+@@ -343,9 +385,28 @@ class SerialComm(QObject):
+                     f"[SERIAL][PROTOCOL] Sincronizado con firmware "
+                     f"{fields.get('FW', 'desconocido')}"
+                 )
++                self.emit_diagnostic(
++                    "PASS",
++                    f"Controlador sincronizado con {PROTOCOL_VERSION}",
++                    details={
++                        "port": self.port,
++                        "baudrate": self.baudrate,
++                        "connected": True,
++                        "synced": True,
++                        "firmware": fields.get("FW", "desconocido"),
++                        "protocol": fields.get("PROTO"),
++                    },
++                )
+             except ProtocolError as exc:
+                 self.synced = False
+                 print(f"[SERIAL][PROTOCOL][ERROR] Handshake rechazado: {exc}")
++                self.emit_diagnostic(
++                    "ERROR",
++                    f"Handshake del controlador rechazado: {exc}",
++                    "Instala firmware compatible con vision_controller_v1",
++                    details={"port": self.port, "connected": self.is_connected(), "synced": False},
++                    blocking=True,
++                )
+             return
+ 
+         if kind == "MODEL":
+@@ -528,6 +589,13 @@ class SerialComm(QObject):
+ 
+         print("[SERIAL] Handshake fallido")
+         self.synced = False
++        self.emit_diagnostic(
++            "ERROR",
++            "El controlador no respondio al handshake",
++            "Verifica firmware, baudrate y protocolo vision_controller_v1",
++            details={"port": self.port, "connected": self.is_connected(), "synced": False},
++            blocking=True,
++        )
+         return False
+ 
+     def is_printable_log(self, text: str) -> bool:
+diff --git a/tests/test_startup_diagnostics.py b/tests/test_startup_diagnostics.py
+new file mode 100644
+index 0000000..0888f27
+--- /dev/null
++++ b/tests/test_startup_diagnostics.py
+@@ -0,0 +1,106 @@
++import json
++import tempfile
++import unittest
++from pathlib import Path
++
++from core.diagnostics import DiagnosticsManager, run_static_diagnostics
++from core.recipe_manager import RecipeManager
++from core.system_config import SystemConfig
++from core.traceability import CycleTraceWriter
++
++
++class _FakeTool:
++    pass
++
++
++class StartupDiagnosticsTests(unittest.TestCase):
++    def _write_installation(self, root, recipe_payload):
++        root = Path(root)
++        recipe_path = root / "recipes.json"
++        recipe_path.write_text(json.dumps(recipe_payload), encoding="utf-8")
++        base = json.loads(Path("config/system.json").read_text(encoding="utf-8"))
++        base["recipes"]["file"] = str(recipe_path)
++        base["controller"]["model_map"] = {}
++        base["traceability"]["directory"] = str(root / "trace")
++        config_path = root / "system.json"
++        config_path.write_text(json.dumps(base), encoding="utf-8")
++        return SystemConfig(config_path), RecipeManager(recipe_path)
++
++    def test_missing_master_image_blocks_only_commissioned_recipe(self):
++        with tempfile.TemporaryDirectory() as temp_dir:
++            recipe = {
++                "schema_version": 3,
++                "recipes": [{
++                    "id": "r1",
++                    "name": "R1",
++                    "selected": True,
++                    "commissioned": True,
++                    "focus": {"mode": "disabled", "enabled": False},
++                    "steps": [{
++                        "id": "hist_1",
++                        "tool": "img_hist",
++                        "enabled": True,
++                        "required": True,
++                        "condition": {"type": "always"},
++                        "params": {
++                            "roi": [0, 0, 10, 10],
++                            "threshold": 80,
++                            "template_paths": [str(Path(temp_dir) / "missing.png")],
++                        },
++                    }],
++                }],
++            }
++            config, recipes = self._write_installation(temp_dir, recipe)
++            trace = CycleTraceWriter.from_config(
++                config.section("traceability"),
++                installation_id="test",
++            )
++            manager = DiagnosticsManager(trace.diagnostics_path)
++            report = run_static_diagnostics(
++                manager,
++                config,
++                recipes,
++                {"img_hist": _FakeTool()},
++                trace,
++                "windows",
++            )
++            resource = next(
++                item for item in report["items"]
++                if item["key"] == "recipe.resources.R1"
++            )
++            self.assertEqual(resource["status"], "ERROR")
++            self.assertTrue(resource["blocking"])
++            self.assertTrue(any(
++                path.endswith("missing.png")
++                for path in resource["details"]["missing_templates"]
++            ))
++
++    def test_dynamic_check_replaces_pending_state_and_persists_report(self):
++        with tempfile.TemporaryDirectory() as temp_dir:
++            report_path = Path(temp_dir) / "startup.json"
++            manager = DiagnosticsManager(report_path)
++            manager.update(
++                "camera.runtime",
++                "WARNING",
++                "camera",
++                "Pendiente",
++            )
++            manager.update(
++                "camera.runtime",
++                "PASS",
++                "camera",
++                "Camara lista",
++                details={"actual_width": 1920},
++            )
++            saved = json.loads(report_path.read_text(encoding="utf-8"))
++            camera_items = [
++                item for item in saved["items"]
++                if item["key"] == "camera.runtime"
++            ]
++            self.assertEqual(len(camera_items), 1)
++            self.assertEqual(camera_items[0]["status"], "PASS")
++            self.assertEqual(camera_items[0]["details"]["actual_width"], 1920)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_system_config.py b/tests/test_system_config.py
+index c9a5ac9..f5f916e 100644
+--- a/tests/test_system_config.py
++++ b/tests/test_system_config.py
+@@ -66,6 +66,16 @@ class SystemConfigTests(unittest.TestCase):
+             ):
+                 SystemConfig(path)
+ 
++    def test_traceability_retention_must_be_bounded(self):
++        invalid = json.loads(self.config_path.read_text(encoding="utf-8"))
++        invalid["traceability"]["retention_files"] = 0
++
++        with tempfile.TemporaryDirectory() as temp_dir:
++            path = Path(temp_dir) / "system.json"
++            path.write_text(json.dumps(invalid), encoding="utf-8")
++            with self.assertRaisesRegex(SystemConfigError, "retention_files"):
++                SystemConfig(path)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_traceability.py b/tests/test_traceability.py
+new file mode 100644
+index 0000000..18bcd35
+--- /dev/null
++++ b/tests/test_traceability.py
+@@ -0,0 +1,85 @@
++import json
++import tempfile
++import unittest
++from pathlib import Path
++
++from core.traceability import CycleTraceWriter
++from tools.result import ToolResult, ToolStatus
++
++
++class TraceabilityTests(unittest.TestCase):
++    def test_cycle_record_contains_identity_timing_steps_and_delivery(self):
++        with tempfile.TemporaryDirectory() as temp_dir:
++            writer = CycleTraceWriter(
++                directory=temp_dir,
++                installation_id="station-01",
++            )
++            record = writer.record_cycle(
++                context={
++                    "cycle_id": "cycle-abc",
++                    "model": "SKU-42",
++                },
++                recipe_name="RECIPE_42",
++                final_result="NG",
++                pipeline_result={
++                    "status": "FAIL",
++                    "results": {
++                        "dmtx_1": ToolResult(
++                            status=ToolStatus.FAIL,
++                            tool_name="dmtx",
++                            error="Codigo incorrecto",
++                            error_code="DMTX_MISMATCH",
++                        )
++                    },
++                    "execution_order": ["dmtx_1"],
++                    "skipped_steps": [],
++                    "step_durations_ms": {"dmtx_1": 12.5},
++                },
++                communication={"status": "OK"},
++                reason="Codigo incorrecto",
++            )
++
++            saved = json.loads(
++                (Path(temp_dir) / "cycles.jsonl").read_text(encoding="utf-8")
++            )
++            self.assertEqual(saved, record)
++            self.assertEqual(saved["installation_id"], "station-01")
++            self.assertEqual(saved["cycle_id"], "cycle-abc")
++            self.assertEqual(saved["external_model"], "SKU-42")
++            self.assertEqual(saved["recipe"], "RECIPE_42")
++            self.assertEqual(saved["steps"][0]["status"], "FAIL")
++            self.assertEqual(saved["steps"][0]["duration_ms"], 12.5)
++            self.assertEqual(saved["communication"]["status"], "OK")
++
++    def test_rotation_bounds_number_of_cycle_files(self):
++        with tempfile.TemporaryDirectory() as temp_dir:
++            writer = CycleTraceWriter(
++                directory=temp_dir,
++                retention_files=2,
++                max_file_size_bytes=1,
++            )
++            for index in range(5):
++                writer.record_cycle(
++                    context={"cycle_id": f"c-{index}"},
++                    recipe_name="R",
++                    final_result="OK",
++                )
++
++            files = sorted(Path(temp_dir).glob("cycles*.jsonl"))
++            self.assertLessEqual(len(files), 2)
++            self.assertTrue((Path(temp_dir) / "cycles.jsonl").exists())
++
++    def test_disabled_writer_creates_no_cycle_file(self):
++        with tempfile.TemporaryDirectory() as temp_dir:
++            writer = CycleTraceWriter(directory=temp_dir, enabled=False)
++            result = writer.record_cycle(
++                context={"cycle_id": "ignored"},
++                recipe_name="R",
++                final_result="OK",
++            )
++            self.assertIsNone(result)
++            self.assertFalse((Path(temp_dir) / "cycles.jsonl").exists())
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/ui/system_config_dialog.py b/ui/system_config_dialog.py
+index 6e0a49c..0d70f6d 100644
+--- a/ui/system_config_dialog.py
++++ b/ui/system_config_dialog.py
+@@ -76,6 +76,7 @@ class SystemConfigDialog(QDialog):
+         self._build_controller_tab()
+         self._build_mapping_tab()
+         self._build_runtime_tab()
++        self._build_traceability_tab()
+         self._apply_help_texts()
+ 
+         notice = QLabel(
+@@ -215,6 +216,19 @@ class SystemConfigDialog(QDialog):
+         form.addRow("Asentamiento mecanico (ms)", self.spn_mechanical_settle)
+         form.addRow("Timeout de inspeccion (s)", self.spn_inspection_timeout)
+ 
++    def _build_traceability_tab(self):
++        form = self._form_tab("Registros")
++        self.chk_traceability_enabled = QCheckBox()
++        self.txt_traceability_directory = QLineEdit()
++        self.spn_trace_file_size = self._float_spin(0.1, 4096.0, 1)
++        self.spn_trace_retention_files = self._int_spin(1, 1000)
++        self.spn_trace_retention_days = self._int_spin(0, 3650)
++        form.addRow("Guardar ciclos", self.chk_traceability_enabled)
++        form.addRow("Directorio", self.txt_traceability_directory)
++        form.addRow("Tamano por archivo (MB)", self.spn_trace_file_size)
++        form.addRow("Archivos retenidos", self.spn_trace_retention_files)
++        form.addRow("Retencion maxima (dias)", self.spn_trace_retention_days)
++
+     def _apply_help_texts(self):
+         help_texts = {
+             self.txt_installation_id: "ID tecnico estable de esta estacion.",
+@@ -240,6 +254,11 @@ class SystemConfigDialog(QDialog):
+             self.spn_max_frame_age: "Descarta frames mas antiguos que este limite.",
+             self.spn_mechanical_settle: "Espera cancelable para inmovilizar la pieza tras el trigger.",
+             self.spn_inspection_timeout: "Tiempo total maximo del ciclo de vision.",
++            self.chk_traceability_enabled: "Conserva un registro JSON por cada ciclo.",
++            self.txt_traceability_directory: "Directorio de registros y diagnostico de arranque.",
++            self.spn_trace_file_size: "Rota cycles.jsonl cuando alcanza este tamano.",
++            self.spn_trace_retention_files: "Cantidad maxima de archivos de ciclos conservados.",
++            self.spn_trace_retention_days: "Elimina rotaciones mas antiguas; 0 desactiva este limite.",
+         }
+         for widget, description in help_texts.items():
+             widget.setToolTip(description)
+@@ -305,6 +324,7 @@ class SystemConfigDialog(QDialog):
+         camera = data.get("camera", {})
+         controller = data.get("controller", {})
+         runtime = data.get("runtime", {})
++        traceability = data.get("traceability", {})
+ 
+         self.txt_installation_id.setText(str(installation.get("id", "")))
+         self.txt_installation_name.setText(str(installation.get("name", "")))
+@@ -354,6 +374,21 @@ class SystemConfigDialog(QDialog):
+         self.spn_inspection_timeout.setValue(
+             float(runtime.get("inspection_timeout_seconds", 20.0))
+         )
++        self.chk_traceability_enabled.setChecked(
++            bool(traceability.get("enabled", True))
++        )
++        self.txt_traceability_directory.setText(
++            str(traceability.get("directory", "runtime/traceability"))
++        )
++        self.spn_trace_file_size.setValue(
++            float(traceability.get("max_file_size_mb", 10.0))
++        )
++        self.spn_trace_retention_files.setValue(
++            int(traceability.get("retention_files", 10))
++        )
++        self.spn_trace_retention_days.setValue(
++            int(traceability.get("retention_days", 30))
++        )
+ 
+     def _read_ports(self):
+         ports = {}
+@@ -415,6 +450,13 @@ class SystemConfigDialog(QDialog):
+             "mechanical_settle_ms": self.spn_mechanical_settle.value(),
+             "inspection_timeout_seconds": self.spn_inspection_timeout.value(),
+         })
++        candidate.setdefault("traceability", {}).update({
++            "enabled": self.chk_traceability_enabled.isChecked(),
++            "directory": self.txt_traceability_directory.text().strip(),
++            "max_file_size_mb": self.spn_trace_file_size.value(),
++            "retention_files": self.spn_trace_retention_files.value(),
++            "retention_days": self.spn_trace_retention_days.value(),
++        })
+         return candidate
+ 
+     def _save(self):
+diff --git a/vision/camera_worker.py b/vision/camera_worker.py
+index ca49847..5c35e4d 100644
+--- a/vision/camera_worker.py
++++ b/vision/camera_worker.py
+@@ -21,6 +21,7 @@ class CameraWorker(QObject):
+     focus_check_started = Signal()
+     focus_check_finished = Signal(object)
+     focus_check_failed = Signal(str)
++    diagnostic_update = Signal(object)
+ 
+     def __init__(
+         self,
+@@ -97,6 +98,17 @@ class CameraWorker(QObject):
+ 
+         self.recalibrate_request.connect(self.recalibrate_focus)
+ 
++    def emit_diagnostic(self, status, message, action="", details=None, blocking=False):
++        self.diagnostic_update.emit({
++            "key": "camera.runtime",
++            "status": status,
++            "component": "camera",
++            "message": message,
++            "action": action,
++            "details": dict(details or {}),
++            "blocking": bool(blocking),
++        })
++
+     def is_linux(self):
+         return self.platform == "linux"
+ 
+@@ -186,6 +198,13 @@ class CameraWorker(QObject):
+ 
+         if self.device is None:
+             print("[CAMERA] No hay camara disponible")
++            self.emit_diagnostic(
++                "ERROR",
++                "No se encontro una camara que entregue frames validos",
++                "Revisa USB/alimentacion y camera.device; despues reinicia",
++                details={"requested_device": self.camera_index},
++                blocking=True,
++            )
+             return False
+ 
+         if self.is_linux():
+@@ -197,16 +216,28 @@ class CameraWorker(QObject):
+ 
+         if self.cap is None or not self.cap.isOpened():
+             print(f"[CAMERA][ERROR] No se pudo abrir la camara {self.device}")
++            self.emit_diagnostic(
++                "ERROR",
++                f"No se pudo abrir la camara {self.device}",
++                "Cierra otras aplicaciones que usen la camara y revisa permisos",
++                details={"requested_device": self.camera_index, "resolved_device": self.device},
++                blocking=True,
++            )
+             return False
+ 
+-        self.configure_resolution()
++        active_format = self.configure_resolution()
++        self.emit_diagnostic(
++            "PASS",
++            f"Camara operativa en {active_format['actual_width']}x{active_format['actual_height']}",
++            details=active_format,
++        )
+ 
+         return True
+ 
+     def configure_resolution(self):
+         # INTENTA DEFINIR LA RESOLUCION DADA
+         if self.cap is None:
+-            return
++            return {}
+ 
+         if self.is_linux():
+             self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+@@ -226,6 +257,20 @@ class CameraWorker(QObject):
+         print(f"[CAMERA] Resolucion solicitada: {self.width} x {self.height}")
+         print(f"[CAMERA] Resolucion activa: {real_width} x {real_height}")
+         print(f"[CAMERA] FPS activo: {real_fps:.2f}")
++        return {
++            "requested_device": self.camera_index,
++            "resolved_device": self.device,
++            "requested_width": self.width,
++            "requested_height": self.height,
++            "requested_fps": self.capture_fps,
++            "actual_width": real_width,
++            "actual_height": real_height,
++            "actual_fps": round(float(real_fps), 3),
++            "format_matches_request": (
++                real_width == int(self.width)
++                and real_height == int(self.height)
++            ),
++        }
+ 
+     def warmup_camera(self, frames=30, delay=0.02):
+         # LEE CIERTOS FRAMES PARA ESTABILIZAR CAMARA
+@@ -1437,6 +1482,13 @@ class CameraWorker(QObject):
+ 
+         except Exception as e:
+             print(f"[CAMERA][ERROR] Error en camara: {e}")
++            self.emit_diagnostic(
++                "ERROR",
++                f"El worker de camara termino por error: {e}",
++                "Revisa el reporte de arranque, el dispositivo y el driver",
++                details={"resolved_device": self.device},
++                blocking=True,
++            )
+ 
+         finally:
+             print("[CAMERA] Liberando camara...")
+-- 
+2.51.1
+

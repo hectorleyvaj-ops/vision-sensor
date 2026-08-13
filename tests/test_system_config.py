@@ -66,6 +66,16 @@ class SystemConfigTests(unittest.TestCase):
             ):
                 SystemConfig(path)
 
+    def test_traceability_retention_must_be_bounded(self):
+        invalid = json.loads(self.config_path.read_text(encoding="utf-8"))
+        invalid["traceability"]["retention_files"] = 0
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "system.json"
+            path.write_text(json.dumps(invalid), encoding="utf-8")
+            with self.assertRaisesRegex(SystemConfigError, "retention_files"):
+                SystemConfig(path)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -43,7 +43,7 @@ class StateWorker(QObject):
 
                 if steps > MAX_STEPS:
                     self.log.emit("[FSM][ERROR] Se alcanzo el maximo de pasos, forzando reset...")
-                    self.sm.reset()
+                    self.sm.abort_cycle("FSM_MAX_STEPS")
                     break
 
                 time.sleep(0.01)
@@ -52,7 +52,7 @@ class StateWorker(QObject):
         except Exception as e:
             self.log.emit(f"[FSM][ERROR] Error en StateWorker: {e}")
             try:
-                self.sm.reset()
+                self.sm.abort_cycle(f"STATE_WORKER_EXCEPTION: {e}")
             except Exception:
                 pass
 

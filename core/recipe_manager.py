@@ -13,7 +13,7 @@ class RecipeManager:
     SCHEMA_VERSION = 3
 
     def __init__(self, path="recipes.json", auto_migrate=True):
-        self.path = path
+        self.path = os.fspath(path)
         self.auto_migrate = bool(auto_migrate)
         self._ensure_file()
 

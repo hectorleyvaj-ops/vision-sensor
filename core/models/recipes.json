@@ -1,5 +1,5 @@
 {
-    "schema_version": 2,
+    "schema_version": 3,
     "recipes": [
         {
             "name": "MODELO_A",
@@ -24,7 +24,8 @@
                         "preprocess": true,
                         "upscale": 2.0,
                         "decode_timeout_ms": 250,
-                        "max_total_time": 20.0
+                        "max_total_time": 20.0,
+                        "match_mode": "exact"
                     },
                     "id": "dmtx_1",
                     "enabled": true,

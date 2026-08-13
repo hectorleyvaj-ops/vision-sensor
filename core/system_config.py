@@ -194,6 +194,42 @@ class SystemConfig:
                 "runtime.inspection_timeout_seconds debe ser mayor que cero"
             )
 
+        traceability = cls._section_from(data, "traceability")
+        if traceability:
+            if not isinstance(traceability.get("enabled", True), bool):
+                raise SystemConfigError(
+                    "traceability.enabled debe ser booleano"
+                )
+            directory = traceability.get("directory", "runtime/traceability")
+            if not isinstance(directory, str) or not directory.strip():
+                raise SystemConfigError(
+                    "traceability.directory es obligatorio"
+                )
+            if not cls._is_positive_number(
+                traceability.get("max_file_size_mb", 10.0)
+            ):
+                raise SystemConfigError(
+                    "traceability.max_file_size_mb debe ser mayor que cero"
+                )
+            retention_files = traceability.get("retention_files", 10)
+            if (
+                not isinstance(retention_files, int)
+                or isinstance(retention_files, bool)
+                or retention_files <= 0
+            ):
+                raise SystemConfigError(
+                    "traceability.retention_files debe ser un entero positivo"
+                )
+            retention_days = traceability.get("retention_days", 30)
+            if (
+                not isinstance(retention_days, int)
+                or isinstance(retention_days, bool)
+                or retention_days < 0
+            ):
+                raise SystemConfigError(
+                    "traceability.retention_days debe ser un entero no negativo"
+                )
+
         return copy.deepcopy(data)
 
     def save(self, data, recipe_names=None):

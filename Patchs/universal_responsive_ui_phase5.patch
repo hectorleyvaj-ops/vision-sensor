@@ -1,0 +1,1000 @@
+From b7ac2a69f5eb1a7ca28c9fab55daa114a3e02a50 Mon Sep 17 00:00:00 2001
+From: Codex Phase Builder <phase-builder@localhost>
+Date: Tue, 11 Aug 2026 15:29:20 -0600
+Subject: [PATCH] Add responsive display adaptation
+
+---
+ app/app.py                             |  28 +++-
+ core/display_profile.py                | 112 ++++++++++++++++
+ docs/responsive_interface.md           |  35 +++++
+ docs/system_configuration_reference.md |   9 +-
+ docs/universal_configuration_ui.md     |   4 +
+ tests/test_display_profile.py          |  40 ++++++
+ ui/config_window_logic.py              |  96 ++++++-------
+ ui/focus_config_dialog.py              |  23 +++-
+ ui/recipe_policy_dialogs.py            |  27 +++-
+ ui/responsive.py                       | 178 +++++++++++++++++++++++++
+ ui/system_config_dialog.py             |  60 +++++++--
+ ui/tool_editor.py                      |   6 +-
+ 12 files changed, 551 insertions(+), 67 deletions(-)
+ create mode 100644 core/display_profile.py
+ create mode 100644 docs/responsive_interface.md
+ create mode 100644 tests/test_display_profile.py
+ create mode 100644 ui/responsive.py
+
+diff --git a/app/app.py b/app/app.py
+index aadfa67..aa448ed 100644
+--- a/app/app.py
++++ b/app/app.py
+@@ -18,6 +18,11 @@ from app.state_worker import StateWorker
+ from vision.camera_worker import CameraWorker
+ from core.recipe_manager import RecipeManager
+ from core.system_config import SystemConfig
++from ui.responsive import (
++    apply_main_window_layout,
++    profile_from_screen,
++    profile_from_widget,
++)
+ 
+ class MainWindow(QMainWindow):
+     def __init__(self):
+@@ -25,6 +30,9 @@ class MainWindow(QMainWindow):
+ 
+         self.ui = Ui_MainWindow()
+         self.ui.setupUi(self)
++        self.display_profile = profile_from_widget(self)
++        apply_main_window_layout(self, self.ui, self.display_profile)
++        QTimer.singleShot(0, self._bind_display_screen)
+ 
+         self.setup_ui_logger()
+         print(f"Qt backend: {QT_LIB}")
+@@ -192,6 +200,24 @@ class MainWindow(QMainWindow):
+ 
+         return "other"
+ 
++    def _bind_display_screen(self):
++        """Refresh the layout if the window is moved to another monitor."""
++        handle = self.windowHandle()
++        if handle is None:
++            return
++        try:
++            handle.screenChanged.connect(self.on_display_screen_changed)
++        except (AttributeError, TypeError):
++            pass
++
++    def on_display_screen_changed(self, screen):
++        self.display_profile = profile_from_screen(screen)
++        apply_main_window_layout(self, self.ui, self.display_profile)
++        print(
++            f"[UI] Pantalla activa: {self.display_profile.width}x"
++            f"{self.display_profile.height} ({self.display_profile.mode})"
++        )
++
+     def apply_main_button_feedbacks(self):
+         buttons = [
+             self.ui.btn_config,
+@@ -961,6 +987,7 @@ class MainWindow(QMainWindow):
+             camera_worker=self.camera_worker,
+             system_config=self.system_config,
+             available_tools=self.processor.tool_registry.keys(),
++            display_profile=self.display_profile,
+         )
+         # CONECTAR SIGNALS DESDE CONFIG WINDOW
+         self.config_window.update_rois.connect(
+@@ -980,7 +1007,6 @@ class MainWindow(QMainWindow):
+         if self.platform == "linux":
+             self.config_window.showFullScreen()
+         else:
+-            self.config_window.resize(480, 320)
+             self.config_window.show()
+ 
+     def on_system_configuration_saved(self, _saved_config):
+diff --git a/core/display_profile.py b/core/display_profile.py
+new file mode 100644
+index 0000000..7ac73e6
+--- /dev/null
++++ b/core/display_profile.py
+@@ -0,0 +1,112 @@
++from dataclasses import dataclass
++
++
++@dataclass(frozen=True)
++class DisplayProfile:
++    """Resolution-derived UI policy independent from camera configuration."""
++
++    width: int
++    height: int
++    mode: str
++    scale: float
++    margin: int
++    spacing: int
++    touch_target: int
++    title_points: int
++    body_points: int
++    top_bar_height: int
++    log_height: int
++    indicator_size: int
++    dialog_video_height: int
++
++    @property
++    def compact(self):
++        return self.mode == "compact"
++
++    @property
++    def wide(self):
++        return self.mode == "wide"
++
++
++def build_display_profile(width, height):
++    """Return deterministic layout values for the available screen geometry."""
++    width = max(320, int(width or 0))
++    height = max(240, int(height or 0))
++
++    if width <= 600 or height <= 360:
++        mode = "compact"
++    elif width >= 1200 and height >= 700:
++        mode = "wide"
++    else:
++        mode = "standard"
++
++    raw_scale = min(width / 800.0, height / 480.0)
++    scale = max(0.70, min(1.50, raw_scale))
++
++    if mode == "compact":
++        return DisplayProfile(
++            width=width,
++            height=height,
++            mode=mode,
++            scale=scale,
++            margin=4,
++            spacing=4,
++            touch_target=34,
++            title_points=11,
++            body_points=9,
++            top_bar_height=38,
++            log_height=44,
++            indicator_size=48,
++            dialog_video_height=max(112, min(140, int(height * 0.40))),
++        )
++
++    if mode == "wide":
++        return DisplayProfile(
++            width=width,
++            height=height,
++            mode=mode,
++            scale=scale,
++            margin=14,
++            spacing=12,
++            touch_target=44,
++            title_points=16,
++            body_points=12,
++            top_bar_height=54,
++            log_height=110,
++            indicator_size=72,
++            dialog_video_height=min(420, int(height * 0.48)),
++        )
++
++    return DisplayProfile(
++        width=width,
++        height=height,
++        mode=mode,
++        scale=scale,
++        margin=9,
++        spacing=8,
++        touch_target=38,
++        title_points=14,
++        body_points=10,
++        top_bar_height=45,
++        log_height=80,
++        indicator_size=60,
++        dialog_video_height=min(300, int(height * 0.45)),
++    )
++
++
++def preferred_window_size(profile):
++    """Choose a useful non-kiosk size without exceeding the active screen."""
++    if profile.compact:
++        return profile.width, profile.height
++    if profile.wide:
++        return min(1200, profile.width), min(760, profile.height)
++    return min(800, profile.width), min(480, profile.height)
++
++
++def preferred_dialog_size(profile, requested_width=800, requested_height=600):
++    """Fit a dialog within the available desktop while keeping small margins."""
++    if profile.compact:
++        return profile.width, profile.height
++    max_width = max(320, profile.width - 48)
++    max_height = max(240, profile.height - 48)
++    return min(requested_width, max_width), min(requested_height, max_height)
+diff --git a/docs/responsive_interface.md b/docs/responsive_interface.md
+new file mode 100644
+index 0000000..64d1ea2
+--- /dev/null
++++ b/docs/responsive_interface.md
+@@ -0,0 +1,35 @@
++# Interfaz responsiva y deteccion de pantalla
++
++La interfaz no toma el tamano del monitor desde `system.json`. El motor consulta
++el area disponible de la pantalla activa al iniciar y cuando la ventana cambia
++de monitor. La resolucion de captura de la camara permanece independiente.
++
++## Perfiles calculados
++
++| Modo | Regla principal | Comportamiento |
++|---|---|---|
++| `compact` | ancho <= 600 o alto <= 360 | Pensado para 480x320: margenes reducidos, log compacto, controles tactiles y dialogos a pantalla completa. |
++| `standard` | resoluciones intermedias | Conserva una composicion cercana a 800x480 sin limites fijos. |
++| `wide` | ancho >= 1200 y alto >= 700 | Aumenta tipografia, separacion y area de video sin expandir la ventana indefinidamente. |
++
++`core/display_profile.py` contiene la politica pura y comprobable.
++`ui/responsive.py` aplica esa politica a las ventanas Qt y elimina en tiempo de
++ejecucion los limites rigidos heredados de los archivos generados por Qt
++Designer.
++
++## Criterios
++
++- el area de video siempre puede contraerse y crecer;
++- los botones principales conservan un objetivo tactil minimo;
++- los editores modales nunca exceden la pantalla disponible;
++- los formularios largos usan desplazamiento;
++- en modo compacto se ocultan etiquetas redundantes y el log de configuracion;
++- cambiar de monitor vuelve a calcular el layout de la ventana principal;
++- `camera.width` y `camera.height` nunca modifican el layout.
++
++## Limite de validacion
++
++Las reglas y el codigo pueden probarse sin hardware. La aprobacion visual final
++requiere ejecutar la aplicacion con PySide6 en 480x320 real, revisar el tactil y
++confirmar que el escalado del sistema operativo sea 100 %. Esa prueba puede
++producir ajustes esteticos, pero no debe cambiar el contrato de configuracion.
+diff --git a/docs/system_configuration_reference.md b/docs/system_configuration_reference.md
+index 10ce448..bbcaef3 100644
+--- a/docs/system_configuration_reference.md
++++ b/docs/system_configuration_reference.md
+@@ -27,5 +27,10 @@ ni cambia el codigo del motor.
+ | Ejecucion | Timeout inspeccion | Limite total desde trigger hasta decision de vision. |
+ 
+ `camera.width` y `camera.height` corresponden a la imagen capturada. No controlan
+-el tamano de la ventana ni la resolucion del monitor. La deteccion de pantalla y
+-el layout responsivo se implementaran en una fase posterior.
++el tamano de la ventana ni la resolucion del monitor. La interfaz detecta el
++area disponible automaticamente y selecciona un modo compacto, estandar o
++amplio; no existe un parametro de monitor en `system.json`.
++
++Todos los cambios de este panel se validan antes de escribirse, conservan un
++respaldo `system.json.bak` y requieren reiniciar la aplicacion para reconstruir
++camara, enlace serial y politicas de ejecucion.
+diff --git a/docs/universal_configuration_ui.md b/docs/universal_configuration_ui.md
+index c46fc95..3410d0a 100644
+--- a/docs/universal_configuration_ui.md
++++ b/docs/universal_configuration_ui.md
+@@ -4,6 +4,10 @@ La ventana de configuracion sigue editando una sola aplicacion y una sola
+ instalacion. Los botones nuevos no activan perfiles ni agregan logica de una
+ maquina concreta.
+ 
++La geometria de la interfaz tampoco pertenece a la configuracion de estacion.
++Se calcula desde la pantalla activa mediante los modos `compact`, `standard` y
++`wide`; consulte `docs/responsive_interface.md`.
++
+ ## Sistema
+ 
+ `SISTEMA` abre un editor por pestanas para:
+diff --git a/tests/test_display_profile.py b/tests/test_display_profile.py
+new file mode 100644
+index 0000000..086ddf0
+--- /dev/null
++++ b/tests/test_display_profile.py
+@@ -0,0 +1,40 @@
++import unittest
++
++from core.display_profile import (
++    build_display_profile,
++    preferred_dialog_size,
++    preferred_window_size,
++)
++
++
++class DisplayProfileTests(unittest.TestCase):
++    def test_raspberry_touchscreen_uses_compact_profile(self):
++        profile = build_display_profile(480, 320)
++        self.assertEqual(profile.mode, "compact")
++        self.assertEqual(preferred_window_size(profile), (480, 320))
++        self.assertGreaterEqual(profile.touch_target, 34)
++        self.assertLessEqual(profile.dialog_video_height, 140)
++
++    def test_small_dimensions_are_clamped_to_safe_minimum(self):
++        profile = build_display_profile(0, 0)
++        self.assertEqual((profile.width, profile.height), (320, 240))
++
++    def test_800_by_480_keeps_standard_layout(self):
++        profile = build_display_profile(800, 480)
++        self.assertEqual(profile.mode, "standard")
++        self.assertEqual(preferred_window_size(profile), (800, 480))
++
++    def test_large_monitor_uses_wide_layout_without_unbounded_window(self):
++        profile = build_display_profile(1920, 1080)
++        self.assertEqual(profile.mode, "wide")
++        self.assertEqual(preferred_window_size(profile), (1200, 760))
++
++    def test_dialog_never_exceeds_available_geometry(self):
++        compact = build_display_profile(480, 320)
++        wide = build_display_profile(1366, 768)
++        self.assertEqual(preferred_dialog_size(compact), (480, 320))
++        self.assertEqual(preferred_dialog_size(wide, 1600, 900), (1318, 720))
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/ui/config_window_logic.py b/ui/config_window_logic.py
+index 37fa17c..467b85f 100644
+--- a/ui/config_window_logic.py
++++ b/ui/config_window_logic.py
+@@ -12,6 +12,12 @@ from ui.schemas.schemas import TOOL_SCHEMAS
+ from ui.focus_config_dialog import FocusConfigDialog
+ from ui.recipe_policy_dialogs import RecipeSettingsDialog, StepPolicyEditor
+ from ui.system_config_dialog import SystemConfigDialog
++from ui.responsive import (
++    apply_config_window_layout,
++    compact_stylesheet,
++    configure_dialog,
++    profile_from_widget,
++)
+ import shutil
+ 
+ class ConfigWindow(QWidget):
+@@ -28,14 +34,20 @@ class ConfigWindow(QWidget):
+         camera_worker=None,
+         system_config=None,
+         available_tools=None,
++        display_profile=None,
+     ):
+         super().__init__()
+ 
+         self.ui = Ui_Form()
+         self.ui.setupUi(self)
++        self.display_profile = display_profile or profile_from_widget(self)
+         self._build_universal_controls()
++        apply_config_window_layout(self, self.ui, self.display_profile)
+         
+         self.apply_config_style()
++        self.setStyleSheet(
++            self.styleSheet() + compact_stylesheet(self.display_profile)
++        )
+         self.apply_button_feedbakcs()
+ 
+         self.recipe_manager = recipe_manager
+@@ -58,13 +70,14 @@ class ConfigWindow(QWidget):
+         self.ui.bttm_layout.setSpacing(6)
+         self.ui.bttm_layout.insertWidget(1, self.btn_installation_config)
+         self.ui.bttm_layout.insertWidget(2, self.btn_recipe_config)
++        max_width = 92 if self.display_profile.compact else 105
+         for button in (
+             self.btn_installation_config,
+             self.btn_recipe_config,
+             self.ui.btn_save,
+             self.ui.btn_out,
+         ):
+-            button.setMaximumWidth(105)
++            button.setMaximumWidth(max_width)
+ 
+     def apply_config_style(self):
+         self.setStyleSheet("""
+@@ -332,13 +345,7 @@ class ConfigWindow(QWidget):
+         """)
+ 
+     def get_screen_size(self):
+-        screen = self.screen()
+-
+-        if screen is None:
+-            return (480, 320)
+-        
+-        geo = screen.availableGeometry()
+-        return geo.width(), geo.height()
++        return self.display_profile.width, self.display_profile.height
+ 
+     def safe_name(self, name):
+         return name.replace(" ","_").replace("/","_").replace("\\","_")
+@@ -379,12 +386,15 @@ class ConfigWindow(QWidget):
+             recipe_manager=self.recipe_manager,
+             platform=self.platform,
+             parent=self,
++            display_profile=self.display_profile,
+         )
+         dialog.configuration_saved.connect(self.restart_required.emit)
+-        if self.platform == "linux":
+-            dialog.showFullScreen()
+-        else:
+-            dialog.resize(800, 600)
++        configure_dialog(
++            dialog,
++            self.display_profile,
++            requested=(800, 600),
++            fullscreen=self.platform == "linux",
++        )
+         if hasattr(dialog, "exec"):
+             dialog.exec()
+         else:
+@@ -404,12 +414,15 @@ class ConfigWindow(QWidget):
+             recipe_manager=self.recipe_manager,
+             available_tools=self.available_tools,
+             parent=self,
++            display_profile=self.display_profile,
+         )
+         dialog.recipe_saved.connect(self.on_recipe_settings_saved)
+-        if self.platform == "linux":
+-            dialog.showFullScreen()
+-        else:
+-            dialog.resize(520, 320)
++        configure_dialog(
++            dialog,
++            self.display_profile,
++            requested=(520, 320),
++            fullscreen=self.platform == "linux",
++        )
+         if hasattr(dialog, "exec"):
+             dialog.exec()
+         else:
+@@ -432,7 +445,8 @@ class ConfigWindow(QWidget):
+             recipe=self.current_recipe,
+             get_frame_callback=self.get_frame,
+             platform=self.platform,
+-            parent=self
++            parent=self,
++            display_profile=self.display_profile,
+         )
+ 
+         if self.camera_worker is not None:
+@@ -445,14 +459,12 @@ class ConfigWindow(QWidget):
+             dialog.lbl_status.setText("Error: CameraWorker no está disponible.")
+             dialog.btn_calibrate.setEnabled(False)
+ 
+-        screen_size = self.get_screen_size()
+-        sw, sh = screen_size
+-
+-        if self.platform == "linux":
+-            dialog.setMinimumSize(sw, sh)
+-            dialog.showFullScreen()
+-        else:
+-            dialog.resize(800, 600)
++        configure_dialog(
++            dialog,
++            self.display_profile,
++            requested=(800, 600),
++            fullscreen=self.platform == "linux",
++        )
+ 
+         if hasattr(dialog, "exec"):
+             result = dialog.exec()
+@@ -578,12 +590,6 @@ class ConfigWindow(QWidget):
+         dialog.setWindowTitle(f"Editar {tool_name}")
+ 
+         screen_size = self.get_screen_size()
+-        sw, sh =  screen_size
+-
+-        if self.platform == "linux": 
+-            dialog.setMinimumSize(sw, sh)
+-        else:
+-            dialog.setMinimumSize(700,520)
+ 
+         dialog.setStyleSheet(self.styleSheet())
+ 
+@@ -609,6 +615,7 @@ class ConfigWindow(QWidget):
+         policy_editor = StepPolicyEditor(
+             step=step,
+             available_step_ids=previous_step_ids,
++            display_profile=self.display_profile,
+         )
+ 
+         scroll = QScrollArea()
+@@ -665,10 +672,12 @@ class ConfigWindow(QWidget):
+         btn_save.clicked.connect(save)
+         btn_cancel.clicked.connect(dialog.reject)
+ 
+-        if self.platform == "linux":
+-            dialog.showFullScreen()
+-        else:
+-            dialog.resize(700, 520)
++        configure_dialog(
++            dialog,
++            self.display_profile,
++            requested=(700, 520),
++            fullscreen=self.platform == "linux",
++        )
+ 
+         if hasattr(dialog, "exec"):
+             dialog.exec()
+@@ -704,12 +713,6 @@ class ConfigWindow(QWidget):
+         tool_name, base_path = create_path()
+ 
+         screen_size = self.get_screen_size()
+-        sw, sh =  screen_size
+-
+-        if self.platform == "linux": 
+-            dialog.setMinimumSize(sw, sh)
+-        else:
+-            dialog.setMinimumSize(700,520)
+ 
+         editor = ToolEditor(
+             tool_name=tool_name,
+@@ -733,6 +736,7 @@ class ConfigWindow(QWidget):
+                 for step in self.current_recipe["steps"]
+                 if step.get("id")
+             ],
++            display_profile=self.display_profile,
+         )
+ 
+         scroll = QScrollArea()
+@@ -791,10 +795,12 @@ class ConfigWindow(QWidget):
+         cmb_tools.currentTextChanged.connect(reload_ui)
+ 
+         # MUESTRA LA NUEVA VENTANA DE EDICION DE FORMA BLOQUEANTE
+-        if self.platform == "linux":
+-            dialog.showFullScreen()
+-        else:
+-            dialog.resize(700, 520)
++        configure_dialog(
++            dialog,
++            self.display_profile,
++            requested=(700, 520),
++            fullscreen=self.platform == "linux",
++        )
+ 
+         if hasattr(dialog, "exec"):
+             dialog.exec()
+diff --git a/ui/focus_config_dialog.py b/ui/focus_config_dialog.py
+index 392d352..439f01a 100644
+--- a/ui/focus_config_dialog.py
++++ b/ui/focus_config_dialog.py
+@@ -4,29 +4,42 @@ from utils.qt_compat import (
+ )
+ 
+ from ui.widgets.video_widget import VideoWidget
++from ui.responsive import compact_stylesheet, profile_from_widget
+ 
+ class FocusConfigDialog(QDialog):
+     calibration_requested = Signal(object)
+ 
+-    def __init__(self, recipe, get_frame_callback, platform="windows", parent=None):
++    def __init__(
++        self,
++        recipe,
++        get_frame_callback,
++        platform="windows",
++        parent=None,
++        display_profile=None,
++    ):
+         super().__init__(parent)
+ 
+         self.recipe = recipe
+         self.get_frame = get_frame_callback
+         self.platform = platform
++        self.display_profile = display_profile or profile_from_widget(parent or self)
+ 
+         self.focus_result = None
+ 
+         self.setWindowTitle("Calibracion de enfoque")
+-        self.setStyleSheet(parent.styleSheet() if parent else "")
++        parent_style = parent.styleSheet() if parent else ""
++        self.setStyleSheet(
++            parent_style + compact_stylesheet(self.display_profile)
++        )
+ 
+         self.build_ui()
+         self.load_focus_config()
+ 
+     def build_ui(self):
+         layout = QVBoxLayout(self)
+-        layout.setContentsMargins(18, 18, 18, 18)
+-        layout.setSpacing(14)
++        margin = self.display_profile.margin
++        layout.setContentsMargins(margin, margin, margin, margin)
++        layout.setSpacing(self.display_profile.spacing)
+ 
+         self.lbl_status = QLabel("Selecciona una ROI de enfoque o usa la existente")
+         self.lbl_status.setAlignment(Qt.AlignCenter)
+@@ -57,6 +70,8 @@ class FocusConfigDialog(QDialog):
+             fill_mode="fit"
+         )
+         self.video.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
++        self.video.setMinimumSize(120, 80)
++        self.video.setMaximumHeight(self.display_profile.dialog_video_height)
+ 
+         self.btn_select_roi = QPushButton("SELECT ROI")
+         self.btn_clear_roi = QPushButton("FRAME COMPLETO")
+diff --git a/ui/recipe_policy_dialogs.py b/ui/recipe_policy_dialogs.py
+index 305eff2..1345dae 100644
+--- a/ui/recipe_policy_dialogs.py
++++ b/ui/recipe_policy_dialogs.py
+@@ -19,13 +19,21 @@ from utils.qt_compat import (
+     QWidget,
+     Signal,
+ )
++from ui.responsive import compact_stylesheet, profile_from_widget
+ 
+ 
+ class StepPolicyEditor(QWidget):
+     """Edit engine-owned step policy separately from tool parameters."""
+ 
+-    def __init__(self, step=None, available_step_ids=None, parent=None):
++    def __init__(
++        self,
++        step=None,
++        available_step_ids=None,
++        parent=None,
++        display_profile=None,
++    ):
+         super().__init__(parent)
++        self.display_profile = display_profile or profile_from_widget(parent or self)
+         self.available_step_ids = list(available_step_ids or [])
+         form = QFormLayout(self)
+         form.setContentsMargins(8, 8, 8, 8)
+@@ -33,7 +41,8 @@ class StepPolicyEditor(QWidget):
+         self.chk_enabled = QCheckBox()
+         self.chk_required = QCheckBox()
+         self.txt_condition = QPlainTextEdit()
+-        self.txt_condition.setMinimumHeight(95)
++        condition_height = 60 if self.display_profile.compact else 95
++        self.txt_condition.setMinimumHeight(condition_height)
+         self.txt_condition.setPlaceholderText(
+             '{"type": "always"} o una condicion del esquema v2'
+         )
+@@ -70,14 +79,24 @@ class StepPolicyEditor(QWidget):
+ class RecipeSettingsDialog(QDialog):
+     recipe_saved = Signal(object)
+ 
+-    def __init__(self, recipe, recipe_manager, available_tools, parent=None):
++    def __init__(
++        self,
++        recipe,
++        recipe_manager,
++        available_tools,
++        parent=None,
++        display_profile=None,
++    ):
+         super().__init__(parent)
+         self.recipe = recipe
+         self.recipe_manager = recipe_manager
+         self.available_tools = list(available_tools or [])
++        self.display_profile = display_profile or profile_from_widget(parent or self)
+         self.setWindowTitle("Configuracion de receta")
+         if parent is not None:
+-            self.setStyleSheet(parent.styleSheet())
++            self.setStyleSheet(
++                parent.styleSheet() + compact_stylesheet(self.display_profile)
++            )
+         self._build_ui()
+         self._load_values()
+ 
+diff --git a/ui/responsive.py b/ui/responsive.py
+new file mode 100644
+index 0000000..b87df09
+--- /dev/null
++++ b/ui/responsive.py
+@@ -0,0 +1,178 @@
++from core.display_profile import (
++    build_display_profile,
++    preferred_dialog_size,
++    preferred_window_size,
++)
++from utils.qt_compat import QSizePolicy
++
++
++WIDGET_SIZE_MAX = 16777215
++
++
++def profile_from_screen(screen, fallback=(800, 480)):
++    if screen is None:
++        return build_display_profile(*fallback)
++    geometry = screen.availableGeometry()
++    return build_display_profile(geometry.width(), geometry.height())
++
++
++def profile_from_widget(widget, fallback=(800, 480)):
++    screen = widget.screen() if widget is not None else None
++    return profile_from_screen(screen, fallback=fallback)
++
++
++def _unlock(widget, minimum=(0, 0)):
++    widget.setMinimumSize(*minimum)
++    widget.setMaximumSize(WIDGET_SIZE_MAX, WIDGET_SIZE_MAX)
++
++
++def _set_font_points(widget, points, bold=None):
++    font = widget.font()
++    font.setPointSize(points)
++    if bold is not None:
++        font.setBold(bold)
++    widget.setFont(font)
++
++
++def apply_main_window_layout(window, ui, profile):
++    """Remove generated fixed geometry and apply one resolution policy."""
++    _unlock(window, (320, 240))
++    _unlock(ui.centralwidget, (0, 0))
++    ui.centralwidget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
++
++    width, height = preferred_window_size(profile)
++    window.resize(width, height)
++
++    ui.verticalLayout_3.setContentsMargins(
++        profile.margin, profile.margin, profile.margin, profile.margin
++    )
++    ui.verticalLayout_3.setSpacing(profile.spacing)
++    ui.top_bar.setMinimumSize(0, profile.top_bar_height)
++    ui.top_bar.setMaximumSize(WIDGET_SIZE_MAX, profile.top_bar_height)
++    ui.horizontalLayout_5.setContentsMargins(
++        profile.margin, 2, profile.margin, 2
++    )
++    ui.horizontalLayout_5.setSpacing(profile.spacing)
++
++    for widget in (
++        ui.lbl_tittle,
++        ui.lbl_cam,
++        ui.lbl_video,
++        ui.lbl_model,
++        ui.btn_config,
++        ui.lbl_indicator_1,
++        ui.bttm_bar,
++        ui.list_log,
++    ):
++        _unlock(widget, (0, 0))
++
++    _set_font_points(ui.lbl_tittle, profile.title_points, bold=True)
++    for widget in (ui.lbl_cam, ui.lbl_model, ui.lbl_indicator_1, ui.list_log):
++        _set_font_points(widget, profile.body_points)
++
++    ui.btn_minimizar.setFixedSize(profile.touch_target, profile.touch_target)
++    ui.btn_cerrar.setFixedSize(profile.touch_target, profile.touch_target)
++    ui.btn_config.setMinimumHeight(profile.touch_target)
++    ui.btn_config.setMaximumHeight(profile.touch_target + 6)
++    ui.indicator_1.setFixedSize(profile.indicator_size, profile.indicator_size)
++
++    ui.left_panel.setSpacing(profile.spacing)
++    ui.left_panel.setContentsMargins(0, 0, 0, 0)
++    ui.right_panel.setSpacing(profile.spacing)
++    ui.right_panel.setContentsMargins(
++        profile.spacing, 0, 0, 0
++    )
++    ui.status_1.setContentsMargins(0, 0, 0, 0)
++    ui.central_panel.setSpacing(profile.spacing)
++    ui.central_panel.setStretch(0, 3)
++    ui.central_panel.setStretch(1, 2)
++
++    ui.bttm_bar.setMinimumHeight(profile.log_height)
++    ui.bttm_bar.setMaximumHeight(profile.log_height)
++    ui.list_log.setMinimumHeight(0)
++    ui.list_log.setMaximumHeight(WIDGET_SIZE_MAX)
++    ui.lbl_cam.setVisible(not profile.compact)
++
++    ui.verticalSpacer.changeSize(0, 0)
++    ui.horizontalSpacer.changeSize(0, 0)
++    ui.verticalSpacer_2.changeSize(0, 0)
++
++    window.setProperty("displayMode", profile.mode)
++    return profile
++
++
++def apply_config_window_layout(window, ui, profile):
++    _unlock(window, (320, 240))
++    window.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
++    width, height = preferred_window_size(profile)
++    window.resize(width, height)
++
++    ui.verticalLayout.setContentsMargins(
++        profile.margin, profile.margin, profile.margin, profile.margin
++    )
++    ui.verticalLayout.setSpacing(profile.spacing)
++    ui.central_layout.setSpacing(profile.spacing)
++    ui.bttm_layout.setSpacing(profile.spacing)
++    ui.bttm_layout.setContentsMargins(0, profile.spacing, 0, profile.spacing)
++
++    for widget in (
++        ui.top_bar,
++        ui.lbl_tittle,
++        ui.lbl_recipes,
++        ui.cmb_recipes,
++        ui.lbl_tools,
++        ui.cmb_tools,
++        ui.line,
++        ui.line_2,
++        ui.lbl_focus,
++        ui.frame,
++        ui.list_log_config,
++    ):
++        _unlock(widget, (0, 0))
++
++    ui.top_bar.setMinimumHeight(profile.top_bar_height)
++    ui.top_bar.setMaximumHeight(profile.top_bar_height)
++    _set_font_points(ui.lbl_tittle, profile.title_points, bold=True)
++    for widget in (ui.lbl_recipes, ui.lbl_tools, ui.lbl_focus):
++        _set_font_points(widget, profile.body_points, bold=True)
++
++    ui.horizontalSpacer_3.changeSize(0, 0)
++    ui.central_layout.setStretch(0, 1)
++    ui.central_layout.setStretch(2, 1)
++
++    ui.frame.setMinimumHeight(0)
++    ui.frame.setMaximumHeight(profile.log_height)
++    ui.frame.setVisible(not profile.compact)
++    window.setProperty("displayMode", profile.mode)
++    return profile
++
++
++def configure_dialog(dialog, profile, requested=(800, 600), fullscreen=False):
++    """Fit modal editors to the detected screen; caller chooses exec()."""
++    dialog.setMinimumSize(0, 0)
++    dialog.setMaximumSize(profile.width, profile.height)
++    width, height = preferred_dialog_size(profile, *requested)
++    dialog.resize(width, height)
++    dialog.setProperty("displayMode", profile.mode)
++    if profile.compact or fullscreen:
++        dialog.showFullScreen()
++    return profile
++
++
++def compact_stylesheet(profile):
++    return f"""
++        QWidget[displayMode=\"compact\"] {{
++            font-size: {profile.body_points}pt;
++        }}
++        QWidget[displayMode=\"compact\"] QPushButton {{
++            min-height: {profile.touch_target}px;
++            padding: 2px 6px;
++            border-radius: 7px;
++        }}
++        QWidget[displayMode=\"compact\"] QLineEdit,
++        QWidget[displayMode=\"compact\"] QComboBox,
++        QWidget[displayMode=\"compact\"] QSpinBox,
++        QWidget[displayMode=\"compact\"] QDoubleSpinBox {{
++            min-height: {profile.touch_target}px;
++        }}
++    """
+diff --git a/ui/system_config_dialog.py b/ui/system_config_dialog.py
+index 14dad0e..6e0a49c 100644
+--- a/ui/system_config_dialog.py
++++ b/ui/system_config_dialog.py
+@@ -29,6 +29,7 @@ from utils.qt_compat import (
+     Signal,
+     Qt,
+ )
++from ui.responsive import compact_stylesheet, profile_from_widget
+ 
+ 
+ class SystemConfigDialog(QDialog):
+@@ -36,33 +37,46 @@ class SystemConfigDialog(QDialog):
+ 
+     configuration_saved = Signal(object)
+ 
+-    def __init__(self, system_config, recipe_manager, platform="windows", parent=None):
++    def __init__(
++        self,
++        system_config,
++        recipe_manager,
++        platform="windows",
++        parent=None,
++        display_profile=None,
++    ):
+         super().__init__(parent)
+         self.system_config = system_config
+         self.recipe_manager = recipe_manager
+         self.platform = platform
++        self.display_profile = display_profile or profile_from_widget(parent or self)
+         self.setWindowTitle("Configuracion de instalacion")
+         if parent is not None:
+-            self.setStyleSheet(parent.styleSheet())
++            self.setStyleSheet(
++                parent.styleSheet() + compact_stylesheet(self.display_profile)
++            )
+         self._build_ui()
+         self._load_values()
+ 
+     def _build_ui(self):
+         root = QVBoxLayout(self)
+-        root.setContentsMargins(10, 10, 10, 10)
+-        root.setSpacing(8)
++        margin = self.display_profile.margin
++        root.setContentsMargins(margin, margin, margin, margin)
++        root.setSpacing(self.display_profile.spacing)
+ 
+         title = QLabel("INSTALACION DEL MOTOR UNIVERSAL")
+         title.setAlignment(Qt.AlignCenter)
+         root.addWidget(title)
+ 
+         self.tabs = QTabWidget()
++        self.tabs.setUsesScrollButtons(True)
+         root.addWidget(self.tabs, 1)
+ 
+         self._build_station_tab()
+         self._build_controller_tab()
+         self._build_mapping_tab()
+         self._build_runtime_tab()
++        self._apply_help_texts()
+ 
+         notice = QLabel(
+             "Los cambios se validan y guardan con respaldo. "
+@@ -88,8 +102,9 @@ class SystemConfigDialog(QDialog):
+         scroll.setWidgetResizable(True)
+         content = QWidget()
+         form = QFormLayout(content)
+-        form.setContentsMargins(12, 12, 12, 12)
+-        form.setVerticalSpacing(10)
++        margin = self.display_profile.margin
++        form.setContentsMargins(margin, margin, margin, margin)
++        form.setVerticalSpacing(self.display_profile.spacing)
+         scroll.setWidget(content)
+         page_layout.addWidget(scroll)
+         self.tabs.addTab(page, title)
+@@ -134,8 +149,8 @@ class SystemConfigDialog(QDialog):
+         form.addRow("Catalogo de recetas", self.txt_recipe_file)
+         form.addRow("Migracion", self.chk_auto_migrate)
+         form.addRow("Dispositivo de camara", self.txt_camera_device)
+-        form.addRow("Ancho", self.spn_camera_width)
+-        form.addRow("Alto", self.spn_camera_height)
++        form.addRow("Ancho de captura", self.spn_camera_width)
++        form.addRow("Alto de captura", self.spn_camera_height)
+         form.addRow("FPS de captura", self.spn_capture_fps)
+         form.addRow("FPS de vista previa", self.spn_preview_fps)
+         form.addRow("Enfoque predeterminado", self.cmb_default_focus)
+@@ -200,6 +215,35 @@ class SystemConfigDialog(QDialog):
+         form.addRow("Asentamiento mecanico (ms)", self.spn_mechanical_settle)
+         form.addRow("Timeout de inspeccion (s)", self.spn_inspection_timeout)
+ 
++    def _apply_help_texts(self):
++        help_texts = {
++            self.txt_installation_id: "ID tecnico estable de esta estacion.",
++            self.txt_installation_name: "Nombre legible mostrado en registros.",
++            self.txt_recipe_file: "Ruta al catalogo JSON de recetas de esta instalacion.",
++            self.chk_auto_migrate: "Convierte esquemas heredados y conserva un archivo .bak.",
++            self.txt_camera_device: "Indice 0, 1, etc. o ruta persistente del dispositivo.",
++            self.spn_camera_width: "Ancho solicitado a la camara; no es el ancho del monitor.",
++            self.spn_camera_height: "Alto solicitado a la camara; no es el alto del monitor.",
++            self.spn_capture_fps: "Frames por segundo adquiridos desde la camara.",
++            self.spn_preview_fps: "Frecuencia visual; puede reducirse para ahorrar CPU.",
++            self.cmb_default_focus: "Modo inicial de enfoque para recetas nuevas.",
++            self.spn_baudrate: "Velocidad serial; debe coincidir con el controlador.",
++            self.spn_timeout: "Espera maxima de lectura/escritura serial.",
++            self.chk_reset_on_connect: "Permite reiniciar el controlador al abrir el puerto.",
++            self.chk_heartbeat: "Supervisa que el enlace con el controlador siga vivo.",
++            self.chk_ready_notifications: "Publica READY o NOT_READY al controlador.",
++            self.tbl_ports: "Puerto por sistema operativo; puede incluir una entrada default.",
++            self.tbl_model_map: "Traduce el ID externo recibido a una receta existente.",
++            self.chk_require_controller_ready: "Bloquea triggers si el controlador no esta listo.",
++            self.chk_require_controller_sync: "Exige negociar vision_controller_v1 antes de producir.",
++            self.chk_require_focus_ready: "Bloquea produccion sin enfoque valido.",
++            self.spn_max_frame_age: "Descarta frames mas antiguos que este limite.",
++            self.spn_mechanical_settle: "Espera cancelable para inmovilizar la pieza tras el trigger.",
++            self.spn_inspection_timeout: "Tiempo total maximo del ciclo de vision.",
++        }
++        for widget, description in help_texts.items():
++            widget.setToolTip(description)
++
+     @staticmethod
+     def _new_pair_table(first_header, second_header):
+         table = QTableWidget(0, 2)
+diff --git a/ui/tool_editor.py b/ui/tool_editor.py
+index eb6840d..f67fe14 100644
+--- a/ui/tool_editor.py
++++ b/ui/tool_editor.py
+@@ -132,9 +132,9 @@ class ToolEditor(QWidget):
+                 sw, sh = self.screen_size
+ 
+                 video_w = int(sw * 0.52)
+-                video_h = int(sh * 0.50)
++                video_h = int(sh * 0.40)
+ 
+-                video_size = (max(220, video_w), max(180, video_h))
++                video_size = (max(180, video_w), max(112, video_h))
+ 
+             elif self.platform == "windows":
+                 video_size = (480,270)
+@@ -239,4 +239,4 @@ class ToolEditor(QWidget):
+             if isinstance(widget, VideoWidget):
+                 return widget
+             
+-        return None
+\ No newline at end of file
++        return None
+-- 
+2.51.1
+

@@ -3,6 +3,7 @@
 
 from core.execution_control import check_execution
 from core.step_conditions import ConditionError, evaluate_condition
+import time
 from tools.result import (
     ToolCancelled,
     ToolResult,
@@ -20,6 +21,7 @@ class VisionPipeline:
         execution_order = []
         skipped_steps = []
         errors = []
+        step_durations_ms = {}
         contex.setdefault("outputs", {})
         contex.setdefault("outputs_by_tool", {})
         contex.setdefault("debug_images", [])
@@ -32,6 +34,7 @@ class VisionPipeline:
                 ["La receta no contiene herramientas ejecutables"],
                 execution_order,
                 skipped_steps,
+                step_durations_ms,
                 error_code="EMPTY_RECIPE",
             )
 
@@ -53,6 +56,7 @@ class VisionPipeline:
                     [control_error.error],
                     execution_order,
                     skipped_steps,
+                    step_durations_ms,
                     error_code=control_error.error_code,
                 )
 
@@ -70,6 +74,7 @@ class VisionPipeline:
                     errors,
                     execution_order,
                     skipped_steps,
+                    step_durations_ms,
                     error_code="INVALID_CONDITION",
                 )
 
@@ -85,6 +90,7 @@ class VisionPipeline:
                     errors,
                     execution_order,
                     skipped_steps,
+                    step_durations_ms,
                     error_code="DUPLICATE_STEP_ID",
                 )
 
@@ -100,6 +106,7 @@ class VisionPipeline:
                         errors,
                         execution_order,
                         skipped_steps,
+                        step_durations_ms,
                         error_code="TOOL_NOT_FOUND",
                     )
                 skipped_steps.append(step_id)
@@ -107,6 +114,7 @@ class VisionPipeline:
 
             print(f"[PIPELINE] Ejecutando {step_id} ({tool_name})")
             inputs = {**contex, **params}
+            step_started = time.monotonic()
 
             try:
                 result = tool.run(**inputs)
@@ -116,6 +124,11 @@ class VisionPipeline:
                     tool_name=tool_name,
                     error=str(exc),
                     error_code="UNCAUGHT_TOOL_EXCEPTION",
+                )
+            finally:
+                step_durations_ms[step_id] = round(
+                    (time.monotonic() - step_started) * 1000.0,
+                    3,
                 )
 
             if not isinstance(result, ToolResult):
@@ -153,6 +166,7 @@ class VisionPipeline:
                     errors,
                     execution_order,
                     skipped_steps,
+                    step_durations_ms,
                     error_code=result.error_code,
                 )
 
@@ -163,6 +177,7 @@ class VisionPipeline:
                 ["Ninguna herramienta cumplio su condicion de ejecucion"],
                 execution_order,
                 skipped_steps,
+                step_durations_ms,
                 error_code="NO_EXECUTED_STEPS",
             )
 
@@ -172,6 +187,7 @@ class VisionPipeline:
             errors,
             execution_order,
             skipped_steps,
+            step_durations_ms,
         )
 
     @staticmethod
@@ -197,6 +213,7 @@ class VisionPipeline:
         errors,
         execution_order,
         skipped_steps,
+        step_durations_ms,
         error_code=None,
     ):
         status = ToolStatus(status)
@@ -208,4 +225,5 @@ class VisionPipeline:
             "error_code": error_code,
             "execution_order": execution_order,
             "skipped_steps": skipped_steps,
+            "step_durations_ms": step_durations_ms,
         }

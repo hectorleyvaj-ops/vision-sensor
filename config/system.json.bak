@@ -10,10 +10,10 @@
     },
     "camera": {
         "device": 0,
-        "width": 1920,
-        "height": 1080,
-        "capture_fps": 30,
-        "preview_fps": 10,
+        "width": 480,
+        "height": 320,
+        "capture_fps": 30.0,
+        "preview_fps": 10.0,
         "default_focus_mode": "calibrated"
     },
     "controller": {
@@ -37,14 +37,6 @@
         "require_controller_sync": true,
         "require_focus_ready": true,
         "max_frame_age_seconds": 0.5,
-        "mechanical_settle_ms": 0,
-        "inspection_timeout_seconds": 20.0
-    },
-    "traceability": {
-        "enabled": true,
-        "directory": "runtime/traceability",
-        "max_file_size_mb": 10.0,
-        "retention_files": 10,
-        "retention_days": 30
+        "mechanical_settle_ms": 0
     }
 }

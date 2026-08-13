@@ -9,6 +9,7 @@ from tools.result import ToolStatus
 
 class StateManager(QObject):
     inspectionResult = Signal(str)
+    cycleTraced = Signal(object)
     def __init__(
         self,
         camera,
@@ -16,6 +17,7 @@ class StateManager(QObject):
         comunicator,
         mechanical_settle_ms=0,
         inspection_timeout_seconds=20.0,
+        cycle_trace=None,
     ):
         super().__init__()
         self.camera = camera
@@ -26,6 +28,7 @@ class StateManager(QObject):
             0.1,
             float(inspection_timeout_seconds),
         )
+        self.cycle_trace = cycle_trace
 
         self.state = "IDLE"
         self.context = {}
@@ -36,6 +39,28 @@ class StateManager(QObject):
         self.pending_cycle = None
         self.cancel_requested = threading.Event()
         self.cancel_reason = None
+
+    def _record_cycle(self, final_result, reason=None, communication=None):
+        if not self.context or self.context.get("_trace_closed"):
+            return None
+        self.context["_trace_closed"] = True
+        if self.cycle_trace is None:
+            return None
+        try:
+            record = self.cycle_trace.record_cycle(
+                context=self.context,
+                recipe_name=self.active_recipe_name,
+                final_result=final_result,
+                pipeline_result=self.context.get("pipeline_result"),
+                communication=communication,
+                reason=reason,
+            )
+            if record is not None:
+                self.cycleTraced.emit(record)
+            return record
+        except Exception as exc:
+            print(f"[TRACEABILITY][ERROR] No se pudo registrar el ciclo: {exc}")
+            return None
 
     def prepare_cycle(self, cycle_context):
         if not isinstance(cycle_context, dict):
@@ -48,6 +73,7 @@ class StateManager(QObject):
         self.cancel_requested.clear()
         self.cancel_reason = None
         self.pending_cycle = dict(cycle_context)
+        self.pending_cycle["prepared_at_wall"] = time.time()
 
     def cancel_cycle(self, cycle_id=None, reason="CANCELLED"):
         active_cycle = self.context.get("cycle_id") if self.context else None
@@ -63,6 +89,22 @@ class StateManager(QObject):
                 f"ciclo local={known_cycle}"
             )
             return False
+
+        if known_cycle is None:
+            return False
+
+        if active_cycle is None and isinstance(self.pending_cycle, dict):
+            self.context = dict(self.pending_cycle)
+            self.context["started_at_wall"] = self.context.get(
+                "prepared_at_wall",
+                time.time(),
+            )
+            self._record_cycle("CANCELLED", reason=reason)
+            self.context = {}
+            self.pending_cycle = None
+            self.cancel_reason = None
+            self.cancel_requested.clear()
+            return True
 
         self.cancel_reason = reason
         self.cancel_requested.set()
@@ -92,6 +134,7 @@ class StateManager(QObject):
         try:
             if self.cancel_requested.is_set():
                 print(f"[FSM] Ciclo cancelado: {self.cancel_reason}")
+                self._record_cycle("CANCELLED", reason=self.cancel_reason)
                 self.reset()
                 return
 
@@ -103,6 +146,7 @@ class StateManager(QObject):
                     self.pending_cycle = None
                     self.context["cancel_event"] = self.cancel_requested
                     self.context["started_at"] = time.monotonic()
+                    self.context["started_at_wall"] = time.time()
                     self.context["deadline"] = (
                         self.context["started_at"]
                         + self.inspection_timeout_seconds
@@ -124,6 +168,7 @@ class StateManager(QObject):
                             f"[FSM] Ciclo cancelado durante asentamiento: "
                             f"{self.cancel_reason}"
                         )
+                        self._record_cycle("CANCELLED", reason=self.cancel_reason)
                         self.reset()
                         return
 
@@ -165,12 +210,14 @@ class StateManager(QObject):
                     return
 
                 result = self.processor.run(recipe, self.context)
+                self.context["pipeline_result"] = result
 
                 if self.cancel_requested.is_set():
                     print(
                         f"[FSM] Resultado descartado por cancelacion: "
                         f"{self.cancel_reason}"
                     )
+                    self._record_cycle("CANCELLED", reason=self.cancel_reason)
                     self.reset()
                     return
 
@@ -179,6 +226,9 @@ class StateManager(QObject):
                 )
                 controller_result = controller_result_for_pipeline(
                     pipeline_status
+                )
+                self.context["pipeline_status"] = (
+                    pipeline_status or ToolStatus.ERROR.value
                 )
 
                 if controller_result == "OK":
@@ -230,6 +280,23 @@ class StateManager(QObject):
                 else:
                     print("[FSM] Fallo en comunicacion, reinicio de ciclo")
 
+                trace_reason = None
+                if cmd in ("NG", "ERROR"):
+                    errors = self.context.get("pipeline_errors") or []
+                    trace_reason = "; ".join(str(item) for item in errors)
+                    if cmd == "ERROR" and not trace_reason:
+                        trace_reason = "Falla de ejecucion"
+                if not result or result.get("status") != "OK":
+                    communication_error = (
+                        result.get("error") if isinstance(result, dict) else "Respuesta serial invalida"
+                    )
+                    trace_reason = trace_reason or f"Comunicacion: {communication_error}"
+                self._record_cycle(
+                    cmd,
+                    reason=trace_reason,
+                    communication=result,
+                )
+
                 self.reset()
 
         except Exception as e:
@@ -242,9 +309,20 @@ class StateManager(QObject):
         # ERROR significa que vision no obtuvo una decision de producto. El
         # controlador conserva la autoridad para llevar la maquina a seguro.
         self.context["final_result"] = "ERROR"
+        error_details = details.get("error")
+        self.context["pipeline_errors"] = (
+            list(error_details)
+            if isinstance(error_details, (list, tuple))
+            else [error_details]
+        )
 
         # ENVIAR ERROR DE EJECUCION SIN DISFRAZARLO COMO RECHAZO DE PIEZA
         self.state = "COMMUNICATING"
+
+    def abort_cycle(self, reason="ABORTED"):
+        """Close a stuck/aborted cycle with evidence before returning to IDLE."""
+        self._record_cycle("ERROR", reason=reason)
+        self.reset()
 
     def reset(self):
         print("[FSM] Reset - IDLE")
