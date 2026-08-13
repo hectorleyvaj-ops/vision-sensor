@@ -1,12 +1,15 @@
 import copy
 import os
 from utils.qt_compat import (
-    QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+    QT_LIB, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea, QMessageBox
 )
 from core.editor_models import EditorValueError
 from utils.ui_logger import get_ui_logger
-from ui.pyside6.ui_config_window import Ui_Form
+if QT_LIB == "PySide6":
+    from ui.pyside6.ui_config_window import Ui_Form
+else:
+    from ui.pyqt5.config_window import Ui_Form
 from ui.tool_editor import ToolEditor
 from ui.schemas.schemas import tool_schemas
 from ui.focus_config_dialog import FocusConfigDialog

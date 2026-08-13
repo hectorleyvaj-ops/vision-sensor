@@ -104,6 +104,17 @@ Las tres recetas usan `commissioned: false`. Esta condicion es intencional:
 El valor `mechanical_settle_ms` sigue en `0` como pendiente de medicion, no como
 confirmacion de que no se requiere asentamiento.
 
+### 3.5 Compatibilidad Raspberry Pi OS de 32 bits
+
+El backend grafico ya no queda fijado indirectamente a PySide6. La seleccion
+centralizada acepta `VISION_QT_API=auto|pyside6|pyqt5`; en modo automatico
+prefiere PySide6 y usa PyQt5 como alternativa. Tanto la ventana principal como
+la de configuracion seleccionan su clase UI de acuerdo con el backend real.
+
+Para `armhf/armv7l` se agrego `requirements-rpi32.txt`. PyQt5, OpenCV y NumPy
+se instalan mediante APT y el entorno se crea con `--system-site-packages`.
+La guia detallada esta en `docs/raspberry_pi_32bit_runtime.md`.
+
 ## 4. Validador offline
 
 `scripts/validate_installation.py` valida el paquete sin abrir camara ni serial
@@ -151,19 +162,23 @@ error, no una advertencia.
 
 ## 5. Validacion automatizada
 
-Resultado despues de fase 8:
+Resultado despues de fase 8 y la compatibilidad Raspberry Pi de 32 bits:
 
 ```text
-Ran 63 tests
+Ran 67 tests
 OK
 ```
 
-Se conservaron las 59 pruebas de fase 7 y se agregaron cuatro para:
+Se conservaron las 59 pruebas de fase 7. Las cuatro pruebas originales de fase
+8 cubren:
 
 - paquete valido pero deliberadamente no comisionado;
 - mapeo y numeros de parte A/B/C;
 - rechazo de mapeo incorrecto;
 - rechazo estricto de calibracion pendiente.
+
+Otras cuatro pruebas cubren seleccion forzada/automatica de Qt, paridad de los
+controles UI y la separacion de dependencias binarias en Raspberry Pi 32 bits.
 
 Tambien se verificara `compileall`, validez JSON y aplicacion aislada del parche
 antes de publicar la entrega.
@@ -221,7 +236,7 @@ queda autorizada para produccion hasta cerrar 8B, 9 y 10.
 ## 9. Proximo paso
 
 1. Aplicar el parche de fase 8 sobre fase 7 confirmada.
-2. Ejecutar las 63 pruebas y el validador estructural.
+2. Ejecutar las 67 pruebas y el validador estructural.
 3. Capturar y medir A/B/C siguiendo
    `GUIA_FASE8_INSTALACION_WORKSURFACE.md`.
 4. Ejecutar el validador estricto hasta codigo 0.

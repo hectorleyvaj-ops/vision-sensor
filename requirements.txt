@@ -1,6 +1,8 @@
+# Entorno de escritorio/64 bits. En Raspberry Pi OS de 32 bits usa:
+#   requirements-rpi32.txt
 numpy
 opencv-python
-Pyside6
+PySide6
 qtpy
 pylibdmtx
 pyserial

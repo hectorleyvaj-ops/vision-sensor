@@ -1,0 +1,10 @@
+# Raspberry Pi OS de 32 bits (armhf/armv7l).
+#
+# Dependencias binarias instaladas mediante APT, no pip:
+#   python3-pyqt5 python3-opencv python3-numpy libdmtx0b
+#
+# El entorno virtual debe crearse con --system-site-packages para reutilizarlas.
+# PySide6 no se incluye porque no publica wheels oficiales para ARM de 32 bits.
+
+pylibdmtx==0.1.10
+pyserial==3.5

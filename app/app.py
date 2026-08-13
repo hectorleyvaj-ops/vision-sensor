@@ -5,7 +5,10 @@ import os
 from utils.qt_compat import load_ui, QT_LIB, QThread, QImage, QPixmap, QMainWindow, QMetaObject, Qt, QTimer
 from utils.ui_logger import get_ui_logger
 # IMPORTS DE UI
-from ui.pyside6.ui_main_window import Ui_MainWindow
+if QT_LIB == "PySide6":
+    from ui.pyside6.ui_main_window import Ui_MainWindow
+else:
+    from ui.pyqt5.ui_main_window import Ui_MainWindow
 from ui.config_window_logic import ConfigWindow
 # IMPORTS DE HERRAMIENTAS, SERVICIOS Y LOGICA
 from tools.registry import discover_tool_registry

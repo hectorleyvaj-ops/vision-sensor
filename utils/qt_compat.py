@@ -1,6 +1,31 @@
+import os
+
+from utils.qt_backend import normalize_qt_request
+
+
 QT_LIB = None
 
+
+def _requested_backend():
+    """Return the requested Qt binding without coupling it to the OS name."""
+    value = os.getenv("VISION_QT_API", "auto")
+    try:
+        return normalize_qt_request(value)
+    except ValueError as exc:
+        raise RuntimeError(
+            str(exc)
+        ) from exc
+
+
+REQUESTED_QT_LIB = _requested_backend()
+
+
+def _can_try(name):
+    return REQUESTED_QT_LIB in ("auto", name)
+
 try:
+    if not _can_try("PySide6"):
+        raise ImportError("PySide6 no fue seleccionado")
     # PRIORIDAD DE LIBRERIA: PYSIDE6
     from PySide6.QtWidgets import (
         QApplication, QWidget, QLabel, QMainWindow,
@@ -31,21 +56,32 @@ try:
 
         return ui
 
-except ImportError:
+except ImportError as pyside_error:
+    if not _can_try("PyQt5"):
+        raise RuntimeError(
+            "Se solicito PySide6 mediante VISION_QT_API, pero no esta "
+            f"disponible: {pyside_error}"
+        ) from pyside_error
     # FALLBACK: PYQT5
-    from PyQt5.QtWidgets import (  # type: ignore
-        QApplication, QWidget, QLabel, QMainWindow,
-        QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout,
-        QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox, QDialog,
-        QInputDialog, QScrollArea, QSizePolicy, QTabWidget, QTableWidget,
-        QTableWidgetItem, QMessageBox, QPlainTextEdit,
-    )
-    from PyQt5.QtCore import (  # type: ignore
-        QObject, QThread, pyqtSignal as Signal, pyqtSlot as Slot,
-        Qt, QTimer, QMetaObject,
-    )
-    from PyQt5.QtGui import QImage, QPixmap, QPainter, QColor, QPen  # type: ignore
-    from PyQt5 import uic   # type: ignore
+    try:
+        from PyQt5.QtWidgets import (  # type: ignore
+            QApplication, QWidget, QLabel, QMainWindow,
+            QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout,
+            QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox, QDialog,
+            QInputDialog, QScrollArea, QSizePolicy, QTabWidget, QTableWidget,
+            QTableWidgetItem, QMessageBox, QPlainTextEdit,
+        )
+        from PyQt5.QtCore import (  # type: ignore
+            QObject, QThread, pyqtSignal as Signal, pyqtSlot as Slot,
+            Qt, QTimer, QMetaObject,
+        )
+        from PyQt5.QtGui import QImage, QPixmap, QPainter, QColor, QPen  # type: ignore
+        from PyQt5 import uic   # type: ignore
+    except ImportError as pyqt_error:
+        raise RuntimeError(
+            "No hay un backend Qt utilizable. Instala PySide6 o PyQt5. "
+            f"PySide6: {pyside_error}; PyQt5: {pyqt_error}"
+        ) from pyqt_error
 
     QT_LIB = "PyQt5"
 

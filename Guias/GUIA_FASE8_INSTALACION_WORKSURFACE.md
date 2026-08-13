@@ -96,6 +96,26 @@ paquete/configuracion invalida.
 
 Ejecutar siempre desde la raiz del proyecto.
 
+### Raspberry Pi OS de 32 bits
+
+En `armhf/armv7l`, PySide6 no dispone de un wheel oficial compatible. Instalar
+PyQt5, OpenCV y NumPy desde APT y crear un entorno que pueda ver esos paquetes:
+
+```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pyqt5 python3-opencv python3-numpy libdmtx0b
+python3 -m venv --system-site-packages venv-rpi32
+source venv-rpi32/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements-rpi32.txt
+export VISION_QT_API=pyqt5
+python scripts/check_qt_runtime.py
+```
+
+No reutilizar el `venv` creado durante la instalacion fallida: un entorno
+creado sin `--system-site-packages` no ve PyQt5/OpenCV instalados por APT. La
+referencia completa esta en `docs/raspberry_pi_32bit_runtime.md`.
+
 PowerShell:
 
 ```powershell
