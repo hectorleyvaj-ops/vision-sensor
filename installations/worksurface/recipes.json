@@ -20,19 +20,24 @@
                         "type": "always"
                     },
                     "params": {
-                        "roi": null,
-                        "expected_code": "",
-                        "match_mode": "exact",
+                        "roi": [
+                            509,
+                            407,
+                            802,
+                            707
+                        ],
+                        "expected_code": "0402012XA",
+                        "match_mode": "prefix",
                         "retries": 8,
                         "delay": 0.04,
                         "min_expected_reads": 2,
-                        "max_wrong_reads": 0,
+                        "max_wrong_reads": 3,
                         "roi_padding": 12,
                         "preprocess": true,
                         "upscale": 2.0,
                         "decode_timeout_ms": 250,
-                        "max_total_time": 15.0,
-                        "show_roi": false
+                        "max_total_time": 10.0,
+                        "show_roi": true
                     }
                 },
                 {
@@ -44,21 +49,37 @@
                         "type": "always"
                     },
                     "params": {
-                        "roi": null,
-                        "threshold": 0.0,
-                        "template_paths": [],
+                        "roi": [
+                            809,
+                            439,
+                            1044,
+                            618
+                        ],
+                        "threshold": 80.0,
+                        "template_paths": [
+                            "installations/worksurface/master_images/MODELO_A/img_hist_2/71d94c3b197c444a82ef6c8f0e02fcde.png",
+                            "installations/worksurface/master_images/MODELO_A/img_hist_2/6660ad6f78f24d1a96189ed4268269e2.png",
+                            "installations/worksurface/master_images/MODELO_A/img_hist_2/c2ef48562d9f41e7a7a893f60965fecf.png",
+                            "installations/worksurface/master_images/MODELO_A/img_hist_2/a0cecbb5d4704a28aa61998f4a63bc28.png",
+                            "installations/worksurface/master_images/MODELO_A/img_hist_2/63e18e5f0c634317a6bedc647733c49b.png"
+                        ],
                         "show_roi": true
                     }
                 }
             ],
             "focus": {
-                "mode": "calibrated",
-                "enabled": false,
-                "roi": null,
-                "value": null,
-                "min_score": null,
-                "median_score": null,
-                "peak_score": null,
+                "mode": "manual_fixed",
+                "enabled": true,
+                "roi": [
+                    452,
+                    356,
+                    1108,
+                    707
+                ],
+                "value": 467,
+                "min_score": 982,
+                "median_score": 1512,
+                "peak_score": 1521,
                 "verify_on_first_trigger": true,
                 "auto_refocus_if_failed": true
             }
@@ -82,19 +103,24 @@
                         "type": "always"
                     },
                     "params": {
-                        "roi": null,
-                        "expected_code": "",
-                        "match_mode": "exact",
+                        "roi": [
+                            496,
+                            337,
+                            815,
+                            656
+                        ],
+                        "expected_code": "0402010XB",
+                        "match_mode": "prefix",
                         "retries": 8,
                         "delay": 0.04,
                         "min_expected_reads": 2,
-                        "max_wrong_reads": 0,
+                        "max_wrong_reads": 3,
                         "roi_padding": 12,
                         "preprocess": true,
                         "upscale": 2.0,
                         "decode_timeout_ms": 250,
-                        "max_total_time": 15.0,
-                        "show_roi": false
+                        "max_total_time": 10.0,
+                        "show_roi": true
                     }
                 },
                 {
@@ -106,9 +132,20 @@
                         "type": "always"
                     },
                     "params": {
-                        "roi": null,
-                        "threshold": 0.0,
-                        "template_paths": [],
+                        "roi": [
+                            853,
+                            388,
+                            1121,
+                            649
+                        ],
+                        "threshold": 80.0,
+                        "template_paths": [
+                            "installations/worksurface/master_images/MODELO_B/img_hist_2/011d926094be4ff3b8923375ca73aef1.png",
+                            "installations/worksurface/master_images/MODELO_B/img_hist_2/e9fcbe05f1b74dbd8c980f7938d9ab08.png",
+                            "installations/worksurface/master_images/MODELO_B/img_hist_2/3d90dcb2764a4ffa9ebc91151f735b14.png",
+                            "installations/worksurface/master_images/MODELO_B/img_hist_2/8e1522eb82444539ba92d22e626a0166.png",
+                            "installations/worksurface/master_images/MODELO_B/img_hist_2/bf0e9d741b7147d5ba6506e485ae42fe.png"
+                        ],
                         "show_roi": true
                     }
                 }
@@ -144,19 +181,24 @@
                         "type": "always"
                     },
                     "params": {
-                        "roi": null,
-                        "expected_code": "",
-                        "match_mode": "exact",
+                        "roi": [
+                            395,
+                            286,
+                            764,
+                            656
+                        ],
+                        "expected_code": "0402009XB",
+                        "match_mode": "prefix",
                         "retries": 8,
                         "delay": 0.04,
                         "min_expected_reads": 2,
-                        "max_wrong_reads": 0,
+                        "max_wrong_reads": 3,
                         "roi_padding": 12,
                         "preprocess": true,
                         "upscale": 2.0,
                         "decode_timeout_ms": 250,
-                        "max_total_time": 15.0,
-                        "show_roi": false
+                        "max_total_time": 10.0,
+                        "show_roi": true
                     }
                 },
                 {
@@ -168,21 +210,37 @@
                         "type": "always"
                     },
                     "params": {
-                        "roi": null,
-                        "threshold": 0.0,
-                        "template_paths": [],
+                        "roi": [
+                            872,
+                            465,
+                            1115,
+                            630
+                        ],
+                        "threshold": 80.0,
+                        "template_paths": [
+                            "installations/worksurface/master_images/MODELO_C/img_hist_2/a75c3f4899d74cb2a06864332c27c7dc.png",
+                            "installations/worksurface/master_images/MODELO_C/img_hist_2/599dcc43ae0d4143b6da58f340560a56.png",
+                            "installations/worksurface/master_images/MODELO_C/img_hist_2/c383620837664535a17b7b9da29189d7.png",
+                            "installations/worksurface/master_images/MODELO_C/img_hist_2/0d1d83072f9a44b9a7919d93f7735a2a.png",
+                            "installations/worksurface/master_images/MODELO_C/img_hist_2/cb9c92b8db744415940120c61f76c5ce.png"
+                        ],
                         "show_roi": true
                     }
                 }
             ],
             "focus": {
-                "mode": "calibrated",
-                "enabled": false,
-                "roi": null,
-                "value": null,
-                "min_score": null,
-                "median_score": null,
-                "peak_score": null,
+                "mode": "manual_fixed",
+                "enabled": true,
+                "roi": [
+                    382,
+                    280,
+                    1166,
+                    700
+                ],
+                "value": 473,
+                "min_score": 278,
+                "median_score": 428,
+                "peak_score": 430,
                 "verify_on_first_trigger": true,
                 "auto_refocus_if_failed": true
             }
