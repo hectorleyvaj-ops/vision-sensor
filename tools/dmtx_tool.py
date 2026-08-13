@@ -1,6 +1,4 @@
-import cv2
 import time
-from pylibdmtx.pylibdmtx import decode
 from core.execution_control import check_execution, wait_interruptibly
 from core.roi import crop_image
 from tools.dmtx_policy import DataMatrixReadPolicy
@@ -14,6 +12,106 @@ from tools.tool_base import ToolBase
 
 
 class DataMatrixTool(ToolBase):
+    TOOL_ID = "dmtx"
+    DISPLAY_NAME = "Lectura DataMatrix"
+    PARAMETER_SCHEMA = {
+        "roi": {
+            "type": "roi",
+            "label": "Region de inspeccion",
+            "default": None,
+            "commissioning_required": True,
+        },
+        "video": {
+            "type": "video",
+            "label": "Vista de camara",
+            "persist": False,
+        },
+        "expected_code": {
+            "type": "str",
+            "label": "Codigo maestro",
+            "default": "",
+            "commissioning_required": True,
+        },
+        "match_mode": {
+            "type": "choice",
+            "label": "Comparacion de codigo",
+            "options": ["exact", "prefix"],
+            "default": "exact",
+        },
+        "retries": {
+            "type": "int",
+            "label": "Intentos por trigger",
+            "min": 1,
+            "max": 20,
+            "default": 8,
+        },
+        "delay": {
+            "type": "float",
+            "label": "Espera entre intentos (s)",
+            "min": 0.0,
+            "max": 5.0,
+            "decimals": 2,
+            "default": 0.04,
+        },
+        "min_expected_reads": {
+            "type": "int",
+            "label": "Lecturas correctas minimas",
+            "min": 1,
+            "max": 20,
+            "default": 2,
+        },
+        "max_wrong_reads": {
+            "type": "int",
+            "label": "Lecturas incorrectas maximas",
+            "min": 0,
+            "max": 20,
+            "default": 0,
+        },
+        "roi_padding": {
+            "type": "int",
+            "label": "Margen adicional de ROI",
+            "min": 0,
+            "max": 100,
+            "default": 12,
+        },
+        "preprocess": {
+            "type": "bool",
+            "label": "Mejorar imagen",
+            "default": True,
+        },
+        "upscale": {
+            "type": "float",
+            "label": "Escalado de imagen",
+            "min": 1.0,
+            "max": 4.0,
+            "decimals": 1,
+            "step": 0.1,
+            "default": 2.0,
+        },
+        "decode_timeout_ms": {
+            "type": "int",
+            "label": "Timeout de decodificacion (ms)",
+            "min": 50,
+            "max": 2000,
+            "step": 50,
+            "default": 250,
+        },
+        "max_total_time": {
+            "type": "float",
+            "label": "Tiempo maximo total (s)",
+            "min": 1.0,
+            "max": 30.0,
+            "decimals": 1,
+            "step": 0.5,
+            "default": 15.0,
+        },
+        "show_roi": {
+            "type": "bool",
+            "label": "Mostrar ROI",
+            "default": False,
+        },
+    }
+
     def __init__(self, config=None, name="dmtx"):
         """
         config esperado:
@@ -79,6 +177,8 @@ class DataMatrixTool(ToolBase):
         if external_deadline is not None:
             local_deadline = min(local_deadline, float(external_deadline))
         cancel_event = kwargs.get("cancel_event")
+
+        check_execution(cancel_event=cancel_event, deadline=local_deadline)
 
         if direct_frame is None and not frame_provider and not capture_provider:
             raise ValueError("No se recibio frame, frame_provider ni capture_provider")
@@ -294,6 +394,8 @@ class DataMatrixTool(ToolBase):
         return crop_image(frame, roi=roi_cfg, padding=padding)
 
     def _to_gray(self, image):
+        import cv2
+
         if len(image.shape) == 2:
             return image
 
@@ -321,6 +423,8 @@ class DataMatrixTool(ToolBase):
     
     def _safe_decode(self, image, timeout_ms=250):
         """
+        from pylibdmtx.pylibdmtx import decode
+
         Decode siempre acotado. Una version antigua sin argumento ``timeout``
         se rechaza para no introducir una llamada imposible de cancelar.
         """
@@ -338,6 +442,8 @@ class DataMatrixTool(ToolBase):
         Construye variantes ligeras de la imagen para aumentar probabilidad
         de lectura sin hacer pesada la inspeccion.
         """
+        import cv2
+
         variants = []
 
         if gray is None or gray.size == 0:

@@ -51,7 +51,8 @@ produccion con esa receta.
 Al agregar o editar una herramienta se separan dos grupos:
 
 - politica del step: `id`, `enabled`, `required` y `condition`;
-- parametros propios de la herramienta, definidos en `TOOL_SCHEMAS`.
+- parametros propios de la herramienta, definidos en su clase y publicados por
+  `ToolRegistry`.
 
 La condicion se edita como JSON para conservar todo el lenguaje declarativo,
 incluyendo condiciones anidadas `all`, `any` y `not`. Una condicion

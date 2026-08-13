@@ -2,15 +2,15 @@ from utils.qt_compat import (
     QWidget, QFormLayout, QLineEdit, QPushButton, QDoubleSpinBox,
     QComboBox, QCheckBox, QSizePolicy, Qt
 )
-from ui.schemas.schemas import TOOL_SCHEMAS
 from ui.widgets.img_list_widget import ImageListWidget
 from ui.widgets.video_widget import VideoWidget
 
 class ToolEditor(QWidget):
-    def __init__(self, tool_name, get_frame_callback, base_path, edit=False, editing_index=None, platform="windows", screen_size=None):
+    def __init__(self, tool_name, tool_schema, get_frame_callback, base_path, edit=False, editing_index=None, platform="windows", screen_size=None):
         super().__init__()
 
         self.tool_name = tool_name
+        self.tool_schema = dict(tool_schema or {})
         self.get_frame = get_frame_callback
         self.base_path = base_path
         self.edit = edit
@@ -30,7 +30,7 @@ class ToolEditor(QWidget):
         self.build_ui()
 
     def build_ui(self):
-        schema = TOOL_SCHEMAS[self.tool_name]
+        schema = self.tool_schema
 
         # OBTENEMOS EL LABEL Y EL TYPE DEL WIDGET PARA CADA PARAMETRO SEGUN EL ESQUEMA
         for key, config in schema.items():  
@@ -40,9 +40,10 @@ class ToolEditor(QWidget):
             self.form.addRow(label, widget) # AGREGA UNA LINEA DEBAJO PARA INSERTAR LABEL | WIDGET
             self.fields[key] = widget   # MAPEAMOS UN DICCIONARIO ENTRE KEYS Y WIDGETS CREADOS
 
-    def reload(self, tool_name, base_path):
+    def reload(self, tool_name, tool_schema, base_path):
         self.setUpdatesEnabled(False)  # DESACTIVA ACTUALIZACIONES PARA EVITAR PARPADEOS
         self.tool_name = tool_name
+        self.tool_schema = dict(tool_schema or {})
         self.base_path = base_path
 
         while self.form.count():

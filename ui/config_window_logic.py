@@ -8,7 +8,7 @@ from core.editor_models import EditorValueError
 from utils.ui_logger import get_ui_logger
 from ui.pyside6.ui_config_window import Ui_Form
 from ui.tool_editor import ToolEditor
-from ui.schemas.schemas import TOOL_SCHEMAS
+from ui.schemas.schemas import tool_schemas
 from ui.focus_config_dialog import FocusConfigDialog
 from ui.recipe_policy_dialogs import RecipeSettingsDialog, StepPolicyEditor
 from ui.system_config_dialog import SystemConfigDialog
@@ -33,6 +33,7 @@ class ConfigWindow(QWidget):
         platform,
         camera_worker=None,
         system_config=None,
+        tool_registry=None,
         available_tools=None,
         display_profile=None,
     ):
@@ -56,7 +57,15 @@ class ConfigWindow(QWidget):
         self.platform = platform
         self.camera_worker = camera_worker
         self.system_config = system_config
-        self.available_tools = set(available_tools or [])
+        self.tool_registry = tool_registry
+        self.tool_schemas = tool_schemas(tool_registry)
+        self.tool_labels = {
+            tool_id: tool_registry.tool_class(tool_id).display_name()
+            for tool_id in tool_registry or []
+        }
+        self.available_tools = set(
+            tool_registry.keys() if tool_registry is not None else available_tools or []
+        )
 
         self.current_recipe = None
         self.loading_recipes = False
@@ -597,6 +606,7 @@ class ConfigWindow(QWidget):
 
         editor = ToolEditor(
             tool_name=tool_name,
+            tool_schema=self.tool_schemas.get(tool_name, {}),
             get_frame_callback=self.get_frame,
             base_path=base_path,
             edit=True,
@@ -687,10 +697,14 @@ class ConfigWindow(QWidget):
     def add_step(self):
         self.ensure_steps()  # ASEGURA QUE EXISTE LA CLAVE "steps" Y ES UNA LISTA
 
-        tools = []
-        # OBETENER LAS HERRAMIENTAS DISPONIBLES PARA AGREGAR
-        for key in TOOL_SCHEMAS:
-            tools.append(key)
+        tools = sorted(self.tool_schemas)
+        if not tools:
+            QMessageBox.critical(
+                self,
+                "Sin herramientas",
+                "El catalogo no contiene herramientas editables.",
+            )
+            return
 
         # VENTANA Y WIDGETS
         dialog = QDialog(self)
@@ -700,11 +714,18 @@ class ConfigWindow(QWidget):
         layout = QVBoxLayout()
 
         cmb_tools = QComboBox()
-        cmb_tools.addItems(tools)
+        for available_tool in tools:
+            cmb_tools.addItem(
+                self.tool_labels.get(available_tool, available_tool),
+                available_tool,
+            )
+
+        def selected_tool_id():
+            return str(cmb_tools.currentData() or cmb_tools.currentText())
         
 
         def create_path():
-            tool_name = cmb_tools.currentText()
+            tool_name = selected_tool_id()
             step_index = len(self.current_recipe["steps"])
             base_path = self.build_base_path(tool_name, step_index)
 
@@ -716,6 +737,7 @@ class ConfigWindow(QWidget):
 
         editor = ToolEditor(
             tool_name=tool_name,
+            tool_schema=self.tool_schemas.get(tool_name, {}),
             get_frame_callback=self.get_frame,
             base_path=base_path,
             edit=False,
@@ -769,7 +791,7 @@ class ConfigWindow(QWidget):
                 return
             new_params = editor.get_values()
             new_step = {
-                "tool": cmb_tools.currentText(),
+                "tool": selected_tool_id(),
                 "params": new_params
             }
             new_step.update(policy)
@@ -788,11 +810,15 @@ class ConfigWindow(QWidget):
         btn_save.clicked.connect(save)
         btn_cancel.clicked.connect(dialog.reject)
 
-        def reload_ui():
+        def reload_ui(_index=None):
             tool_name, base_path = create_path()
-            editor.reload(tool_name, base_path)
+            editor.reload(
+                tool_name,
+                self.tool_schemas.get(tool_name, {}),
+                base_path,
+            )
 
-        cmb_tools.currentTextChanged.connect(reload_ui)
+        cmb_tools.currentIndexChanged.connect(reload_ui)
 
         # MUESTRA LA NUEVA VENTANA DE EDICION DE FORMA BLOQUEANTE
         configure_dialog(
@@ -848,6 +874,7 @@ class ConfigWindow(QWidget):
 
         for step in steps:
             tool_name = step.get("tool", "unknown")
+            tool_label = self.tool_labels.get(tool_name, tool_name)
             step_id = step.get("id", "sin_id")
             flags = []
             if not step.get("enabled", True):
@@ -855,7 +882,7 @@ class ConfigWindow(QWidget):
             if not step.get("required", True):
                 flags.append("OPCIONAL")
             suffix = f" [{' / '.join(flags)}]" if flags else ""
-            self.ui.cmb_tools.addItem(f"{step_id} - {tool_name}{suffix}")
+            self.ui.cmb_tools.addItem(f"{step_id} - {tool_label}{suffix}")
 
     def add_recipe(self):
         dialog = QInputDialog(self)

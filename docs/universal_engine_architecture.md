@@ -77,3 +77,11 @@ mantienen el motor en `NOT_READY` hasta aplicarse. Consulte
 La fase 4 agrega el contrato unico de ROI, estados tipados de herramientas,
 deadline global de inspeccion y cancelacion cooperativa. Ninguna de estas
 reglas contiene logica especifica de una maquina.
+
+## Catalogo de herramientas
+
+Las clases concretas de `ToolBase` se descubren desde el paquete `tools`. Cada
+una publica un ID, schema, defaults, reglas de comisionamiento y recursos. El
+mismo `ToolRegistry` alimenta pipeline, recetas, diagnostico y editor; `app.py`
+no mantiene una lista manual. Consulte `docs/tool_framework.md` para el
+contrato de extension y sus pruebas obligatorias.

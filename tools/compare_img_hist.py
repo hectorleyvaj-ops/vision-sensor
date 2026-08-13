@@ -1,15 +1,48 @@
 # HERRAMIENTA PARA COMPARAR IMAGENES Y DETECTAR COMPONENTES EN LAS PIEZAS..
 # USANDO COMPARE HIST BHATTACHARYYA
 
-import cv2
-import numpy
 from core.execution_control import check_execution
 from core.roi import crop_image
 from tools.result import ToolFailure
 from tools.tool_base import ToolBase
 
 class CompareImgHistTool(ToolBase):
-    def __init__(self, name="compare_img_hist"):
+    TOOL_ID = "img_hist"
+    DISPLAY_NAME = "Comparacion de histogramas"
+    PARAMETER_SCHEMA = {
+        "roi": {
+            "type": "roi",
+            "label": "Region de inspeccion",
+            "default": None,
+        },
+        "video": {
+            "type": "video",
+            "label": "Vista de camara",
+            "persist": False,
+        },
+        "threshold": {
+            "type": "float",
+            "label": "Similitud minima (%)",
+            "min": 0.0,
+            "max": 100.0,
+            "decimals": 1,
+            "default": 0.0,
+        },
+        "template_paths": {
+            "type": "image_list",
+            "label": "Imagenes maestras",
+            "default": [],
+            "commissioning_required": True,
+            "resource": True,
+        },
+        "show_roi": {
+            "type": "bool",
+            "label": "Mostrar ROI",
+            "default": True,
+        },
+    }
+
+    def __init__(self, name=None):
         super().__init__(name)
 
     # MANDA A LLAMAR A LA FUNCION DE LA CLASE PADRE Y LE DA LA INFORMACION EN KWARGS
@@ -35,6 +68,8 @@ class CompareImgHistTool(ToolBase):
         
         if not template_paths or len(template_paths) == 0:
             raise ValueError("No template_paths definidos")
+
+        import cv2
         
         # PROCESAR FRAME A EVALUAR
         roi = self._get_roi(frame, roi_cfg)
@@ -101,4 +136,3 @@ class CompareImgHistTool(ToolBase):
     def _get_roi(self, frame, roi_cfg=None):
         return crop_image(frame, roi=roi_cfg)
     
-

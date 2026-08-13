@@ -8,8 +8,7 @@ from utils.ui_logger import get_ui_logger
 from ui.pyside6.ui_main_window import Ui_MainWindow
 from ui.config_window_logic import ConfigWindow
 # IMPORTS DE HERRAMIENTAS, SERVICIOS Y LOGICA
-from tools.compare_img_hist import CompareImgHistTool
-from tools.dmtx_tool import DataMatrixTool
+from tools.registry import discover_tool_registry
 from core.state_manager import StateManager
 from services.camera import Camera
 from processing.pipeline import VisionPipeline
@@ -168,11 +167,12 @@ class MainWindow(QMainWindow):
             }
         """)
 
+        self.tool_registry = discover_tool_registry()
         self.recipe_manager = RecipeManager(
             self.system_config.recipe_file,
             auto_migrate=self.system_config.auto_migrate_recipes,
+            tool_registry=self.tool_registry,
         )
-        self.tool_registry = self.build_tool_registry()
         traceability_config = self.system_config.section("traceability")
         self.cycle_trace = CycleTraceWriter.from_config(
             traceability_config,
@@ -197,13 +197,6 @@ class MainWindow(QMainWindow):
         self.setup_camera()
         self.setup_serial()
         self.setup_state_manager()
-
-    @staticmethod
-    def build_tool_registry():
-        return {
-            "dmtx": DataMatrixTool(),
-            "img_hist": CompareImgHistTool(),
-        }
 
     def setup_ui_logger(self):
         self.ui_logger = get_ui_logger()
@@ -1048,7 +1041,7 @@ class MainWindow(QMainWindow):
             platform=self.platform,
             camera_worker=self.camera_worker,
             system_config=self.system_config,
-            available_tools=self.processor.tool_registry.keys(),
+            tool_registry=self.tool_registry,
             display_profile=self.display_profile,
         )
         # CONECTAR SIGNALS DESDE CONFIG WINDOW

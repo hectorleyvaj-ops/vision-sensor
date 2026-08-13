@@ -8,13 +8,24 @@ from core.roi import (
     normalize_roi,
 )
 from core.step_conditions import ConditionError, validate_condition
+from tools.registry import discover_tool_registry
 
 class RecipeManager:
     SCHEMA_VERSION = 3
 
-    def __init__(self, path="recipes.json", auto_migrate=True):
+    def __init__(
+        self,
+        path="recipes.json",
+        auto_migrate=True,
+        tool_registry=None,
+    ):
         self.path = os.fspath(path)
         self.auto_migrate = bool(auto_migrate)
+        self.tool_registry = (
+            tool_registry
+            if tool_registry is not None
+            else discover_tool_registry()
+        )
         self._ensure_file()
 
     def _empty_data(self):
@@ -336,33 +347,7 @@ class RecipeManager:
         Parametros base por herramienta.
         Sirve para migrar recetas viejas sin romper compatibilidad.
         """
-        defaults = {
-            "dmtx": {
-                "roi": None,
-                "expected_code": "",
-                "match_mode": "exact",
-                "retries": 8,
-                "delay": 0.04,
-                "min_expected_reads": 2,
-                "max_wrong_reads": 0,
-                "roi_padding": 12,
-                "preprocess": True,
-                "upscale": 2.0,
-                "decode_timeout_ms": 250,
-                "max_total_time": 15.0,
-                "show_roi": False,
-            },
-
-            "img_hist": {
-                "roi": None,
-                "threshold": 0.0,
-                "mode": "below",
-                "template_paths": [],
-                "show_roi": True,
-            }
-        }
-
-        return dict(defaults.get(tool_name, {}))
+        return self.tool_registry.default_params(tool_name)
 
 
     def ensure_step_params(self, recipe):
@@ -593,7 +578,11 @@ class RecipeManager:
         if not steps:
             return f"La receta {recipe.get('name')} no tiene steps"
 
-        available = set(available_tools or [])
+        available = (
+            set(available_tools)
+            if available_tools is not None
+            else set(self.tool_registry)
+        )
         enabled_steps = 0
         for step in steps:
             if not step.get("enabled", True):
@@ -603,35 +592,16 @@ class RecipeManager:
             step_id = step["id"]
             params = step.get("params", {})
 
-            if available and tool_name not in available:
+            if tool_name not in available:
                 return f"Herramienta no disponible: {tool_name} ({step_id})"
 
-            if tool_name == "dmtx":
-                expected_code = params.get("expected_code")
-                if not isinstance(expected_code, str) or not expected_code.strip():
-                    return f"El step {step_id} no tiene expected_code valido"
-
-            if tool_name == "img_hist":
-                template_paths = params.get("template_paths")
-                if not isinstance(template_paths, list) or not template_paths:
-                    return f"El step {step_id} no tiene imagenes maestras"
-
-            roi = params.get("roi")
-            if tool_name == "dmtx" and roi is None:
-                return f"El step {step_id} no tiene ROI valida"
-            if roi is not None:
-                try:
-                    normalize_roi(roi, allow_none=False)
-                except ROIError as exc:
-                    return f"ROI invalida en {step_id}: {exc}"
-
-            if tool_name == "dmtx":
-                match_mode = str(params.get("match_mode", "exact")).lower()
-                if match_mode not in ("exact", "prefix"):
-                    return (
-                        f"Modo de comparacion DataMatrix invalido en "
-                        f"{step_id}: {match_mode}"
-                    )
+            parameter_errors = self.tool_registry.validate_params(
+                tool_name,
+                params,
+                commissioning=True,
+            )
+            if parameter_errors:
+                return f"Parametros invalidos en {step_id}: {parameter_errors[0]}"
 
         if not enabled_steps:
             return f"La receta {recipe.get('name')} no tiene steps habilitados"

@@ -194,13 +194,27 @@ def run_static_diagnostics(
         )
 
     available_tools = set(tool_registry)
+    discovery_errors = list(
+        getattr(tool_registry, "discovery_errors", []) or []
+    )
     manager.update(
         "tools.registry",
-        "PASS" if available_tools else "ERROR",
+        (
+            "PASS"
+            if available_tools and not discovery_errors
+            else "WARNING" if available_tools else "ERROR"
+        ),
         "tools",
-        f"Herramientas registradas: {', '.join(sorted(available_tools)) or 'ninguna'}",
-        action="Registra al menos una herramienta antes de producir",
-        details={"tools": sorted(available_tools)},
+        (
+            f"Herramientas registradas: {', '.join(sorted(available_tools))}"
+            if not discovery_errors
+            else "Una o mas herramientas no pudieron cargarse"
+        ),
+        action="Corrige dependencias o contratos de las herramientas y reinicia",
+        details={
+            "tools": sorted(available_tools),
+            "discovery_errors": discovery_errors,
+        },
         blocking=not available_tools,
     )
 
@@ -222,10 +236,23 @@ def run_static_diagnostics(
             tool_name = step.get("tool")
             if tool_name not in available_tools:
                 missing_tools.append({"step": step.get("id"), "tool": tool_name})
-            if tool_name != "img_hist":
-                continue
-            for raw_path in step.get("params", {}).get("template_paths", []):
-                template_path = Path(str(raw_path))
+            if hasattr(tool_registry, "resource_paths"):
+                resources = tool_registry.resource_paths(
+                    tool_name,
+                    step.get("params", {}),
+                )
+            else:
+                # Compatibilidad para integraciones antiguas que aun inyectan
+                # un dict simple durante la migracion a ToolRegistry.
+                resources = [
+                    {"parameter": "template_paths", "path": raw_path}
+                    for raw_path in step.get("params", {}).get(
+                        "template_paths", []
+                    )
+                    if tool_name == "img_hist"
+                ]
+            for resource in resources:
+                template_path = Path(str(resource["path"]))
                 if not template_path.is_file():
                     missing_templates.append(str(template_path))
                 elif not os.access(template_path, os.R_OK) or template_path.stat().st_size <= 0:
