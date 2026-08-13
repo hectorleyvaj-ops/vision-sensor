@@ -5,6 +5,7 @@ from utils.qt_compat import (
     QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea, QMessageBox
 )
 from core.editor_models import EditorValueError
+from core.resource_paths import recipe_resource_root
 from utils.ui_logger import get_ui_logger
 if QT_LIB == "PySide6":
     from ui.pyside6.ui_config_window import Ui_Form
@@ -21,6 +22,7 @@ from ui.responsive import (
     configure_dialog,
     profile_from_widget,
 )
+from ui.theme import interface_stylesheet
 import shutil
 
 class ConfigWindow(QWidget):
@@ -47,11 +49,8 @@ class ConfigWindow(QWidget):
         self.display_profile = display_profile or profile_from_widget(self)
         self._build_universal_controls()
         apply_config_window_layout(self, self.ui, self.display_profile)
-        
+
         self.apply_config_style()
-        self.setStyleSheet(
-            self.styleSheet() + compact_stylesheet(self.display_profile)
-        )
         self.apply_button_feedbakcs()
 
         self.recipe_manager = recipe_manager
@@ -92,184 +91,13 @@ class ConfigWindow(QWidget):
             button.setMaximumWidth(max_width)
 
     def apply_config_style(self):
-        self.setStyleSheet("""
-            QWidget {
-                background-color: rgb(11, 19, 43);
-                color: rgb(234, 234, 234);
-                font-size: 14px;
-            }
-
-            QDialog {
-                background-color: rgb(11, 19, 43);
-                color: rgb(234, 234, 234);
-            }
-
-            QLabel {
-                color: rgb(234, 234, 234);
-                background-color: transparent;
-            }
-
-            QPushButton {
-                color: rgb(234, 234, 234);
-                border-radius: 10px;
-                border: 2px solid rgb(91, 192, 190);
-                background-color: rgb(15, 27, 61);
-                min-height: 28px;
-                padding: 4px 12px;
-            }
-
-            QPushButton:hover {
-                background-color: rgb(20, 38, 82);
-                border-color: rgb(46, 196, 182);
-            }
-
-            QPushButton:pressed {
-                background-color: rgb(46, 196, 182);
-                color: rgb(11, 19, 43);
-            }
-
-            QComboBox,
-            QLineEdit,
-            QDoubleSpinBox,
-            QSpinBox {
-                color: rgb(234, 234, 234);
-                border-radius: 4px;
-                border: 2px solid rgb(91, 192, 190);
-                background-color: rgb(15, 27, 61);
-                min-height: 28px;
-                padding-left: 6px;
-                padding-right: 26px;
-                selection-background-color: rgb(46, 196, 182);
-                selection-color: rgb(11, 19, 43);
-            }
-
-            QComboBox:hover,
-            QLineEdit:hover,
-            QDoubleSpinBox:hover,
-            QSpinBox:hover {
-                border-color: rgb(46, 196, 182);
-            }
-
-            QDoubleSpinBox::up-button,
-            QSpinBox::up-button {
-                subcontrol-origin: border;
-                subcontrol-position: top right;
-                width: 22px;
-                border-left: 1px solid rgb(91, 192, 190);
-                border-bottom: 1px solid rgb(91, 192, 190);
-                background-color: rgb(20, 38, 82);
-            }
-
-            QDoubleSpinBox::down-button,
-            QSpinBox::down-button {
-                subcontrol-origin: border;
-                subcontrol-position: bottom right;
-                width: 22px;
-                border-left: 1px solid rgb(91, 192, 190);
-                background-color: rgb(20, 38, 82);
-            }
-
-            QDoubleSpinBox::up-button:hover,
-            QDoubleSpinBox::down-button:hover,
-            QSpinBox::up-button:hover,
-            QSpinBox::down-button:hover {
-                background-color: rgb(46, 196, 182);
-            }
-
-            QCheckBox {
-                color: rgb(234, 234, 234);
-                background-color: transparent;
-                min-height: 24px;
-                spacing: 8px;
-            }
-
-            QCheckBox::indicator {
-                width: 15px;
-                height: 15px;
-                border-radius: 4px;
-                border: 2px solid rgb(91, 192, 190);
-                background-color: rgb(15, 27, 61);
-            }
-
-            QCheckBox::indicator:hover {
-                border-color: rgb(46, 196, 182);
-            }
-
-            QCheckBox::indicator:checked {
-                background-color: rgb(46, 196, 182);
-                border-color: rgb(46, 196, 182);
-            }
-
-            QFrame#line {
-                background-color: rgb(15, 27, 61);
-            }
-
-            QInputDialog {
-                background-color: rgb(11, 19, 43);
-                color: rgb(234, 234, 234);
-            }
-
-            QInputDialog QLabel {
-                color: rgb(234, 234, 234);
-            }
-
-            QScrollArea {
-                border: none;
-                background-color: rgb(11, 19, 43);
-            }
-
-            QScrollArea QWidget {
-                background-color: rgb(11, 19, 43);
-            }
-        """)
+        self.setStyleSheet(
+            interface_stylesheet(self.display_profile)
+            + compact_stylesheet(self.display_profile)
+        )
 
     def add_button_feedback(self, button):
-        base_style = button.styleSheet().strip()
-        
-        feedback_style = """
-        QPushButton:hover {
-            background-color: rgb(20 ,38 ,82);
-            border-color: rgb(46, 196, 182);
-        }
-        QPushButton:pressed {
-            background-color: rgb(46, 196, 182);
-            color: rgb(11, 19, 43);
-        }
-        """
-
-        if base_style:
-            if "{" in base_style and "}" in base_style:
-                final_style = base_style + "\n" + feedback_style
-            else:
-                final_style = f"""
-                QPushButton {{
-                    {base_style}
-                }}
-                {feedback_style}
-                """
-        else:
-            final_style = """
-            QPushButton {
-                color: rgb(234, 234, 234);
-                border-radius: 10px;
-                border: 2px solid rgb(91, 192, 190);
-                background-color: rgb(15, 27, 61);
-                min-height: 28px;
-                padding: 4px 12px;
-            }
-
-            QPushButton:hover {
-                background-color: rgb(20, 38, 82);
-                border-color: rgb(46, 196, 182);
-            }
-
-            QPushButton:pressed {
-                background-color: rgb(46, 196, 182);
-                color: rgb(11, 19, 43);
-            }
-            """
-
-        button.setStyleSheet(final_style)
+        button.setStyleSheet("")
         button.setCursor(Qt.PointingHandCursor)
 
     def apply_button_feedbakcs(self):
@@ -291,70 +119,7 @@ class ConfigWindow(QWidget):
             self.add_button_feedback(btn)
 
     def apply_scrollbar_style(self, scroll):
-        scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: rgb(11, 19, 43);
-            }
-
-            QScrollBar:vertical {
-                background-color: rgb(15, 27, 61);
-                width: 22px;
-                margin: 0px;
-                border-radius: 8px;
-            }
-
-            QScrollBar::handle:vertical {
-                background-color: rgb(91, 192, 190);
-                min-height: 36px;
-                border-radius: 8px;
-            }
-
-            QScrollBar::handle:vertical:hover {
-                background-color: rgb(46, 196, 182);
-            }
-
-            QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-                background: none;
-                border: none;
-            }
-
-            QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
-                background: transparent;
-            }
-
-            QScrollBar:horizontal {
-                background-color: rgb(15, 27, 61);
-                height: 18px;
-                margin: 0px;
-                border-radius: 8px;
-            }
-
-            QScrollBar::handle:horizontal {
-                background-color: rgb(91, 192, 190);
-                min-width: 36px;
-                border-radius: 8px;
-            }
-
-            QScrollBar::handle:horizontal:hover {
-                background-color: rgb(46, 196, 182);
-            }
-
-            QScrollBar::add-line:horizontal,
-            QScrollBar::sub-line:horizontal {
-                width: 0px;
-                background: none;
-                border: none;
-            }
-
-            QScrollBar::add-page:horizontal,
-            QScrollBar::sub-page:horizontal {
-                background: transparent;
-            }
-        """)
+        scroll.setStyleSheet("")
 
     def get_screen_size(self):
         return self.display_profile.width, self.display_profile.height
@@ -368,7 +133,11 @@ class ConfigWindow(QWidget):
 
     def build_base_path(self, tool_name, step_index):
         name = self.safe_name(self.current_recipe["name"])
-        return f"master_img/{name}/{tool_name}_{step_index+1}/"
+        root = self.recipe_resource_root()
+        return str(root / name / f"{self.safe_name(tool_name)}_{step_index + 1}")
+
+    def recipe_resource_root(self):
+        return recipe_resource_root(getattr(self.recipe_manager, "path", ""))
 
     def connect_signals(self):
         self.ui.cmb_recipes.currentIndexChanged.connect(self.on_recipe_selected)
@@ -393,12 +162,19 @@ class ConfigWindow(QWidget):
             )
             return
 
+        camera_runtime = (
+            self.camera_worker.runtime_camera_info()
+            if self.camera_worker is not None
+            and hasattr(self.camera_worker, "runtime_camera_info")
+            else {}
+        )
         dialog = SystemConfigDialog(
             system_config=self.system_config,
             recipe_manager=self.recipe_manager,
             platform=self.platform,
             parent=self,
             display_profile=self.display_profile,
+            camera_runtime=camera_runtime,
         )
         dialog.configuration_saved.connect(self.restart_required.emit)
         configure_dialog(
@@ -453,12 +229,19 @@ class ConfigWindow(QWidget):
             print("[CONFIG] No hay receta seleccionada para cofigurar enfoque")
             return
         
+        camera_runtime = (
+            self.camera_worker.runtime_camera_info()
+            if self.camera_worker is not None
+            and hasattr(self.camera_worker, "runtime_camera_info")
+            else {}
+        )
         dialog = FocusConfigDialog(
             recipe=self.current_recipe,
             get_frame_callback=self.get_frame,
             platform=self.platform,
             parent=self,
             display_profile=self.display_profile,
+            camera_runtime=camera_runtime,
         )
 
         if self.camera_worker is not None:
@@ -606,6 +389,13 @@ class ConfigWindow(QWidget):
         dialog.setStyleSheet(self.styleSheet())
 
         layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(
+            self.display_profile.margin,
+            self.display_profile.margin,
+            self.display_profile.margin,
+            self.display_profile.margin,
+        )
+        layout.setSpacing(self.display_profile.spacing)
 
         editor = ToolEditor(
             tool_name=tool_name,
@@ -614,7 +404,8 @@ class ConfigWindow(QWidget):
             base_path=base_path,
             edit=True,
             platform=self.platform,
-            screen_size=screen_size
+            screen_size=screen_size,
+            display_profile=self.display_profile,
         )
 
         editor_values = dict(params)
@@ -633,11 +424,17 @@ class ConfigWindow(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setWidget(editor)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(self.display_profile.spacing)
+        scroll_layout.addWidget(policy_editor)
+        scroll_layout.addWidget(editor)
+        scroll.setWidget(scroll_content)
         self.apply_scrollbar_style(scroll)
 
-        btn_save = QPushButton("Guardar")
-        btn_cancel = QPushButton("Cancelar")
+        btn_save = QPushButton("GUARDAR CAMBIOS")
+        btn_cancel = QPushButton("CANCELAR")
 
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_cancel.setCursor(Qt.PointingHandCursor)
@@ -646,8 +443,7 @@ class ConfigWindow(QWidget):
         buttons_layout.addWidget(btn_cancel)
         buttons_layout.addWidget(btn_save)
 
-        layout.addWidget(policy_editor)
-        layout.addWidget(scroll)
+        layout.addWidget(scroll, 1)
         layout.addLayout(buttons_layout)
 
         def save():
@@ -715,6 +511,13 @@ class ConfigWindow(QWidget):
 
         dialog.setStyleSheet(self.styleSheet())
         layout = QVBoxLayout()
+        layout.setContentsMargins(
+            self.display_profile.margin,
+            self.display_profile.margin,
+            self.display_profile.margin,
+            self.display_profile.margin,
+        )
+        layout.setSpacing(self.display_profile.spacing)
 
         cmb_tools = QComboBox()
         for available_tool in tools:
@@ -745,7 +548,8 @@ class ConfigWindow(QWidget):
             base_path=base_path,
             edit=False,
             platform=self.platform,
-            screen_size=screen_size
+            screen_size=screen_size,
+            display_profile=self.display_profile,
         )
         default_id = self.recipe_manager.slugify(tool_name) or "step"
         default_id = f"{default_id}_{len(self.current_recipe['steps']) + 1}"
@@ -766,11 +570,18 @@ class ConfigWindow(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setWidget(editor)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(self.display_profile.spacing)
+        scroll_layout.addWidget(cmb_tools)
+        scroll_layout.addWidget(policy_editor)
+        scroll_layout.addWidget(editor)
+        scroll.setWidget(scroll_content)
         self.apply_scrollbar_style(scroll)
 
-        btn_cancel = QPushButton("Cancelar")
-        btn_save = QPushButton("Guardar")
+        btn_cancel = QPushButton("CANCELAR")
+        btn_save = QPushButton("GUARDAR STEP")
 
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_cancel.setCursor(Qt.PointingHandCursor)
@@ -779,9 +590,7 @@ class ConfigWindow(QWidget):
         buttons_layout.addWidget(btn_cancel)
         buttons_layout.addWidget(btn_save)
 
-        layout.addWidget(cmb_tools)
-        layout.addWidget(policy_editor)
-        layout.addWidget(scroll)
+        layout.addWidget(scroll, 1)
         layout.addLayout(buttons_layout)
 
         dialog.setLayout(layout)
@@ -938,7 +747,7 @@ class ConfigWindow(QWidget):
 
         # ELIMINAR CARPETA DE IMAGENES ASOCIADA A LA RECETA
         safe = self.safe_name(name)
-        path = f"master_img/{safe}/"
+        path = str(self.recipe_resource_root() / safe)
 
         if os.path.exists(path):
             shutil.rmtree(path)

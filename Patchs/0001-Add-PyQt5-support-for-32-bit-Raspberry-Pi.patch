@@ -1,0 +1,1261 @@
+From 3905115e17f6581aea32c847f18fd2434f550d06 Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Thu, 13 Aug 2026 10:55:14 -0600
+Subject: [PATCH] Add PyQt5 support for 32-bit Raspberry Pi
+
+---
+ .../CONTEXTO_PROYECTO_WORKSURFACE_V13.md      |  23 +-
+ Guias/GUIA_FASE8_INSTALACION_WORKSURFACE.md   |  20 ++
+ app/app.py                                    |   5 +-
+ docs/raspberry_pi_32bit_runtime.md            |  62 +++++
+ requirements-rpi32.txt                        |  10 +
+ requirements.txt                              |   6 +-
+ scripts/check_qt_runtime.py                   |  40 +++
+ tests/test_qt_backend.py                      |  82 ++++++
+ ui/config_window_logic.py                     |   7 +-
+ ui/pyqt5/config_window.py                     | 248 +++++++++++++-----
+ ui/pyqt5/ui_main_window.py                    | 152 ++++++-----
+ utils/qt_backend.py                           |  23 ++
+ utils/qt_compat.py                            |  64 ++++-
+ 13 files changed, 585 insertions(+), 157 deletions(-)
+ create mode 100644 docs/raspberry_pi_32bit_runtime.md
+ create mode 100644 requirements-rpi32.txt
+ create mode 100644 scripts/check_qt_runtime.py
+ create mode 100644 tests/test_qt_backend.py
+ create mode 100644 utils/qt_backend.py
+
+diff --git a/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V13.md b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V13.md
+index 1c401b9..0c9dd6e 100644
+--- a/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V13.md
++++ b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V13.md
+@@ -104,6 +104,17 @@ Las tres recetas usan `commissioned: false`. Esta condicion es intencional:
+ El valor `mechanical_settle_ms` sigue en `0` como pendiente de medicion, no como
+ confirmacion de que no se requiere asentamiento.
+ 
++### 3.5 Compatibilidad Raspberry Pi OS de 32 bits
++
++El backend grafico ya no queda fijado indirectamente a PySide6. La seleccion
++centralizada acepta `VISION_QT_API=auto|pyside6|pyqt5`; en modo automatico
++prefiere PySide6 y usa PyQt5 como alternativa. Tanto la ventana principal como
++la de configuracion seleccionan su clase UI de acuerdo con el backend real.
++
++Para `armhf/armv7l` se agrego `requirements-rpi32.txt`. PyQt5, OpenCV y NumPy
++se instalan mediante APT y el entorno se crea con `--system-site-packages`.
++La guia detallada esta en `docs/raspberry_pi_32bit_runtime.md`.
++
+ ## 4. Validador offline
+ 
+ `scripts/validate_installation.py` valida el paquete sin abrir camara ni serial
+@@ -151,20 +162,24 @@ error, no una advertencia.
+ 
+ ## 5. Validacion automatizada
+ 
+-Resultado despues de fase 8:
++Resultado despues de fase 8 y la compatibilidad Raspberry Pi de 32 bits:
+ 
+ ```text
+-Ran 63 tests
++Ran 67 tests
+ OK
+ ```
+ 
+-Se conservaron las 59 pruebas de fase 7 y se agregaron cuatro para:
++Se conservaron las 59 pruebas de fase 7. Las cuatro pruebas originales de fase
++8 cubren:
+ 
+ - paquete valido pero deliberadamente no comisionado;
+ - mapeo y numeros de parte A/B/C;
+ - rechazo de mapeo incorrecto;
+ - rechazo estricto de calibracion pendiente.
+ 
++Otras cuatro pruebas cubren seleccion forzada/automatica de Qt, paridad de los
++controles UI y la separacion de dependencias binarias en Raspberry Pi 32 bits.
++
+ Tambien se verificara `compileall`, validez JSON y aplicacion aislada del parche
+ antes de publicar la entrega.
+ 
+@@ -221,7 +236,7 @@ queda autorizada para produccion hasta cerrar 8B, 9 y 10.
+ ## 9. Proximo paso
+ 
+ 1. Aplicar el parche de fase 8 sobre fase 7 confirmada.
+-2. Ejecutar las 63 pruebas y el validador estructural.
++2. Ejecutar las 67 pruebas y el validador estructural.
+ 3. Capturar y medir A/B/C siguiendo
+    `GUIA_FASE8_INSTALACION_WORKSURFACE.md`.
+ 4. Ejecutar el validador estricto hasta codigo 0.
+diff --git a/Guias/GUIA_FASE8_INSTALACION_WORKSURFACE.md b/Guias/GUIA_FASE8_INSTALACION_WORKSURFACE.md
+index 6dd1d05..196d4c9 100644
+--- a/Guias/GUIA_FASE8_INSTALACION_WORKSURFACE.md
++++ b/Guias/GUIA_FASE8_INSTALACION_WORKSURFACE.md
+@@ -96,6 +96,26 @@ paquete/configuracion invalida.
+ 
+ Ejecutar siempre desde la raiz del proyecto.
+ 
++### Raspberry Pi OS de 32 bits
++
++En `armhf/armv7l`, PySide6 no dispone de un wheel oficial compatible. Instalar
++PyQt5, OpenCV y NumPy desde APT y crear un entorno que pueda ver esos paquetes:
++
++```bash
++sudo apt update
++sudo apt install -y python3-venv python3-pyqt5 python3-opencv python3-numpy libdmtx0b
++python3 -m venv --system-site-packages venv-rpi32
++source venv-rpi32/bin/activate
++python -m pip install --upgrade pip setuptools wheel
++python -m pip install -r requirements-rpi32.txt
++export VISION_QT_API=pyqt5
++python scripts/check_qt_runtime.py
++```
++
++No reutilizar el `venv` creado durante la instalacion fallida: un entorno
++creado sin `--system-site-packages` no ve PyQt5/OpenCV instalados por APT. La
++referencia completa esta en `docs/raspberry_pi_32bit_runtime.md`.
++
+ PowerShell:
+ 
+ ```powershell
+diff --git a/app/app.py b/app/app.py
+index 7cc64ba..35c38c3 100644
+--- a/app/app.py
++++ b/app/app.py
+@@ -5,7 +5,10 @@ import os
+ from utils.qt_compat import load_ui, QT_LIB, QThread, QImage, QPixmap, QMainWindow, QMetaObject, Qt, QTimer
+ from utils.ui_logger import get_ui_logger
+ # IMPORTS DE UI
+-from ui.pyside6.ui_main_window import Ui_MainWindow
++if QT_LIB == "PySide6":
++    from ui.pyside6.ui_main_window import Ui_MainWindow
++else:
++    from ui.pyqt5.ui_main_window import Ui_MainWindow
+ from ui.config_window_logic import ConfigWindow
+ # IMPORTS DE HERRAMIENTAS, SERVICIOS Y LOGICA
+ from tools.registry import discover_tool_registry
+diff --git a/docs/raspberry_pi_32bit_runtime.md b/docs/raspberry_pi_32bit_runtime.md
+new file mode 100644
+index 0000000..446eb44
+--- /dev/null
++++ b/docs/raspberry_pi_32bit_runtime.md
+@@ -0,0 +1,62 @@
++# Runtime Raspberry Pi OS de 32 bits
++
++Esta variante usa PyQt5, OpenCV y NumPy empaquetados por Raspberry Pi OS/Debian
++para `armhf`. No intenta descargar PySide6 ni wheels binarios de OpenCV desde
++PyPI.
++
++## Paquetes del sistema
++
++```bash
++sudo apt update
++sudo apt install -y python3-venv python3-pyqt5 python3-opencv python3-numpy libdmtx0b
++```
++
++## Entorno virtual
++
++No reutilices el entorno que fallo, porque fue creado sin acceso a los paquetes
++APT. Crea otro con un nombre distinto:
++
++```bash
++cd /home/worksurface/calibration/Proyecto_vision_sensor_phase8
++python3 -m venv --system-site-packages venv-rpi32
++source venv-rpi32/bin/activate
++python -m pip install --upgrade pip setuptools wheel
++python -m pip install -r requirements-rpi32.txt
++```
++
++`--system-site-packages` es obligatorio en esta variante: permite que el entorno
++vea `/usr/lib/python3/dist-packages`, donde APT instala PyQt5, OpenCV y NumPy.
++
++## Verificacion
++
++```bash
++export VISION_QT_API=pyqt5
++python scripts/check_qt_runtime.py
++python -m unittest discover -s tests -p "test_*.py" -v
++python scripts/validate_installation.py
++```
++
++La salida debe identificar `Qt: PyQt5`. Antes de cargar datos reales, el
++validador Worksurface debe indicar `LISTA PARA CALIBRAR`.
++
++## Inicio de la interfaz
++
++```bash
++export VISION_QT_API=pyqt5
++export VISION_SYSTEM_CONFIG=installations/worksurface/system.json
++python main.py
++```
++
++La seleccion tambien es automatica cuando PySide6 no existe y PyQt5 si esta
++instalado. La variable explicita se recomienda en la Raspberry para que una
++instalacion accidental de otro binding no cambie el backend en produccion.
++
++## Notas
++
++- No ejecutes `pip install -r requirements.txt` en esta Raspberry.
++- No ejecutes `pip install PyQt5` ni `pip install opencv-python` en `armhf`.
++- No desactives los bloqueos de controlador para ocultar que el firmware de
++  fase 9 aun no esta instalado.
++- Si `apt` no encuentra alguno de los paquetes, identifica primero la version
++  de Raspberry Pi OS con `cat /etc/os-release`; no agregues repositorios de otra
++  distribucion.
+diff --git a/requirements-rpi32.txt b/requirements-rpi32.txt
+new file mode 100644
+index 0000000..1ce8abc
+--- /dev/null
++++ b/requirements-rpi32.txt
+@@ -0,0 +1,10 @@
++# Raspberry Pi OS de 32 bits (armhf/armv7l).
++#
++# Dependencias binarias instaladas mediante APT, no pip:
++#   python3-pyqt5 python3-opencv python3-numpy libdmtx0b
++#
++# El entorno virtual debe crearse con --system-site-packages para reutilizarlas.
++# PySide6 no se incluye porque no publica wheels oficiales para ARM de 32 bits.
++
++pylibdmtx==0.1.10
++pyserial==3.5
+diff --git a/requirements.txt b/requirements.txt
+index 8e000d9..0d49023 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -1,6 +1,8 @@
++# Entorno de escritorio/64 bits. En Raspberry Pi OS de 32 bits usa:
++#   requirements-rpi32.txt
+ numpy
+ opencv-python
+-Pyside6
++PySide6
+ qtpy
+ pylibdmtx
+-pyserial
+\ No newline at end of file
++pyserial
+diff --git a/scripts/check_qt_runtime.py b/scripts/check_qt_runtime.py
+new file mode 100644
+index 0000000..00f1161
+--- /dev/null
++++ b/scripts/check_qt_runtime.py
+@@ -0,0 +1,40 @@
++"""Report the Qt/vision runtime selected for this installation."""
++
++import platform
++import struct
++import sys
++from pathlib import Path
++
++
++PROJECT_ROOT = Path(__file__).resolve().parents[1]
++if str(PROJECT_ROOT) not in sys.path:
++    sys.path.insert(0, str(PROJECT_ROOT))
++
++
++def main():
++    from utils.qt_compat import QT_LIB
++
++    import cv2
++    import numpy
++
++    print(f"Python: {sys.version.split()[0]}")
++    print(f"Ejecutable: {sys.executable}")
++    print(f"Arquitectura: {platform.machine()} ({struct.calcsize('P') * 8} bits)")
++    print(f"Qt: {QT_LIB}")
++    print(f"OpenCV: {cv2.__version__}")
++    print(f"NumPy: {numpy.__version__}")
++
++    if QT_LIB == "PyQt5":
++        from PyQt5.QtCore import PYQT_VERSION_STR, QT_VERSION_STR
++
++        print(f"PyQt: {PYQT_VERSION_STR}")
++        print(f"Qt runtime: {QT_VERSION_STR}")
++    else:
++        import PySide6
++
++        print(f"PySide: {PySide6.__version__}")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tests/test_qt_backend.py b/tests/test_qt_backend.py
+new file mode 100644
+index 0000000..40cd682
+--- /dev/null
++++ b/tests/test_qt_backend.py
+@@ -0,0 +1,82 @@
++import unittest
++from pathlib import Path
++from xml.etree import ElementTree
++
++from utils.qt_backend import backend_order, normalize_qt_request
++
++
++class QtBackendTests(unittest.TestCase):
++    def test_auto_prefers_pyside_but_keeps_pyqt5_fallback(self):
++        self.assertEqual(backend_order("auto"), ("PySide6", "PyQt5"))
++
++    def test_backend_can_be_forced_for_raspberry(self):
++        self.assertEqual(backend_order("pyqt5"), ("PyQt5",))
++        self.assertEqual(normalize_qt_request("PySide6"), "PySide6")
++        with self.assertRaisesRegex(ValueError, "VISION_QT_API"):
++            backend_order("invented")
++
++    def test_canonical_ui_files_contain_controls_needed_by_both_backends(self):
++        required = {
++            "ui/main_window.ui": {
++                "centralwidget",
++                "verticalLayout_3",
++                "lbl_video",
++                "indicator_1",
++                "btn_config",
++                "list_log",
++                "verticalSpacer",
++                "horizontalSpacer",
++                "verticalSpacer_2",
++            },
++            "ui/config_window.ui": {
++                "verticalLayout",
++                "central_layout",
++                "bttm_layout",
++                "cmb_recipes",
++                "cmb_tools",
++                "btn_focus_config",
++                "list_log_config",
++                "horizontalSpacer_3",
++            },
++        }
++        for filename, expected in required.items():
++            root = ElementTree.parse(filename).getroot()
++            names = {
++                node.get("name")
++                for node in root.iter()
++                if node.get("name")
++            }
++            self.assertEqual(expected - names, set(), filename)
++
++        generated = {
++            "ui/pyqt5/ui_main_window.py": {
++                "self.verticalSpacer =",
++                "self.horizontalSpacer =",
++                "self.verticalSpacer_2 =",
++            },
++            "ui/pyqt5/config_window.py": {
++                "self.horizontalSpacer_3 =",
++            },
++        }
++        for filename, expected in generated.items():
++            text = Path(filename).read_text(encoding="utf-8")
++            self.assertEqual(
++                {token for token in expected if token not in text},
++                set(),
++                filename,
++            )
++
++    def test_rpi32_requirements_do_not_request_binary_qt_or_opencv_wheels(self):
++        text = Path("requirements-rpi32.txt").read_text(encoding="utf-8")
++        active = [
++            line.strip().lower()
++            for line in text.splitlines()
++            if line.strip() and not line.lstrip().startswith("#")
++        ]
++        self.assertFalse(any("pyside" in line for line in active))
++        self.assertFalse(any("pyqt" in line for line in active))
++        self.assertFalse(any("opencv" in line for line in active))
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/ui/config_window_logic.py b/ui/config_window_logic.py
+index c44ca6a..8b30699 100644
+--- a/ui/config_window_logic.py
++++ b/ui/config_window_logic.py
+@@ -1,12 +1,15 @@
+ import copy
+ import os
+ from utils.qt_compat import (
+-    QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
++    QT_LIB, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+     QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea, QMessageBox
+ )
+ from core.editor_models import EditorValueError
+ from utils.ui_logger import get_ui_logger
+-from ui.pyside6.ui_config_window import Ui_Form
++if QT_LIB == "PySide6":
++    from ui.pyside6.ui_config_window import Ui_Form
++else:
++    from ui.pyqt5.config_window import Ui_Form
+ from ui.tool_editor import ToolEditor
+ from ui.schemas.schemas import tool_schemas
+ from ui.focus_config_dialog import FocusConfigDialog
+diff --git a/ui/pyqt5/config_window.py b/ui/pyqt5/config_window.py
+index 47bd95c..874bfb5 100644
+--- a/ui/pyqt5/config_window.py
++++ b/ui/pyqt5/config_window.py
+@@ -2,7 +2,7 @@
+ 
+ # Form implementation generated from reading ui file 'ui/config_window.ui'
+ #
+-# Created by: PyQt5 UI code generator 5.15.4
++# Created by: PyQt5 UI code generator 5.15.11
+ #
+ # WARNING: Any manual changes made to this file will be lost when pyuic5 is
+ # run again.  Do not edit this file unless you know what you are doing.
+@@ -14,7 +14,14 @@ from PyQt5 import QtCore, QtGui, QtWidgets
+ class Ui_Form(object):
+     def setupUi(self, Form):
+         Form.setObjectName("Form")
+-        Form.resize(480, 320)
++        Form.resize(800, 480)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
++        sizePolicy.setHorizontalStretch(0)
++        sizePolicy.setVerticalStretch(0)
++        sizePolicy.setHeightForWidth(Form.sizePolicy().hasHeightForWidth())
++        Form.setSizePolicy(sizePolicy)
++        Form.setMinimumSize(QtCore.QSize(480, 0))
++        Form.setMaximumSize(QtCore.QSize(800, 480))
+         Form.setStyleSheet("background-color: rgb(11, 19, 43);")
+         self.verticalLayout = QtWidgets.QVBoxLayout(Form)
+         self.verticalLayout.setContentsMargins(10, 10, 10, 10)
+@@ -26,7 +33,11 @@ class Ui_Form(object):
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.top_bar.sizePolicy().hasHeightForWidth())
+         self.top_bar.setSizePolicy(sizePolicy)
+-        self.top_bar.setMaximumSize(QtCore.QSize(480, 30))
++        self.top_bar.setMinimumSize(QtCore.QSize(0, 40))
++        self.top_bar.setMaximumSize(QtCore.QSize(780, 40))
++        font = QtGui.QFont()
++        font.setPointSize(11)
++        self.top_bar.setFont(font)
+         self.top_bar.setStyleSheet("")
+         self.top_bar.setFrameShape(QtWidgets.QFrame.StyledPanel)
+         self.top_bar.setFrameShadow(QtWidgets.QFrame.Raised)
+@@ -39,10 +50,10 @@ class Ui_Form(object):
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.lbl_tittle.sizePolicy().hasHeightForWidth())
+         self.lbl_tittle.setSizePolicy(sizePolicy)
+-        self.lbl_tittle.setMinimumSize(QtCore.QSize(200, 15))
+-        self.lbl_tittle.setMaximumSize(QtCore.QSize(350, 50))
++        self.lbl_tittle.setMinimumSize(QtCore.QSize(300, 15))
++        self.lbl_tittle.setMaximumSize(QtCore.QSize(500, 80))
+         font = QtGui.QFont()
+-        font.setPointSize(12)
++        font.setPointSize(15)
+         font.setBold(True)
+         font.setWeight(75)
+         self.lbl_tittle.setFont(font)
+@@ -57,14 +68,17 @@ class Ui_Form(object):
+         self.central_layout.setObjectName("central_layout")
+         self.left_panel = QtWidgets.QVBoxLayout()
+         self.left_panel.setObjectName("left_panel")
++        self.horizontalLayout_6 = QtWidgets.QHBoxLayout()
++        self.horizontalLayout_6.setObjectName("horizontalLayout_6")
+         self.lbl_recipes = QtWidgets.QLabel(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.lbl_recipes.sizePolicy().hasHeightForWidth())
+         self.lbl_recipes.setSizePolicy(sizePolicy)
+-        self.lbl_recipes.setMaximumSize(QtCore.QSize(200, 30))
++        self.lbl_recipes.setMaximumSize(QtCore.QSize(200, 20))
+         font = QtGui.QFont()
++        font.setPointSize(10)
+         font.setBold(True)
+         font.setWeight(75)
+         self.lbl_recipes.setFont(font)
+@@ -72,41 +86,53 @@ class Ui_Form(object):
+ "background-color: transparent;")
+         self.lbl_recipes.setAlignment(QtCore.Qt.AlignCenter)
+         self.lbl_recipes.setObjectName("lbl_recipes")
+-        self.left_panel.addWidget(self.lbl_recipes)
++        self.horizontalLayout_6.addWidget(self.lbl_recipes)
++        self.left_panel.addLayout(self.horizontalLayout_6)
++        self.horizontalLayout_7 = QtWidgets.QHBoxLayout()
++        self.horizontalLayout_7.setObjectName("horizontalLayout_7")
+         self.cmb_recipes = QtWidgets.QComboBox(Form)
+-        self.cmb_recipes.setMaximumSize(QtCore.QSize(200, 25))
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
++        sizePolicy.setHorizontalStretch(0)
++        sizePolicy.setVerticalStretch(0)
++        sizePolicy.setHeightForWidth(self.cmb_recipes.sizePolicy().hasHeightForWidth())
++        self.cmb_recipes.setSizePolicy(sizePolicy)
++        self.cmb_recipes.setMaximumSize(QtCore.QSize(280, 30))
+         self.cmb_recipes.setStyleSheet("color: rgb(234, 234, 234);\n"
+ "border-radius: 3px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
++        self.cmb_recipes.setEditable(False)
+         self.cmb_recipes.setObjectName("cmb_recipes")
+-        self.left_panel.addWidget(self.cmb_recipes)
++        self.horizontalLayout_7.addWidget(self.cmb_recipes)
++        self.left_panel.addLayout(self.horizontalLayout_7)
+         self.horizontalLayout = QtWidgets.QHBoxLayout()
+         self.horizontalLayout.setObjectName("horizontalLayout")
+         self.btn_add_r = QtWidgets.QPushButton(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.btn_add_r.sizePolicy().hasHeightForWidth())
+         self.btn_add_r.setSizePolicy(sizePolicy)
+-        self.btn_add_r.setMaximumSize(QtCore.QSize(95, 25))
++        self.btn_add_r.setMinimumSize(QtCore.QSize(0, 30))
++        self.btn_add_r.setMaximumSize(QtCore.QSize(130, 30))
+         self.btn_add_r.setStyleSheet("color: rgb(234, 234, 234);\n"
+-"border-radius: 10px;\n"
++"border-radius: 15px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
+         self.btn_add_r.setObjectName("btn_add_r")
+         self.horizontalLayout.addWidget(self.btn_add_r)
+         self.btn_del_r = QtWidgets.QPushButton(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.btn_del_r.sizePolicy().hasHeightForWidth())
+         self.btn_del_r.setSizePolicy(sizePolicy)
+-        self.btn_del_r.setMaximumSize(QtCore.QSize(95, 25))
++        self.btn_del_r.setMinimumSize(QtCore.QSize(0, 30))
++        self.btn_del_r.setMaximumSize(QtCore.QSize(130, 30))
+         self.btn_del_r.setStyleSheet("color: rgb(234, 234, 234);\n"
+-"border-radius: 10px;\n"
++"border-radius: 15px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
+@@ -116,37 +142,47 @@ class Ui_Form(object):
+         self.horizontalLayout_5 = QtWidgets.QHBoxLayout()
+         self.horizontalLayout_5.setObjectName("horizontalLayout_5")
+         self.btn_select_r = QtWidgets.QPushButton(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.btn_select_r.sizePolicy().hasHeightForWidth())
+         self.btn_select_r.setSizePolicy(sizePolicy)
+-        self.btn_select_r.setMaximumSize(QtCore.QSize(95, 25))
++        self.btn_select_r.setMinimumSize(QtCore.QSize(0, 30))
++        self.btn_select_r.setMaximumSize(QtCore.QSize(160, 30))
+         self.btn_select_r.setStyleSheet("color: rgb(234, 234, 234);\n"
+-"border-radius: 10px;\n"
++"border-radius: 15px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
+         self.btn_select_r.setObjectName("btn_select_r")
+         self.horizontalLayout_5.addWidget(self.btn_select_r)
+         self.left_panel.addLayout(self.horizontalLayout_5)
++        self.horizontalSpacer_3 = QtWidgets.QSpacerItem(380, 30, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Minimum)
++        self.left_panel.addItem(self.horizontalSpacer_3)
+         self.central_layout.addLayout(self.left_panel)
+         self.line = QtWidgets.QFrame(Form)
++        self.line.setMinimumSize(QtCore.QSize(3, 300))
++        self.line.setMaximumSize(QtCore.QSize(16777215, 500))
+         self.line.setStyleSheet("background-color: rgb(15, 27, 61);")
+         self.line.setFrameShape(QtWidgets.QFrame.VLine)
+         self.line.setFrameShadow(QtWidgets.QFrame.Sunken)
+         self.line.setObjectName("line")
+         self.central_layout.addWidget(self.line)
+         self.right_panel = QtWidgets.QVBoxLayout()
++        self.right_panel.setContentsMargins(8, -1, 8, -1)
++        self.right_panel.setSpacing(5)
+         self.right_panel.setObjectName("right_panel")
++        self.horizontalLayout_9 = QtWidgets.QHBoxLayout()
++        self.horizontalLayout_9.setObjectName("horizontalLayout_9")
+         self.lbl_tools = QtWidgets.QLabel(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.lbl_tools.sizePolicy().hasHeightForWidth())
+         self.lbl_tools.setSizePolicy(sizePolicy)
+-        self.lbl_tools.setMaximumSize(QtCore.QSize(200, 30))
++        self.lbl_tools.setMaximumSize(QtCore.QSize(200, 20))
+         font = QtGui.QFont()
++        font.setPointSize(10)
+         font.setBold(True)
+         font.setWeight(75)
+         self.lbl_tools.setFont(font)
+@@ -154,107 +190,195 @@ class Ui_Form(object):
+ "background-color: transparent;")
+         self.lbl_tools.setAlignment(QtCore.Qt.AlignCenter)
+         self.lbl_tools.setObjectName("lbl_tools")
+-        self.right_panel.addWidget(self.lbl_tools)
++        self.horizontalLayout_9.addWidget(self.lbl_tools)
++        self.right_panel.addLayout(self.horizontalLayout_9)
++        self.horizontalLayout_8 = QtWidgets.QHBoxLayout()
++        self.horizontalLayout_8.setObjectName("horizontalLayout_8")
+         self.cmb_tools = QtWidgets.QComboBox(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.cmb_tools.sizePolicy().hasHeightForWidth())
+         self.cmb_tools.setSizePolicy(sizePolicy)
+-        self.cmb_tools.setMaximumSize(QtCore.QSize(200, 25))
++        self.cmb_tools.setMinimumSize(QtCore.QSize(0, 25))
++        self.cmb_tools.setMaximumSize(QtCore.QSize(280, 30))
+         self.cmb_tools.setStyleSheet("color: rgb(234, 234, 234);\n"
+ "border-radius: 3px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
+         self.cmb_tools.setObjectName("cmb_tools")
+-        self.right_panel.addWidget(self.cmb_tools)
++        self.horizontalLayout_8.addWidget(self.cmb_tools)
++        self.right_panel.addLayout(self.horizontalLayout_8)
++        self.horizontalLayout_3 = QtWidgets.QHBoxLayout()
++        self.horizontalLayout_3.setObjectName("horizontalLayout_3")
++        self.btn_edit_t = QtWidgets.QPushButton(Form)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
++        sizePolicy.setHorizontalStretch(0)
++        sizePolicy.setVerticalStretch(0)
++        sizePolicy.setHeightForWidth(self.btn_edit_t.sizePolicy().hasHeightForWidth())
++        self.btn_edit_t.setSizePolicy(sizePolicy)
++        self.btn_edit_t.setMinimumSize(QtCore.QSize(0, 30))
++        self.btn_edit_t.setMaximumSize(QtCore.QSize(150, 30))
++        self.btn_edit_t.setStyleSheet("color: rgb(234, 234, 234);\n"
++"border-radius: 15px;\n"
++"border: 2px solid;\n"
++"border-color: rgb(91, 192, 190);\n"
++"background-color: rgb(15, 27, 61);")
++        self.btn_edit_t.setObjectName("btn_edit_t")
++        self.horizontalLayout_3.addWidget(self.btn_edit_t)
++        self.right_panel.addLayout(self.horizontalLayout_3)
+         self.horizontalLayout_2 = QtWidgets.QHBoxLayout()
+         self.horizontalLayout_2.setObjectName("horizontalLayout_2")
+         self.btn_add_t = QtWidgets.QPushButton(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.btn_add_t.sizePolicy().hasHeightForWidth())
+         self.btn_add_t.setSizePolicy(sizePolicy)
+-        self.btn_add_t.setMaximumSize(QtCore.QSize(95, 25))
++        self.btn_add_t.setMinimumSize(QtCore.QSize(0, 30))
++        self.btn_add_t.setMaximumSize(QtCore.QSize(120, 30))
+         self.btn_add_t.setStyleSheet("color: rgb(234, 234, 234);\n"
+-"border-radius: 10px;\n"
++"border-radius: 15px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
+         self.btn_add_t.setObjectName("btn_add_t")
+         self.horizontalLayout_2.addWidget(self.btn_add_t)
+         self.btn_del_t = QtWidgets.QPushButton(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.btn_del_t.sizePolicy().hasHeightForWidth())
+         self.btn_del_t.setSizePolicy(sizePolicy)
+-        self.btn_del_t.setMaximumSize(QtCore.QSize(95, 25))
++        self.btn_del_t.setMinimumSize(QtCore.QSize(0, 30))
++        self.btn_del_t.setMaximumSize(QtCore.QSize(120, 30))
+         self.btn_del_t.setStyleSheet("color: rgb(234, 234, 234);\n"
+-"border-radius: 10px;\n"
++"border-radius: 15px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
+         self.btn_del_t.setObjectName("btn_del_t")
+         self.horizontalLayout_2.addWidget(self.btn_del_t)
+         self.right_panel.addLayout(self.horizontalLayout_2)
+-        self.horizontalLayout_3 = QtWidgets.QHBoxLayout()
+-        self.horizontalLayout_3.setObjectName("horizontalLayout_3")
+-        self.btn_edit_t = QtWidgets.QPushButton(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        self.line_2 = QtWidgets.QFrame(Form)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+-        sizePolicy.setHeightForWidth(self.btn_edit_t.sizePolicy().hasHeightForWidth())
+-        self.btn_edit_t.setSizePolicy(sizePolicy)
+-        self.btn_edit_t.setMaximumSize(QtCore.QSize(95, 25))
+-        self.btn_edit_t.setStyleSheet("color: rgb(234, 234, 234);\n"
+-"border-radius: 10px;\n"
++        sizePolicy.setHeightForWidth(self.line_2.sizePolicy().hasHeightForWidth())
++        self.line_2.setSizePolicy(sizePolicy)
++        self.line_2.setMinimumSize(QtCore.QSize(355, 0))
++        self.line_2.setMaximumSize(QtCore.QSize(355, 3))
++        self.line_2.setStyleSheet("background-color: rgb(15, 27, 61);")
++        self.line_2.setFrameShape(QtWidgets.QFrame.HLine)
++        self.line_2.setFrameShadow(QtWidgets.QFrame.Sunken)
++        self.line_2.setObjectName("line_2")
++        self.right_panel.addWidget(self.line_2)
++        self.horizontalLayout_11 = QtWidgets.QHBoxLayout()
++        self.horizontalLayout_11.setObjectName("horizontalLayout_11")
++        self.lbl_focus = QtWidgets.QLabel(Form)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
++        sizePolicy.setHorizontalStretch(0)
++        sizePolicy.setVerticalStretch(0)
++        sizePolicy.setHeightForWidth(self.lbl_focus.sizePolicy().hasHeightForWidth())
++        self.lbl_focus.setSizePolicy(sizePolicy)
++        self.lbl_focus.setMaximumSize(QtCore.QSize(200, 30))
++        font = QtGui.QFont()
++        font.setPointSize(10)
++        font.setBold(True)
++        font.setWeight(75)
++        self.lbl_focus.setFont(font)
++        self.lbl_focus.setStyleSheet("color: rgb(234, 234, 234);\n"
++"background-color: transparent;")
++        self.lbl_focus.setAlignment(QtCore.Qt.AlignCenter)
++        self.lbl_focus.setObjectName("lbl_focus")
++        self.horizontalLayout_11.addWidget(self.lbl_focus)
++        self.right_panel.addLayout(self.horizontalLayout_11)
++        self.horizontalLayout_10 = QtWidgets.QHBoxLayout()
++        self.horizontalLayout_10.setObjectName("horizontalLayout_10")
++        self.btn_focus_config = QtWidgets.QPushButton(Form)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
++        sizePolicy.setHorizontalStretch(0)
++        sizePolicy.setVerticalStretch(0)
++        sizePolicy.setHeightForWidth(self.btn_focus_config.sizePolicy().hasHeightForWidth())
++        self.btn_focus_config.setSizePolicy(sizePolicy)
++        self.btn_focus_config.setMinimumSize(QtCore.QSize(0, 30))
++        self.btn_focus_config.setMaximumSize(QtCore.QSize(160, 30))
++        self.btn_focus_config.setStyleSheet("color: rgb(234, 234, 234);\n"
++"border-radius: 15px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
+-        self.btn_edit_t.setObjectName("btn_edit_t")
+-        self.horizontalLayout_3.addWidget(self.btn_edit_t)
+-        self.right_panel.addLayout(self.horizontalLayout_3)
++        self.btn_focus_config.setObjectName("btn_focus_config")
++        self.horizontalLayout_10.addWidget(self.btn_focus_config)
++        self.right_panel.addLayout(self.horizontalLayout_10)
+         self.central_layout.addLayout(self.right_panel)
+         self.verticalLayout.addLayout(self.central_layout)
+         self.bttm_layout = QtWidgets.QHBoxLayout()
+-        self.bttm_layout.setSpacing(10)
++        self.bttm_layout.setContentsMargins(-1, 10, -1, 10)
++        self.bttm_layout.setSpacing(30)
+         self.bttm_layout.setObjectName("bttm_layout")
+-        spacerItem = QtWidgets.QSpacerItem(50, 30, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+-        self.bttm_layout.addItem(spacerItem)
++        self.horizontalSpacer = QtWidgets.QSpacerItem(30, 30, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
++        self.bttm_layout.addItem(self.horizontalSpacer)
+         self.btn_save = QtWidgets.QPushButton(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.btn_save.sizePolicy().hasHeightForWidth())
+         self.btn_save.setSizePolicy(sizePolicy)
+-        self.btn_save.setMaximumSize(QtCore.QSize(120, 30))
++        self.btn_save.setMinimumSize(QtCore.QSize(0, 30))
++        self.btn_save.setMaximumSize(QtCore.QSize(160, 35))
+         self.btn_save.setStyleSheet("color: rgb(234, 234, 234);\n"
+-"border-radius: 10px;\n"
++"border-radius: 15px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
+         self.btn_save.setObjectName("btn_save")
+         self.bttm_layout.addWidget(self.btn_save)
+         self.btn_out = QtWidgets.QPushButton(Form)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.btn_out.sizePolicy().hasHeightForWidth())
+         self.btn_out.setSizePolicy(sizePolicy)
+-        self.btn_out.setMaximumSize(QtCore.QSize(120, 30))
++        self.btn_out.setMinimumSize(QtCore.QSize(0, 30))
++        self.btn_out.setMaximumSize(QtCore.QSize(160, 35))
+         self.btn_out.setStyleSheet("color: rgb(234, 234, 234);\n"
+-"border-radius: 10px;\n"
++"border-radius: 15px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
++        self.btn_out.setCheckable(False)
++        self.btn_out.setChecked(False)
++        self.btn_out.setAutoDefault(True)
++        self.btn_out.setDefault(True)
+         self.btn_out.setObjectName("btn_out")
+         self.bttm_layout.addWidget(self.btn_out)
+-        spacerItem1 = QtWidgets.QSpacerItem(50, 30, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+-        self.bttm_layout.addItem(spacerItem1)
++        self.horizontalSpacer_2 = QtWidgets.QSpacerItem(30, 30, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
++        self.bttm_layout.addItem(self.horizontalSpacer_2)
+         self.verticalLayout.addLayout(self.bttm_layout)
++        self.frame = QtWidgets.QFrame(Form)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
++        sizePolicy.setHorizontalStretch(0)
++        sizePolicy.setVerticalStretch(0)
++        sizePolicy.setHeightForWidth(self.frame.sizePolicy().hasHeightForWidth())
++        self.frame.setSizePolicy(sizePolicy)
++        self.frame.setMinimumSize(QtCore.QSize(780, 45))
++        self.frame.setMaximumSize(QtCore.QSize(800, 45))
++        self.frame.setFrameShape(QtWidgets.QFrame.StyledPanel)
++        self.frame.setFrameShadow(QtWidgets.QFrame.Raised)
++        self.frame.setObjectName("frame")
++        self.horizontalLayout_12 = QtWidgets.QHBoxLayout(self.frame)
++        self.horizontalLayout_12.setObjectName("horizontalLayout_12")
++        self.list_log_config = QtWidgets.QListWidget(self.frame)
++        self.list_log_config.setMaximumSize(QtCore.QSize(800, 35))
++        font = QtGui.QFont()
++        font.setPointSize(11)
++        self.list_log_config.setFont(font)
++        self.list_log_config.setStyleSheet("border: none;")
++        self.list_log_config.setObjectName("list_log_config")
++        self.horizontalLayout_12.addWidget(self.list_log_config)
++        self.verticalLayout.addWidget(self.frame)
+ 
+         self.retranslateUi(Form)
+         QtCore.QMetaObject.connectSlotsByName(Form)
+@@ -268,18 +392,10 @@ class Ui_Form(object):
+         self.btn_del_r.setText(_translate("Form", "ELIMINAR"))
+         self.btn_select_r.setText(_translate("Form", "SELECCIONAR"))
+         self.lbl_tools.setText(_translate("Form", "HERRAMIENTAS"))
++        self.btn_edit_t.setText(_translate("Form", "EDITAR"))
+         self.btn_add_t.setText(_translate("Form", "AGREGAR"))
+         self.btn_del_t.setText(_translate("Form", "ELIMINAR"))
+-        self.btn_edit_t.setText(_translate("Form", "EDITAR"))
++        self.lbl_focus.setText(_translate("Form", "ENFOQUE DE CAMARA"))
++        self.btn_focus_config.setText(_translate("Form", "FOCUS CONFIG"))
+         self.btn_save.setText(_translate("Form", "GUARDAR"))
+         self.btn_out.setText(_translate("Form", "SALIR"))
+-
+-
+-if __name__ == "__main__":
+-    import sys
+-    app = QtWidgets.QApplication(sys.argv)
+-    Form = QtWidgets.QWidget()
+-    ui = Ui_Form()
+-    ui.setupUi(Form)
+-    Form.show()
+-    sys.exit(app.exec_())
+diff --git a/ui/pyqt5/ui_main_window.py b/ui/pyqt5/ui_main_window.py
+index 29d7f79..555f928 100644
+--- a/ui/pyqt5/ui_main_window.py
++++ b/ui/pyqt5/ui_main_window.py
+@@ -2,7 +2,7 @@
+ 
+ # Form implementation generated from reading ui file 'ui/main_window.ui'
+ #
+-# Created by: PyQt5 UI code generator 5.15.4
++# Created by: PyQt5 UI code generator 5.15.11
+ #
+ # WARNING: Any manual changes made to this file will be lost when pyuic5 is
+ # run again.  Do not edit this file unless you know what you are doing.
+@@ -14,9 +14,9 @@ from PyQt5 import QtCore, QtGui, QtWidgets
+ class Ui_MainWindow(object):
+     def setupUi(self, MainWindow):
+         MainWindow.setObjectName("MainWindow")
+-        MainWindow.resize(480, 320)
+-        MainWindow.setMinimumSize(QtCore.QSize(0, 320))
+-        MainWindow.setMaximumSize(QtCore.QSize(480, 320))
++        MainWindow.resize(800, 480)
++        MainWindow.setMinimumSize(QtCore.QSize(800, 480))
++        MainWindow.setMaximumSize(QtCore.QSize(800, 480))
+         MainWindow.setStyleSheet("background-color: rgb(11, 19, 43);")
+         self.centralwidget = QtWidgets.QWidget(MainWindow)
+         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+@@ -25,32 +25,34 @@ class Ui_MainWindow(object):
+         sizePolicy.setHeightForWidth(self.centralwidget.sizePolicy().hasHeightForWidth())
+         self.centralwidget.setSizePolicy(sizePolicy)
+         self.centralwidget.setMinimumSize(QtCore.QSize(480, 320))
+-        self.centralwidget.setMaximumSize(QtCore.QSize(480, 320))
++        self.centralwidget.setMaximumSize(QtCore.QSize(800, 480))
+         self.centralwidget.setObjectName("centralwidget")
+         self.verticalLayout_3 = QtWidgets.QVBoxLayout(self.centralwidget)
+         self.verticalLayout_3.setContentsMargins(9, 5, 9, 15)
+         self.verticalLayout_3.setSpacing(10)
+         self.verticalLayout_3.setObjectName("verticalLayout_3")
+         self.top_bar = QtWidgets.QFrame(self.centralwidget)
+-        self.top_bar.setMinimumSize(QtCore.QSize(480, 30))
+-        self.top_bar.setMaximumSize(QtCore.QSize(480, 30))
++        self.top_bar.setMinimumSize(QtCore.QSize(480, 45))
++        self.top_bar.setMaximumSize(QtCore.QSize(800, 45))
+         self.top_bar.setFrameShape(QtWidgets.QFrame.StyledPanel)
+         self.top_bar.setFrameShadow(QtWidgets.QFrame.Raised)
+         self.top_bar.setObjectName("top_bar")
+         self.horizontalLayout_5 = QtWidgets.QHBoxLayout(self.top_bar)
+-        self.horizontalLayout_5.setContentsMargins(50, 3, -1, -1)
++        self.horizontalLayout_5.setContentsMargins(80, 3, -1, 5)
++        self.horizontalLayout_5.setSpacing(0)
+         self.horizontalLayout_5.setObjectName("horizontalLayout_5")
+         self.lbl_tittle = QtWidgets.QLabel(self.top_bar)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.lbl_tittle.sizePolicy().hasHeightForWidth())
+         self.lbl_tittle.setSizePolicy(sizePolicy)
+         self.lbl_tittle.setMinimumSize(QtCore.QSize(200, 15))
+-        self.lbl_tittle.setMaximumSize(QtCore.QSize(350, 50))
++        self.lbl_tittle.setMaximumSize(QtCore.QSize(550, 50))
+         font = QtGui.QFont()
+-        font.setPointSize(12)
++        font.setPointSize(14)
+         font.setBold(True)
++        font.setItalic(False)
+         font.setWeight(75)
+         self.lbl_tittle.setFont(font)
+         self.lbl_tittle.setStyleSheet("color: rgb(234, 234, 234);\n"
+@@ -64,14 +66,20 @@ class Ui_MainWindow(object):
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.btn_minimizar.sizePolicy().hasHeightForWidth())
+         self.btn_minimizar.setSizePolicy(sizePolicy)
+-        self.btn_minimizar.setMinimumSize(QtCore.QSize(15, 15))
+-        self.btn_minimizar.setMaximumSize(QtCore.QSize(25, 25))
++        self.btn_minimizar.setMinimumSize(QtCore.QSize(35, 35))
++        self.btn_minimizar.setMaximumSize(QtCore.QSize(35, 35))
++        font = QtGui.QFont()
++        font.setPointSize(-1)
++        font.setBold(True)
++        font.setWeight(75)
++        self.btn_minimizar.setFont(font)
+         self.btn_minimizar.setStyleSheet("background-color: rgb(58, 80, 107);\n"
+ "border: none;\n"
+ "color: #EAEAEA;\n"
+ "font-size: 16px;\n"
+ "padding: 5px 10px;\n"
+-"background-color: rgb(28, 37, 65);")
++"background-color: rgb(28, 37, 65);\n"
++"border-radius: 8px;")
+         self.btn_minimizar.setObjectName("btn_minimizar")
+         self.horizontalLayout_5.addWidget(self.btn_minimizar)
+         self.btn_cerrar = QtWidgets.QPushButton(self.top_bar)
+@@ -80,24 +88,30 @@ class Ui_MainWindow(object):
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.btn_cerrar.sizePolicy().hasHeightForWidth())
+         self.btn_cerrar.setSizePolicy(sizePolicy)
+-        self.btn_cerrar.setMinimumSize(QtCore.QSize(15, 15))
+-        self.btn_cerrar.setMaximumSize(QtCore.QSize(25, 25))
++        self.btn_cerrar.setMinimumSize(QtCore.QSize(35, 35))
++        self.btn_cerrar.setMaximumSize(QtCore.QSize(35, 35))
++        font = QtGui.QFont()
++        font.setPointSize(10)
++        font.setBold(True)
++        font.setWeight(75)
++        self.btn_cerrar.setFont(font)
+         self.btn_cerrar.setStyleSheet("border: none;\n"
+ "color: #EAEAEA;\n"
+ "background-color: rgb(28, 37, 65);\n"
+-"background-color: rgb(255, 77, 79);")
++"background-color: rgb(255, 77, 79);\n"
++"border-radius: 8px;")
+         self.btn_cerrar.setObjectName("btn_cerrar")
+         self.horizontalLayout_5.addWidget(self.btn_cerrar)
+         self.verticalLayout_3.addWidget(self.top_bar)
+         self.central_panel = QtWidgets.QHBoxLayout()
+         self.central_panel.setObjectName("central_panel")
+         self.left_panel = QtWidgets.QVBoxLayout()
+-        self.left_panel.setContentsMargins(5, 0, 5, 10)
++        self.left_panel.setContentsMargins(5, 0, 5, 5)
+         self.left_panel.setSpacing(10)
+         self.left_panel.setObjectName("left_panel")
+         self.lbl_cam = QtWidgets.QLabel(self.centralwidget)
+         self.lbl_cam.setMinimumSize(QtCore.QSize(200, 20))
+-        self.lbl_cam.setMaximumSize(QtCore.QSize(300, 20))
++        self.lbl_cam.setMaximumSize(QtCore.QSize(400, 20))
+         font = QtGui.QFont()
+         font.setPointSize(12)
+         font.setBold(True)
+@@ -116,8 +130,8 @@ class Ui_MainWindow(object):
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.lbl_video.sizePolicy().hasHeightForWidth())
+         self.lbl_video.setSizePolicy(sizePolicy)
+-        self.lbl_video.setMinimumSize(QtCore.QSize(180, 160))
+-        self.lbl_video.setMaximumSize(QtCore.QSize(235, 180))
++        self.lbl_video.setMinimumSize(QtCore.QSize(375, 250))
++        self.lbl_video.setMaximumSize(QtCore.QSize(400, 300))
+         self.lbl_video.setSizeIncrement(QtCore.QSize(0, 0))
+         self.lbl_video.setStyleSheet("color: rgb(234, 234, 234);\n"
+ "border-radius: 15px;\n"
+@@ -135,50 +149,52 @@ class Ui_MainWindow(object):
+         self.right_panel.setContentsMargins(15, 5, 5, 5)
+         self.right_panel.setSpacing(5)
+         self.right_panel.setObjectName("right_panel")
+-        spacerItem = QtWidgets.QSpacerItem(100, 30, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Maximum)
+-        self.right_panel.addItem(spacerItem)
++        self.verticalSpacer = QtWidgets.QSpacerItem(100, 30, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Maximum)
++        self.right_panel.addItem(self.verticalSpacer)
++        self.horizontalLayout_2 = QtWidgets.QHBoxLayout()
++        self.horizontalLayout_2.setObjectName("horizontalLayout_2")
+         self.lbl_model = QtWidgets.QLabel(self.centralwidget)
+-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+-        sizePolicy.setHorizontalStretch(0)
+-        sizePolicy.setVerticalStretch(0)
+-        sizePolicy.setHeightForWidth(self.lbl_model.sizePolicy().hasHeightForWidth())
+-        self.lbl_model.setSizePolicy(sizePolicy)
+-        self.lbl_model.setMinimumSize(QtCore.QSize(180, 30))
+-        self.lbl_model.setMaximumSize(QtCore.QSize(180, 30))
++        self.lbl_model.setMinimumSize(QtCore.QSize(350, 20))
++        self.lbl_model.setMaximumSize(QtCore.QSize(400, 20))
+         font = QtGui.QFont()
++        font.setPointSize(12)
+         font.setBold(True)
+         font.setWeight(75)
+         self.lbl_model.setFont(font)
+         self.lbl_model.setStyleSheet("color: rgb(234, 234, 234);\n"
+-"border-radius: 10px;\n"
+-"border: 2px solid;\n"
+-"border-color: rgb(91, 192, 190);\n"
+-"background-color: rgb(15, 27, 61);")
++"background-color: transparent;")
+         self.lbl_model.setAlignment(QtCore.Qt.AlignCenter)
+         self.lbl_model.setObjectName("lbl_model")
+-        self.right_panel.addWidget(self.lbl_model)
++        self.horizontalLayout_2.addWidget(self.lbl_model)
++        self.right_panel.addLayout(self.horizontalLayout_2)
++        self.horizontalLayout = QtWidgets.QHBoxLayout()
++        self.horizontalLayout.setObjectName("horizontalLayout")
+         self.btn_config = QtWidgets.QPushButton(self.centralwidget)
+         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+         sizePolicy.setHorizontalStretch(0)
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.btn_config.sizePolicy().hasHeightForWidth())
+         self.btn_config.setSizePolicy(sizePolicy)
+-        self.btn_config.setMinimumSize(QtCore.QSize(180, 30))
+-        self.btn_config.setMaximumSize(QtCore.QSize(180, 30))
++        self.btn_config.setMinimumSize(QtCore.QSize(225, 45))
++        self.btn_config.setMaximumSize(QtCore.QSize(225, 45))
+         font = QtGui.QFont()
++        font.setPointSize(11)
+         font.setBold(True)
+         font.setWeight(75)
+         self.btn_config.setFont(font)
+         self.btn_config.setStyleSheet("color: rgb(234, 234, 234);\n"
+-"border-radius: 10px;\n"
++"border-radius: 15px;\n"
+ "border: 2px solid;\n"
+ "border-color: rgb(91, 192, 190);\n"
+ "background-color: rgb(15, 27, 61);")
+         self.btn_config.setObjectName("btn_config")
+-        self.right_panel.addWidget(self.btn_config)
++        self.horizontalLayout.addWidget(self.btn_config)
++        self.right_panel.addLayout(self.horizontalLayout)
++        self.horizontalSpacer = QtWidgets.QSpacerItem(372, 50, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
++        self.right_panel.addItem(self.horizontalSpacer)
+         self.status_1 = QtWidgets.QHBoxLayout()
+-        self.status_1.setContentsMargins(0, -1, -1, -1)
+-        self.status_1.setSpacing(5)
++        self.status_1.setContentsMargins(50, -1, -1, -1)
++        self.status_1.setSpacing(0)
+         self.status_1.setObjectName("status_1")
+         self.indicator_1 = QtWidgets.QPushButton(self.centralwidget)
+         self.indicator_1.setEnabled(True)
+@@ -187,20 +203,27 @@ class Ui_MainWindow(object):
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.indicator_1.sizePolicy().hasHeightForWidth())
+         self.indicator_1.setSizePolicy(sizePolicy)
+-        self.indicator_1.setMinimumSize(QtCore.QSize(35, 35))
+-        self.indicator_1.setMaximumSize(QtCore.QSize(35, 35))
++        self.indicator_1.setMinimumSize(QtCore.QSize(60, 60))
++        self.indicator_1.setMaximumSize(QtCore.QSize(60, 60))
+         self.indicator_1.setStyleSheet("border: 2px solid;\n"
+ "font-size: 16px;\n"
+-"border-radius: 17px;\n"
++"border-radius: 30px;\n"
+ "border-color: rgb(46, 196, 182);\n"
+ "color: rgb(46, 196, 182);\n"
+-"background-color: rgb(15, 27, 61);")
++"background-color: rgb(15, 27, 61);\n"
++"")
+         self.indicator_1.setObjectName("indicator_1")
+         self.status_1.addWidget(self.indicator_1)
+         self.lbl_indicator_1 = QtWidgets.QLabel(self.centralwidget)
+-        self.lbl_indicator_1.setMinimumSize(QtCore.QSize(100, 20))
+-        self.lbl_indicator_1.setMaximumSize(QtCore.QSize(110, 50))
++        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
++        sizePolicy.setHorizontalStretch(0)
++        sizePolicy.setVerticalStretch(0)
++        sizePolicy.setHeightForWidth(self.lbl_indicator_1.sizePolicy().hasHeightForWidth())
++        self.lbl_indicator_1.setSizePolicy(sizePolicy)
++        self.lbl_indicator_1.setMinimumSize(QtCore.QSize(100, 45))
++        self.lbl_indicator_1.setMaximumSize(QtCore.QSize(200, 50))
+         font = QtGui.QFont()
++        font.setPointSize(12)
+         font.setBold(True)
+         font.setWeight(75)
+         self.lbl_indicator_1.setFont(font)
+@@ -209,8 +232,8 @@ class Ui_MainWindow(object):
+         self.lbl_indicator_1.setObjectName("lbl_indicator_1")
+         self.status_1.addWidget(self.lbl_indicator_1)
+         self.right_panel.addLayout(self.status_1)
+-        spacerItem1 = QtWidgets.QSpacerItem(100, 30, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Maximum)
+-        self.right_panel.addItem(spacerItem1)
++        self.verticalSpacer_2 = QtWidgets.QSpacerItem(100, 50, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Maximum)
++        self.right_panel.addItem(self.verticalSpacer_2)
+         self.central_panel.addLayout(self.right_panel)
+         self.verticalLayout_3.addLayout(self.central_panel)
+         self.bttm_bar = QtWidgets.QFrame(self.centralwidget)
+@@ -219,22 +242,25 @@ class Ui_MainWindow(object):
+         sizePolicy.setVerticalStretch(0)
+         sizePolicy.setHeightForWidth(self.bttm_bar.sizePolicy().hasHeightForWidth())
+         self.bttm_bar.setSizePolicy(sizePolicy)
+-        self.bttm_bar.setMinimumSize(QtCore.QSize(460, 30))
+-        self.bttm_bar.setMaximumSize(QtCore.QSize(470, 30))
++        self.bttm_bar.setMinimumSize(QtCore.QSize(780, 90))
++        self.bttm_bar.setMaximumSize(QtCore.QSize(800, 90))
++        font = QtGui.QFont()
++        font.setPointSize(10)
++        self.bttm_bar.setFont(font)
+         self.bttm_bar.setStyleSheet("background-color: rgb(28, 37, 65);\n"
+ "border-radius: 10px;")
+         self.bttm_bar.setFrameShape(QtWidgets.QFrame.StyledPanel)
+         self.bttm_bar.setFrameShadow(QtWidgets.QFrame.Raised)
+         self.bttm_bar.setObjectName("bttm_bar")
+         self.horizontalLayout_3 = QtWidgets.QHBoxLayout(self.bttm_bar)
+-        self.horizontalLayout_3.setContentsMargins(9, 6, -1, 5)
++        self.horizontalLayout_3.setContentsMargins(9, 0, -1, 0)
+         self.horizontalLayout_3.setObjectName("horizontalLayout_3")
+         self.list_log = QtWidgets.QListWidget(self.bttm_bar)
+-        self.list_log.setMinimumSize(QtCore.QSize(440, 19))
+-        self.list_log.setMaximumSize(QtCore.QSize(445, 20))
++        self.list_log.setMinimumSize(QtCore.QSize(750, 80))
++        self.list_log.setMaximumSize(QtCore.QSize(800, 80))
+         font = QtGui.QFont()
+         font.setFamily("MS Shell Dlg 2")
+-        font.setPointSize(9)
++        font.setPointSize(10)
+         self.list_log.setFont(font)
+         self.list_log.setObjectName("list_log")
+         self.horizontalLayout_3.addWidget(self.list_log)
+@@ -247,22 +273,12 @@ class Ui_MainWindow(object):
+     def retranslateUi(self, MainWindow):
+         _translate = QtCore.QCoreApplication.translate
+         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
+-        self.lbl_tittle.setText(_translate("MainWindow", "SISTEMA DE VISIÓN - WORKSURFACE"))
++        self.lbl_tittle.setText(_translate("MainWindow", "SISTEMA DE VISIÓN - SUMMIT USB"))
+         self.btn_minimizar.setText(_translate("MainWindow", "-"))
+         self.btn_cerrar.setText(_translate("MainWindow", "X"))
+         self.lbl_cam.setText(_translate("MainWindow", "CAMARA"))
+-        self.lbl_model.setText(_translate("MainWindow", "MODELO A"))
++        self.lbl_model.setText(_translate("MainWindow", "MODELO DE PIEZA: A"))
+         self.btn_config.setText(_translate("MainWindow", "CONFIGURACIÓN"))
+         self.indicator_1.setText(_translate("MainWindow", "✔"))
+-        self.lbl_indicator_1.setText(_translate("MainWindow", "INSPECCIÓN OK/NG"))
++        self.lbl_indicator_1.setText(_translate("MainWindow", "INSPECCION"))
+ from ui.widgets.video_widget import VideoWidget
+-
+-
+-if __name__ == "__main__":
+-    import sys
+-    app = QtWidgets.QApplication(sys.argv)
+-    MainWindow = QtWidgets.QMainWindow()
+-    ui = Ui_MainWindow()
+-    ui.setupUi(MainWindow)
+-    MainWindow.show()
+-    sys.exit(app.exec_())
+diff --git a/utils/qt_backend.py b/utils/qt_backend.py
+new file mode 100644
+index 0000000..d71de9a
+--- /dev/null
++++ b/utils/qt_backend.py
+@@ -0,0 +1,23 @@
++"""Pure selection policy for the supported Qt bindings."""
++
++
++def normalize_qt_request(value):
++    normalized = str(value or "auto").strip().lower()
++    aliases = {
++        "auto": "auto",
++        "pyside6": "PySide6",
++        "pyqt5": "PyQt5",
++    }
++    if normalized not in aliases:
++        raise ValueError(
++            "VISION_QT_API debe ser auto, pyside6 o pyqt5; "
++            f"valor recibido: {normalized!r}"
++        )
++    return aliases[normalized]
++
++
++def backend_order(requested="auto"):
++    selected = normalize_qt_request(requested)
++    if selected == "auto":
++        return ("PySide6", "PyQt5")
++    return (selected,)
+diff --git a/utils/qt_compat.py b/utils/qt_compat.py
+index de119dd..abf033e 100644
+--- a/utils/qt_compat.py
++++ b/utils/qt_compat.py
+@@ -1,6 +1,31 @@
++import os
++
++from utils.qt_backend import normalize_qt_request
++
++
+ QT_LIB = None
+ 
++
++def _requested_backend():
++    """Return the requested Qt binding without coupling it to the OS name."""
++    value = os.getenv("VISION_QT_API", "auto")
++    try:
++        return normalize_qt_request(value)
++    except ValueError as exc:
++        raise RuntimeError(
++            str(exc)
++        ) from exc
++
++
++REQUESTED_QT_LIB = _requested_backend()
++
++
++def _can_try(name):
++    return REQUESTED_QT_LIB in ("auto", name)
++
+ try:
++    if not _can_try("PySide6"):
++        raise ImportError("PySide6 no fue seleccionado")
+     # PRIORIDAD DE LIBRERIA: PYSIDE6
+     from PySide6.QtWidgets import (
+         QApplication, QWidget, QLabel, QMainWindow,
+@@ -31,21 +56,32 @@ try:
+ 
+         return ui
+ 
+-except ImportError:
++except ImportError as pyside_error:
++    if not _can_try("PyQt5"):
++        raise RuntimeError(
++            "Se solicito PySide6 mediante VISION_QT_API, pero no esta "
++            f"disponible: {pyside_error}"
++        ) from pyside_error
+     # FALLBACK: PYQT5
+-    from PyQt5.QtWidgets import (  # type: ignore
+-        QApplication, QWidget, QLabel, QMainWindow,
+-        QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout,
+-        QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox, QDialog,
+-        QInputDialog, QScrollArea, QSizePolicy, QTabWidget, QTableWidget,
+-        QTableWidgetItem, QMessageBox, QPlainTextEdit,
+-    )
+-    from PyQt5.QtCore import (  # type: ignore
+-        QObject, QThread, pyqtSignal as Signal, pyqtSlot as Slot,
+-        Qt, QTimer, QMetaObject,
+-    )
+-    from PyQt5.QtGui import QImage, QPixmap, QPainter, QColor, QPen  # type: ignore
+-    from PyQt5 import uic   # type: ignore
++    try:
++        from PyQt5.QtWidgets import (  # type: ignore
++            QApplication, QWidget, QLabel, QMainWindow,
++            QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout,
++            QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox, QDialog,
++            QInputDialog, QScrollArea, QSizePolicy, QTabWidget, QTableWidget,
++            QTableWidgetItem, QMessageBox, QPlainTextEdit,
++        )
++        from PyQt5.QtCore import (  # type: ignore
++            QObject, QThread, pyqtSignal as Signal, pyqtSlot as Slot,
++            Qt, QTimer, QMetaObject,
++        )
++        from PyQt5.QtGui import QImage, QPixmap, QPainter, QColor, QPen  # type: ignore
++        from PyQt5 import uic   # type: ignore
++    except ImportError as pyqt_error:
++        raise RuntimeError(
++            "No hay un backend Qt utilizable. Instala PySide6 o PyQt5. "
++            f"PySide6: {pyside_error}; PyQt5: {pyqt_error}"
++        ) from pyqt_error
+ 
+     QT_LIB = "PyQt5"
+ 
+-- 
+2.51.1
+

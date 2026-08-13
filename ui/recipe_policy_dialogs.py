@@ -15,6 +15,7 @@ from utils.qt_compat import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
     Signal,
@@ -42,7 +43,7 @@ class StepPolicyEditor(QWidget):
         self.chk_required = QCheckBox()
         self.txt_condition = QPlainTextEdit()
         condition_height = 60 if self.display_profile.compact else 95
-        self.txt_condition.setMinimumHeight(condition_height)
+        self.txt_condition.setFixedHeight(condition_height)
         self.txt_condition.setPlaceholderText(
             '{"type": "always"} o una condicion del esquema v2'
         )
@@ -50,6 +51,7 @@ class StepPolicyEditor(QWidget):
         form.addRow("Habilitado", self.chk_enabled)
         form.addRow("Requerido", self.chk_required)
         form.addRow("Condicion (JSON)", self.txt_condition)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.set_step(step or {})
 
     def set_step(self, step):

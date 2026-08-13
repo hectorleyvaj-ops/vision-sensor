@@ -6,6 +6,7 @@ import subprocess
 import threading
 
 from utils.qt_compat import QObject, Signal, Slot
+from core.camera_runtime import control_value_matches
 from vision.manual_focus_controller import ManualFocusController
 
 class CameraWorker(QObject):
@@ -44,6 +45,8 @@ class CameraWorker(QObject):
 
         self.cap = None
         self.device = None
+        self.camera_open = False
+        self.active_format = {}
 
         self._running = False
         self.Trigger = False
@@ -148,6 +151,25 @@ class CameraWorker(QObject):
         """
         return bool(self.focus_ready) and not bool(self.focus_busy)
 
+    def runtime_camera_info(self):
+        """Return a read-only snapshot suitable for configuration dialogs."""
+        active = dict(self.active_format or {})
+        return {
+            "platform": self.platform,
+            "requested_device": self.camera_index,
+            "resolved_device": self.device,
+            "camera_open": bool(self.camera_open),
+            "actual_width": active.get("actual_width"),
+            "actual_height": active.get("actual_height"),
+            "actual_fps": active.get("actual_fps"),
+            "v4l2_available": bool(self.v4l2_available),
+            "autofocus_supported": bool(self.autofocus_supported),
+            "focus_absolute_supported": bool(self.focus_absolute_supported),
+            "focus_min": self.focus_min,
+            "focus_max": self.focus_max,
+            "focus_step": self.focus_step,
+        }
+
     def find_camera_device(self):
         # SOLO BSUCAMOS EL DEVICE PARA LA RASPBERRY, SI SE TRABAJA EN WIDOWS SE USA CAMERA INDEX
         if not self.is_linux():
@@ -225,6 +247,8 @@ class CameraWorker(QObject):
             )
             return False
 
+        self.camera_open = True
+
         active_format = self.configure_resolution()
         self.emit_diagnostic(
             "PASS",
@@ -257,7 +281,7 @@ class CameraWorker(QObject):
         print(f"[CAMERA] Resolucion solicitada: {self.width} x {self.height}")
         print(f"[CAMERA] Resolucion activa: {real_width} x {real_height}")
         print(f"[CAMERA] FPS activo: {real_fps:.2f}")
-        return {
+        self.active_format = {
             "requested_device": self.camera_index,
             "resolved_device": self.device,
             "requested_width": self.width,
@@ -271,6 +295,7 @@ class CameraWorker(QObject):
                 and real_height == int(self.height)
             ),
         }
+        return dict(self.active_format)
 
     def warmup_camera(self, frames=30, delay=0.02):
         # LEE CIERTOS FRAMES PARA ESTABILIZAR CAMARA
@@ -415,6 +440,13 @@ class CameraWorker(QObject):
             if verify:
                 actual = self.get_v4l2_control(control_name)
                 print(f"[CAMERA] Control aplicado/verificado: {control_name} pedido={value}, leído={actual}")
+
+                if not control_value_matches(value, actual):
+                    print(
+                        f"[CAMERA][ERROR] El control {control_name} no conservo "
+                        f"el valor pedido={value}; lectura={actual}"
+                    )
+                    return False
 
             else:
                 print(f"[CAMERA] Control aplicado: {control_name}={value}")
@@ -1272,7 +1304,10 @@ class CameraWorker(QObject):
             return
 
         if not self.focus_absolute_supported:
-            self.manual_focus_failed.emit("La camara no expone focus_absolute")
+            self.manual_focus_failed.emit(
+                f"La camara activa {self.device} no expone focus_absolute. "
+                "Verifica el dispositivo configurado y los controles con v4l2-ctl."
+            )
             return
 
         try:
@@ -1295,6 +1330,7 @@ class CameraWorker(QObject):
 
             result_data = {
                 "ok": True,
+                "device": self.device,
                 "roi": list(result.roi) if result.roi is not None else None,
                 "focus_value": int(result.focus_value),
                 "median_score": int(result.median_score),
@@ -1492,6 +1528,7 @@ class CameraWorker(QObject):
 
         finally:
             print("[CAMERA] Liberando camara...")
+            self.camera_open = False
 
             try:
                 if self.cap:

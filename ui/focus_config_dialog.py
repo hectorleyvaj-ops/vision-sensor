@@ -1,10 +1,12 @@
 from utils.qt_compat import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QComboBox, Qt, Signal, Slot, QSizePolicy
+    QLabel, QComboBox, QScrollArea, QWidget, Qt, Signal, Slot, QSizePolicy
 )
 
+from core.camera_runtime import format_camera_runtime, manual_focus_preflight
 from ui.widgets.video_widget import VideoWidget
 from ui.responsive import compact_stylesheet, profile_from_widget
+from ui.theme import interface_stylesheet
 
 class FocusConfigDialog(QDialog):
     calibration_requested = Signal(object)
@@ -16,20 +18,22 @@ class FocusConfigDialog(QDialog):
         platform="windows",
         parent=None,
         display_profile=None,
+        camera_runtime=None,
     ):
         super().__init__(parent)
 
         self.recipe = recipe
         self.get_frame = get_frame_callback
         self.platform = platform
+        self.camera_runtime = dict(camera_runtime or {})
         self.display_profile = display_profile or profile_from_widget(parent or self)
 
         self.focus_result = None
 
         self.setWindowTitle("Calibracion de enfoque")
-        parent_style = parent.styleSheet() if parent else ""
         self.setStyleSheet(
-            parent_style + compact_stylesheet(self.display_profile)
+            interface_stylesheet(self.display_profile)
+            + compact_stylesheet(self.display_profile)
         )
 
         self.build_ui()
@@ -41,18 +45,33 @@ class FocusConfigDialog(QDialog):
         layout.setContentsMargins(margin, margin, margin, margin)
         layout.setSpacing(self.display_profile.spacing)
 
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        content = QWidget()
+        body = QVBoxLayout(content)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(self.display_profile.spacing)
+
         self.lbl_status = QLabel("Selecciona una ROI de enfoque o usa la existente")
         self.lbl_status.setAlignment(Qt.AlignCenter)
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setMinimumHeight(38)
-        self.lbl_status.setStyleSheet("""
-            QLabel {
+        radius = max(5, round(8 * self.display_profile.scale))
+        self.lbl_status.setStyleSheet(f"""
+            QLabel {{
                 padding: 8px;
-                border-radius: 8px;
+                border-radius: {radius}px;
                 background-color: rgb(15, 27, 61);
                 border: 1px solid rgb(91, 192, 190);
-            }
+            }}
         """)
+
+        self.lbl_camera = QLabel(format_camera_runtime(self.camera_runtime))
+        self.lbl_camera.setWordWrap(True)
+        self.lbl_camera.setObjectName("cameraRuntimeStatus")
+        self.lbl_camera.setToolTip(
+            "El enfoque usa el dispositivo de video activo, no el puerto serial del controlador."
+        )
 
         self.cmb_focus_mode = QComboBox()
         self.cmb_focus_mode.addItems([
@@ -73,7 +92,7 @@ class FocusConfigDialog(QDialog):
         self.video.setMinimumSize(120, 80)
         self.video.setMaximumHeight(self.display_profile.dialog_video_height)
 
-        self.btn_select_roi = QPushButton("SELECT ROI")
+        self.btn_select_roi = QPushButton("SELECCIONAR ROI")
         self.btn_clear_roi = QPushButton("FRAME COMPLETO")
         self.btn_calibrate = QPushButton("CALIBRAR")
         self.btn_save = QPushButton("GUARDAR")
@@ -105,12 +124,18 @@ class FocusConfigDialog(QDialog):
         buttons_bott.addWidget(self.btn_cancel)
         buttons_bott.addWidget(self.btn_save)
 
-        layout.addWidget(self.lbl_status)
-        layout.addWidget(QLabel("Modo de enfoque"))
-        layout.addWidget(self.cmb_focus_mode)
-        layout.addWidget(self.video, stretch=1)
-        layout.addSpacing(6)
-        layout.addLayout(buttons_top)
+        body.addWidget(self.lbl_status)
+        body.addWidget(self.lbl_camera)
+        camera_note = QLabel("El enfoque usa /dev/video*, no el puerto serial ESP/PLC.")
+        camera_note.setWordWrap(True)
+        body.addWidget(camera_note)
+        body.addWidget(QLabel("Modo de enfoque"))
+        body.addWidget(self.cmb_focus_mode)
+        body.addWidget(self.video)
+        body.addLayout(buttons_top)
+
+        self.scroll.setWidget(content)
+        layout.addWidget(self.scroll, stretch=1)
         layout.addLayout(buttons_bott)
 
         self.btn_select_roi.clicked.connect(self.enable_roi_selection)
@@ -143,9 +168,15 @@ class FocusConfigDialog(QDialog):
 
     def on_focus_mode_changed(self, mode):
         calibration_enabled = mode in ("calibrated", "manual_fixed")
+        preflight_ok, preflight_message = manual_focus_preflight(self.camera_runtime)
+        if not self.camera_runtime:
+            preflight_ok = True
         self.btn_calibrate.setEnabled(calibration_enabled)
         self.btn_select_roi.setEnabled(calibration_enabled)
         self.btn_clear_roi.setEnabled(calibration_enabled)
+
+        if calibration_enabled and not preflight_ok:
+            self.btn_calibrate.setEnabled(False)
 
         descriptions = {
             "calibrated": "Barrido automatico inicial y foco congelado por receta.",
@@ -153,7 +184,10 @@ class FocusConfigDialog(QDialog):
             "auto_continuous": "La camara ajusta el foco continuamente.",
             "disabled": "La aplicacion no administra el enfoque.",
         }
-        self.lbl_status.setText(descriptions.get(mode, "Modo de enfoque no reconocido"))
+        description = descriptions.get(mode, "Modo de enfoque no reconocido")
+        if calibration_enabled and not preflight_ok:
+            description = f"{description}\nNo disponible: {preflight_message}"
+        self.lbl_status.setText(description)
 
     def enable_roi_selection(self):
         self.video.enable_edition = True
@@ -169,6 +203,14 @@ class FocusConfigDialog(QDialog):
             self.lbl_status.setText("Este modo no requiere calibracion manual.")
             return
 
+        if self.camera_runtime:
+            preflight_ok, preflight_message = manual_focus_preflight(
+                self.camera_runtime
+            )
+            if not preflight_ok:
+                self.lbl_status.setText(f"No se puede calibrar: {preflight_message}")
+                return
+
         roi = self.video.get_roi()
 
         focus_config = {
@@ -179,7 +221,10 @@ class FocusConfigDialog(QDialog):
 
         self.btn_calibrate.setEnabled(False)
         self.btn_save.setEnabled(False)
-        self.lbl_status.setText("Calibrando enfoque, espere un momento...")
+        device = self.camera_runtime.get("resolved_device", "camara activa")
+        self.lbl_status.setText(
+            f"Calibrando enfoque en {device}; espere un momento..."
+        )
 
         self.calibration_requested.emit(focus_config)
 
@@ -200,12 +245,13 @@ class FocusConfigDialog(QDialog):
         focus_value = result.get("focus_value")
         median_score = result.get("median_score")
         min_score = result.get("min_score")
+        device = result.get("device") or self.camera_runtime.get("resolved_device", "?")
 
         if roi:
             self.video.set_rois([tuple(roi)])
 
         self.lbl_status.setText(
-            f"Calibración OK | Focus: {focus_value} | "
+            f"Calibración OK en {device} | Focus: {focus_value} | "
             f"Score: {median_score} | Min score: {min_score}"
         )
 

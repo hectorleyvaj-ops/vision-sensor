@@ -4,9 +4,22 @@ from utils.qt_compat import (
 )
 from ui.widgets.img_list_widget import ImageListWidget
 from ui.widgets.video_widget import VideoWidget
+from core.display_profile import build_display_profile
+from ui.responsive import profile_from_widget
 
 class ToolEditor(QWidget):
-    def __init__(self, tool_name, tool_schema, get_frame_callback, base_path, edit=False, editing_index=None, platform="windows", screen_size=None):
+    def __init__(
+        self,
+        tool_name,
+        tool_schema,
+        get_frame_callback,
+        base_path,
+        edit=False,
+        editing_index=None,
+        platform="windows",
+        screen_size=None,
+        display_profile=None,
+    ):
         super().__init__()
 
         self.tool_name = tool_name
@@ -17,14 +30,22 @@ class ToolEditor(QWidget):
         self.editing_index = editing_index
         self.platform = platform
         self.screen_size = screen_size
+        self.display_profile = display_profile or (
+            build_display_profile(*screen_size)
+            if screen_size
+            else profile_from_widget(self)
+        )
 
         self.fields = {}
 
         self.form = QFormLayout()
-        self.form.setContentsMargins(14, 14, 14, 14)
-        self.form.setHorizontalSpacing(22)
-        self.form.setVerticalSpacing(16)
+        margin = self.display_profile.margin
+        spacing = self.display_profile.spacing
+        self.form.setContentsMargins(margin, margin, margin, margin)
+        self.form.setHorizontalSpacing(max(spacing, spacing * 2))
+        self.form.setVerticalSpacing(max(6, spacing))
         self.form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.setLayout(self.form)
 
         self.build_ui()
@@ -59,10 +80,11 @@ class ToolEditor(QWidget):
     # CREA EL WIDGET SEGUN EL TIPO QUE DESCRIBA EL ESQUEMA
     def create_widget(self, key, config):
         t = config["type"]
+        field_height = self.display_profile.touch_target
 
         if t == "str":
             w = QLineEdit()
-            w.setMinimumHeight(34)
+            w.setMinimumHeight(field_height)
             if "default" in config:
                 w.setText(str(config.get("default", "")))
             return w
@@ -77,7 +99,7 @@ class ToolEditor(QWidget):
                 w.setValue(float(config["default"]))
             w.setCursor(Qt.ArrowCursor)
             w.setKeyboardTracking(False)
-            w.setMinimumHeight(34)
+            w.setMinimumHeight(field_height)
             return w
         
         elif t == "int":
@@ -90,7 +112,7 @@ class ToolEditor(QWidget):
                 w.setValue(int(config["default"]))
             w.setCursor(Qt.ArrowCursor)
             w.setKeyboardTracking(False)
-            w.setMinimumHeight(34)
+            w.setMinimumHeight(field_height)
             return w
         
         elif t == "bool":
@@ -106,13 +128,13 @@ class ToolEditor(QWidget):
                 index = w.findText(str(default))
                 if index >= 0:
                     w.setCurrentIndex(index)
-            w.setMinimumHeight(34)
+            w.setMinimumHeight(field_height)
             return w
         
         elif t == "roi":
             # POR SIMPLICIDAD, USAREMOS UN BOTON PARA CAPTURAR EL ROI ACTUAL
             btn = QPushButton("Seleccionar ROI")
-            btn.setMinimumHeight(34)
+            btn.setMinimumHeight(field_height)
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda: self.select_roi(key))
             return btn
@@ -127,25 +149,16 @@ class ToolEditor(QWidget):
             return w
         
         elif t == "video":
-            video_size = None
-
-            if self.platform == "linux" and self.screen_size:
-                sw, sh = self.screen_size
-
-                video_w = int(sw * 0.52)
-                video_h = int(sh * 0.40)
-
-                video_size = (max(180, video_w), max(112, video_h))
-
-            elif self.platform == "windows":
-                video_size = (480,270)
+            video_w = max(240, min(520, int(self.display_profile.width * 0.62)))
+            video_h = max(112, self.display_profile.dialog_video_height)
+            video_size = (video_w, video_h)
 
             w = VideoWidget(
                 get_frame_callback=self.get_frame,
                 enable_edition=False,
                 platform=self.platform,
                 video_size=video_size,
-                fill_mode="cover"
+                fill_mode="fit"
             )
 
             w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -167,9 +180,12 @@ class ToolEditor(QWidget):
         print(f"Seleccionando ROI para {key}")
         
         # BUSCAR VIDEOWIDGET EN EL FORM
-        for key, widget in self.fields.items():
+        for _field_key, widget in self.fields.items():
             if isinstance(widget, VideoWidget):
                 widget.enable_edition = True
+                roi_button = self.fields.get(key)
+                if isinstance(roi_button, QPushButton):
+                    roi_button.setText("Dibuja la ROI sobre la imagen")
 
     def get_values(self):
         data = {}

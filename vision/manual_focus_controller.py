@@ -196,7 +196,10 @@ class ManualFocusController:
                 print(f"[FOCUS][WARNING] No se pudo aplicar focus_absolute={value}")
                 continue
 
-            time.sleep(delay)
+            # El lente necesita estabilizarse antes de descartar/capturar
+            # frames. Antes se ignoraba el parametro settle y el score podia
+            # corresponder al valor de enfoque anterior.
+            time.sleep(max(0.0, float(settle)))
 
             median_score, peak_score, _ = self.capture_focus_score(
                 roi=roi,
@@ -435,6 +438,5 @@ class ManualFocusController:
             fine_results=fine_results,
             micro_results=micro_results,
         )
-
 
 

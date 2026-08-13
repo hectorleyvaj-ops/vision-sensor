@@ -103,7 +103,7 @@ PyQt5, OpenCV y NumPy desde APT y crear un entorno que pueda ver esos paquetes:
 
 ```bash
 sudo apt update
-sudo apt install -y python3-venv python3-pyqt5 python3-opencv python3-numpy libdmtx0b
+sudo apt install -y python3-venv python3-pyqt5 python3-opencv python3-numpy libdmtx0b v4l-utils
 python3 -m venv --system-site-packages venv-rpi32
 source venv-rpi32/bin/activate
 python -m pip install --upgrade pip setuptools wheel
@@ -146,6 +146,36 @@ el estado esperado del enlace es no listo hasta completar fase 9.
 Realizar el procedimiento por separado para A, B y C, sin copiar valores entre
 modelos salvo que una medicion documentada demuestre que son equivalentes.
 
+### 6.0 Verificar camara e interfaz antes de capturar
+
+1. Abrir `CONFIGURACION > SISTEMA > Estacion`.
+2. Comparar `Dispositivo de camara` con `Camara activa ahora`. El primero es la
+   solicitud guardada; el segundo indica el `/dev/video*` realmente abierto.
+3. Cambiar dispositivo, ancho y alto si corresponde. El boton
+   `VALIDAR Y GUARDAR` permanece fijo debajo de las pestanas aunque el
+   formulario tenga desplazamiento.
+4. Reiniciar la aplicacion: los cambios de dispositivo y resolucion no se
+   aplican a una captura ya abierta.
+5. Abrir `FOCUS CONFIG` y confirmar que la cabecera muestre el mismo dispositivo,
+   formato y `focus_absolute: si`.
+
+El enfoque no utiliza el puerto serial CP2102 del ESP/PLC. Utiliza la camara
+activa y `v4l2-ctl`. Si la cabecera indica que el control no esta disponible:
+
+```bash
+sudo apt install -y v4l-utils
+v4l2-ctl --list-devices
+v4l2-ctl -d /dev/video0 --list-ctrls
+```
+
+Sustituir `/dev/video0` por el dispositivo activo mostrado en la interfaz. No
+continuar con la calibracion si ese dispositivo no expone `focus_absolute`.
+
+En los editores de DataMatrix e histograma, la politica del step y todos los
+parametros comparten una sola area desplazable. `CANCELAR` y `GUARDAR CAMBIOS`
+permanecen fijos en el borde inferior. Los campos de texto, tablas, listas y
+menus usan el mismo contraste oscuro tanto con PyQt5 como con PySide6.
+
 ### 6.1 Capturas
 
 1. Fijar camara, iluminacion, distancia y orientacion mecanica.
@@ -174,7 +204,9 @@ de A/B/C.
 1. Definir que caracteristica visual debe aceptar o rechazar el step.
 2. Definir su ROI canonica.
 3. Elegir maestras solo de piezas OK representativas.
-4. Copiarlas a `master_images/model_x/`.
+4. Capturarlas desde el editor o copiarlas a `master_images/model_x/`. La
+   captura desde la interfaz se guarda dentro del `master_images/` perteneciente
+   al catalogo de recetas activo, no en el directorio heredado del motor.
 5. Guardar rutas relativas a la raiz, por ejemplo:
    `installations/worksurface/master_images/model_a/master_01.png`.
 6. Medir scores con muestras OK y NG y fijar un umbral mayor que cero con margen.

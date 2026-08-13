@@ -30,6 +30,8 @@ from utils.qt_compat import (
     Qt,
 )
 from ui.responsive import compact_stylesheet, profile_from_widget
+from ui.theme import interface_stylesheet
+from core.camera_runtime import format_camera_runtime
 
 
 class SystemConfigDialog(QDialog):
@@ -44,17 +46,19 @@ class SystemConfigDialog(QDialog):
         platform="windows",
         parent=None,
         display_profile=None,
+        camera_runtime=None,
     ):
         super().__init__(parent)
         self.system_config = system_config
         self.recipe_manager = recipe_manager
         self.platform = platform
+        self.camera_runtime = dict(camera_runtime or {})
         self.display_profile = display_profile or profile_from_widget(parent or self)
         self.setWindowTitle("Configuracion de instalacion")
-        if parent is not None:
-            self.setStyleSheet(
-                parent.styleSheet() + compact_stylesheet(self.display_profile)
-            )
+        self.setStyleSheet(
+            interface_stylesheet(self.display_profile)
+            + compact_stylesheet(self.display_profile)
+        )
         self._build_ui()
         self._load_values()
 
@@ -106,10 +110,27 @@ class SystemConfigDialog(QDialog):
         margin = self.display_profile.margin
         form.setContentsMargins(margin, margin, margin, margin)
         form.setVerticalSpacing(self.display_profile.spacing)
+        form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         scroll.setWidget(content)
         page_layout.addWidget(scroll)
         self.tabs.addTab(page, title)
         return form
+
+    def _layout_tab(self, title):
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        margin = self.display_profile.margin
+        layout.setContentsMargins(margin, margin, margin, margin)
+        layout.setSpacing(self.display_profile.spacing)
+        scroll.setWidget(content)
+        page_layout.addWidget(scroll)
+        self.tabs.addTab(page, title)
+        return layout
 
     @staticmethod
     def _int_spin(minimum, maximum):
@@ -133,6 +154,8 @@ class SystemConfigDialog(QDialog):
         self.txt_recipe_file = QLineEdit()
         self.chk_auto_migrate = QCheckBox("Crear respaldo y migrar recetas heredadas")
         self.txt_camera_device = QLineEdit()
+        self.lbl_active_camera = QLabel(format_camera_runtime(self.camera_runtime))
+        self.lbl_active_camera.setWordWrap(True)
         self.spn_camera_width = self._int_spin(1, 16384)
         self.spn_camera_height = self._int_spin(1, 16384)
         self.spn_capture_fps = self._float_spin(0.1, 240.0, 1)
@@ -150,6 +173,7 @@ class SystemConfigDialog(QDialog):
         form.addRow("Catalogo de recetas", self.txt_recipe_file)
         form.addRow("Migracion", self.chk_auto_migrate)
         form.addRow("Dispositivo de camara", self.txt_camera_device)
+        form.addRow("Camara activa ahora", self.lbl_active_camera)
         form.addRow("Ancho de captura", self.spn_camera_width)
         form.addRow("Alto de captura", self.spn_camera_height)
         form.addRow("FPS de captura", self.spn_capture_fps)
@@ -157,8 +181,7 @@ class SystemConfigDialog(QDialog):
         form.addRow("Enfoque predeterminado", self.cmb_default_focus)
 
     def _build_controller_tab(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
+        layout = self._layout_tab("Control")
         protocol = QLabel("serial / vision_controller_v1 (contrato fijo)")
         protocol.setWordWrap(True)
         layout.addWidget(protocol)
@@ -180,11 +203,9 @@ class SystemConfigDialog(QDialog):
         self.tbl_ports = self._new_pair_table("Plataforma", "Puerto")
         layout.addWidget(self.tbl_ports, 1)
         layout.addLayout(self._table_buttons(self.tbl_ports, self._add_port_row))
-        self.tabs.addTab(page, "Control")
 
     def _build_mapping_tab(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
+        layout = self._layout_tab("Mapeo")
         help_label = QLabel(
             "Mapea el identificador opaco enviado por el controlador al nombre "
             "exacto de una receta."
@@ -199,7 +220,6 @@ class SystemConfigDialog(QDialog):
         layout.addLayout(
             self._table_buttons(self.tbl_model_map, self._add_model_row)
         )
-        self.tabs.addTab(page, "Mapeo")
 
     def _build_runtime_tab(self):
         form = self._form_tab("Ejecucion")
@@ -236,6 +256,7 @@ class SystemConfigDialog(QDialog):
             self.txt_recipe_file: "Ruta al catalogo JSON de recetas de esta instalacion.",
             self.chk_auto_migrate: "Convierte esquemas heredados y conserva un archivo .bak.",
             self.txt_camera_device: "Indice 0, 1, etc. o ruta persistente del dispositivo.",
+            self.lbl_active_camera: "Dispositivo y formato que usa la sesion actual; los cambios requieren reinicio.",
             self.spn_camera_width: "Ancho solicitado a la camara; no es el ancho del monitor.",
             self.spn_camera_height: "Alto solicitado a la camara; no es el alto del monitor.",
             self.spn_capture_fps: "Frames por segundo adquiridos desde la camara.",

@@ -115,6 +115,32 @@ Para `armhf/armv7l` se agrego `requirements-rpi32.txt`. PyQt5, OpenCV y NumPy
 se instalan mediante APT y el entorno se crea con `--system-site-packages`.
 La guia detallada esta en `docs/raspberry_pi_32bit_runtime.md`.
 
+### 3.6 Correccion de captura y calibracion en pantalla de 5 pulgadas
+
+Los editores de steps ahora desplazan en una sola area la politica y todos los
+parametros; sus acciones `CANCELAR/GUARDAR` permanecen fijas. Las cinco pestanas
+de configuracion de sistema son desplazables y conservan fijo el guardado, por
+lo que ancho/alto de camara pueden editarse en 800x480.
+
+El tema de alto contraste cubre campos simples y multilínea, tablas, listas,
+menus emergentes y barras de desplazamiento. Margenes, alturas, padding,
+radios y ancho de scrollbar derivan del `DisplayProfile` activo.
+
+La ventana de enfoque muestra dispositivo solicitado, `/dev/video*` resuelto,
+formato activo y soporte `focus_absolute`. El enfoque no usa el puerto serial
+del controlador. `v4l-utils` pasa a ser dependencia de Raspberry Pi porque
+proporciona `v4l2-ctl`. La interfaz bloquea el barrido y explica la causa cuando
+la camara activa no cumple el preflight.
+
+El barrido ahora respeta el tiempo de asentamiento del lente antes de medir y
+rechaza un valor `focus_absolute` si la lectura posterior no coincide con el
+valor solicitado. Esto evita aceptar scores obtenidos durante el movimiento o
+en un nodo de video que recibe comandos pero no conserva el control.
+
+Las imagenes capturadas desde un catalogo externo se guardan junto a ese
+catalogo en `master_images/`. Editar o limpiar la lista ya no elimina recursos
+existentes antes de confirmar el dialogo.
+
 ## 4. Validador offline
 
 `scripts/validate_installation.py` valida el paquete sin abrir camara ni serial
@@ -165,7 +191,7 @@ error, no una advertencia.
 Resultado despues de fase 8 y la compatibilidad Raspberry Pi de 32 bits:
 
 ```text
-Ran 67 tests
+Ran 74 tests
 OK
 ```
 
@@ -179,6 +205,10 @@ Se conservaron las 59 pruebas de fase 7. Las cuatro pruebas originales de fase
 
 Otras cuatro pruebas cubren seleccion forzada/automatica de Qt, paridad de los
 controles UI y la separacion de dependencias binarias en Raspberry Pi 32 bits.
+
+Se agregaron siete pruebas para preflight y descripcion de la camara activa,
+ruta externa de imagenes maestras, cobertura del tema visual y dependencia
+`v4l-utils`, incluida la verificacion de lectura del control de enfoque.
 
 Tambien se verificara `compileall`, validez JSON y aplicacion aislada del parche
 antes de publicar la entrega.
@@ -236,7 +266,7 @@ queda autorizada para produccion hasta cerrar 8B, 9 y 10.
 ## 9. Proximo paso
 
 1. Aplicar el parche de fase 8 sobre fase 7 confirmada.
-2. Ejecutar las 67 pruebas y el validador estructural.
+2. Ejecutar las 74 pruebas y el validador estructural.
 3. Capturar y medir A/B/C siguiendo
    `GUIA_FASE8_INSTALACION_WORKSURFACE.md`.
 4. Ejecutar el validador estricto hasta codigo 0.

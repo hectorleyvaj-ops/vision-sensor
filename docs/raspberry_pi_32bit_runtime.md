@@ -8,7 +8,7 @@ PyPI.
 
 ```bash
 sudo apt update
-sudo apt install -y python3-venv python3-pyqt5 python3-opencv python3-numpy libdmtx0b
+sudo apt install -y python3-venv python3-pyqt5 python3-opencv python3-numpy libdmtx0b v4l-utils
 ```
 
 ## Entorno virtual
@@ -26,6 +26,8 @@ python -m pip install -r requirements-rpi32.txt
 
 `--system-site-packages` es obligatorio en esta variante: permite que el entorno
 vea `/usr/lib/python3/dist-packages`, donde APT instala PyQt5, OpenCV y NumPy.
+`v4l-utils` proporciona `v4l2-ctl`, requerido para detectar y modificar
+`focus_absolute` en la calibracion por receta.
 
 ## Verificacion
 
