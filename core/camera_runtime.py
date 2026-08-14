@@ -15,7 +15,8 @@ def manual_focus_preflight(info):
     if info.get("platform") != "linux":
         return False, "La calibracion manual requiere Linux/V4L2."
     if not info.get("camera_open"):
-        return False, "La camara activa no esta abierta. Revisa el dispositivo y reinicia."
+        detail = info.get("error") or "La camara activa no esta abierta"
+        return False, f"{detail}. Revisa el dispositivo y reinicia."
     if not info.get("resolved_device"):
         return False, "No se resolvio un dispositivo /dev/video*."
     if not info.get("v4l2_available"):
@@ -32,7 +33,12 @@ def format_camera_runtime(info):
     width = info.get("actual_width") or "?"
     height = info.get("actual_height") or "?"
     focus = "si" if info.get("focus_absolute_supported") else "no"
+    state = "ABIERTA" if info.get("camera_open") else "NO DISPONIBLE"
+    backend = info.get("capture_backend") or "?"
+    error = str(info.get("error") or "").strip()
+    error_text = f" | detalle: {error}" if error else ""
     return (
-        f"Camara solicitada: {requested} | activa: {resolved} | "
-        f"formato: {width}x{height} | focus_absolute: {focus}"
+        f"Camara solicitada: {requested} | activa: {resolved} | estado: {state} | "
+        f"backend: {backend} | formato: {width}x{height} | "
+        f"focus_absolute: {focus}{error_text}"
     )

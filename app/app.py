@@ -167,9 +167,24 @@ class MainWindow(QMainWindow):
             f"{startup_report['overall_status']} "
             f"({len(startup_report['items'])} comprobaciones)"
         )
-        self.setup_camera()
-        self.setup_serial()
-        self.setup_state_manager()
+        # Construir todos los componentes antes de arrancar hilos evita que
+        # una camara ausente termine su worker mientras el resto del runtime
+        # todavia se inicializa (por ejemplo, durante el reset DTR en Windows).
+        self.camera_thread = None
+        self.camera_worker = None
+        self.serial_thread = None
+        self.serial = None
+        self.state_thread = None
+        self.state_worker = None
+
+        try:
+            self.setup_camera()
+            self.setup_serial()
+            self.setup_state_manager()
+            self.start_runtime_workers()
+        except Exception:
+            self.shutdown_runtime_components()
+            raise
 
     def setup_ui_logger(self):
         self.ui_logger = get_ui_logger()
@@ -343,12 +358,11 @@ class MainWindow(QMainWindow):
         # CONEXIONES CLAVE
         self.camera_worker.frame_ready.connect(self.update_frame)
         self.camera_worker.finished.connect(self.camera_thread.quit)
-        self.camera_worker.finished.connect(self.camera_worker.deleteLater)
         self.camera_worker.focus_check_finished.connect(self.on_focus_check_finished)
         self.camera_worker.focus_check_failed.connect(self.on_focus_check_failed)
         self.camera_worker.diagnostic_update.connect(self.on_component_diagnostic)
 
-        self.camera_thread.start()
+        # Se inicia despues, cuando todos los receptores ya existen.
 
     def update_frame(self, frame):
         self.current_frame = frame      # GUARDAR FRAME ACTUAL PARA COMPARTIR
@@ -421,7 +435,7 @@ class MainWindow(QMainWindow):
         self.serial.connection_restored.connect(self.on_serial_connection_restored)
         self.serial.diagnostic_update.connect(self.on_component_diagnostic)
 
-        self.serial_thread.start()
+        # Se inicia junto con el resto del runtime completamente conectado.
 
     def on_serial_connection_lost(self, reason):
         print(f"[APP][SERIAL] Conexion perdida: {reason}")
@@ -483,7 +497,13 @@ class MainWindow(QMainWindow):
         # LOG
         self.state_worker.log.connect(print)
 
+        # Se inicia en start_runtime_workers().
+
+    def start_runtime_workers(self):
+        """Start the fully wired runtime in a deterministic, safe order."""
         self.state_thread.start()
+        self.serial_thread.start()
+        self.camera_thread.start()
 
     def on_component_diagnostic(self, item):
         if not isinstance(item, dict):
@@ -1164,7 +1184,10 @@ class MainWindow(QMainWindow):
     def shutdown_thread(self,thread, worker, name="thread"):
         # DETENER WORKERS
         if worker:
-            worker.stop()
+            try:
+                worker.stop()
+            except RuntimeError as exc:
+                print(f"[SHUTDOWN][WARNING] {name} ya no esta disponible: {exc}")
 
         # MANEJO SEGURO DEL THREAD
         if thread and thread.isRunning():
@@ -1175,19 +1198,42 @@ class MainWindow(QMainWindow):
                 print(f"{name} no responde, intentando stop extra...")
 
                 if worker:
-                    worker.stop()
+                    try:
+                        worker.stop()
+                    except RuntimeError:
+                        pass
 
                 if not thread.wait(2000):
                     print(f"Forzando terminate en {name}")
                     thread.terminate()
                     thread.wait()
 
+    def shutdown_runtime_components(self):
+        """Stop every component that may exist after a partial startup."""
+        ready_timer = getattr(self, "ready_timer", None)
+        if ready_timer is not None:
+            ready_timer.stop()
+
+        self.shutdown_thread(
+            getattr(self, "camera_thread", None),
+            getattr(self, "camera_worker", None),
+            "camera",
+        )
+        self.shutdown_thread(
+            getattr(self, "state_thread", None),
+            getattr(self, "state_worker", None),
+            "state",
+        )
+        self.shutdown_thread(
+            getattr(self, "serial_thread", None),
+            getattr(self, "serial", None),
+            "serial",
+        )
+
     def closeEvent(self, event):
         print("Close Event ejecutado")
 
-        self.shutdown_thread(self.camera_thread, self.camera_worker, "camera")
-        self.shutdown_thread(self.state_thread, self.state_worker, "state")
-        self.shutdown_thread(self.serial_thread, self.serial, "serial")
+        self.shutdown_runtime_components()
 
         print("App cerrada correctamente")
         event.accept()

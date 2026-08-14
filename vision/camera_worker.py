@@ -47,6 +47,8 @@ class CameraWorker(QObject):
         self.device = None
         self.camera_open = False
         self.active_format = {}
+        self.capture_backend = None
+        self.last_error = None
 
         self._running = False
         self.Trigger = False
@@ -159,6 +161,8 @@ class CameraWorker(QObject):
             "requested_device": self.camera_index,
             "resolved_device": self.device,
             "camera_open": bool(self.camera_open),
+            "capture_backend": self.capture_backend,
+            "error": self.last_error,
             "actual_width": active.get("actual_width"),
             "actual_height": active.get("actual_height"),
             "actual_fps": active.get("actual_fps"),
@@ -216,13 +220,16 @@ class CameraWorker(QObject):
 
     def open_camera(self):
         # INTENTA ABRIR LA CAMARA SEGUN EL SISTEMA DONDE CORRA
+        self.last_error = None
+        self.capture_backend = None
         self.device = self.find_camera_device()
 
         if self.device is None:
             print("[CAMERA] No hay camara disponible")
+            self.last_error = "No se encontro una camara que entregue frames validos"
             self.emit_diagnostic(
                 "ERROR",
-                "No se encontro una camara que entregue frames validos",
+                self.last_error,
                 "Revisa USB/alimentacion y camera.device; despues reinicia",
                 details={"requested_device": self.camera_index},
                 blocking=True,
@@ -231,23 +238,55 @@ class CameraWorker(QObject):
 
         if self.is_linux():
             self.cap = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
+            self.capture_backend = "V4L2"
         elif self.is_windows():
-            self.cap = cv2.VideoCapture(self.device, cv2.CAP_DSHOW)
+            # DirectShow puede existir y aun asi rechazar captura por indice.
+            # Se prueban alternativas sobre el MISMO indice configurado; no
+            # se selecciona otra camara silenciosamente.
+            attempted_backends = []
+            candidates = (
+                ("DSHOW", getattr(cv2, "CAP_DSHOW", None)),
+                ("MSMF", getattr(cv2, "CAP_MSMF", None)),
+                ("AUTO", getattr(cv2, "CAP_ANY", 0)),
+            )
+            seen = set()
+            for backend_name, backend_id in candidates:
+                if backend_id is None or backend_id in seen:
+                    continue
+                seen.add(backend_id)
+                attempted_backends.append(backend_name)
+                candidate = cv2.VideoCapture(self.device, backend_id)
+                if candidate is not None and candidate.isOpened():
+                    self.cap = candidate
+                    self.capture_backend = backend_name
+                    print(f"[CAMERA] Backend activo en Windows: {backend_name}")
+                    break
+                if candidate is not None:
+                    candidate.release()
         else:
             self.cap = cv2.VideoCapture(self.device)
+            self.capture_backend = "AUTO"
 
         if self.cap is None or not self.cap.isOpened():
-            print(f"[CAMERA][ERROR] No se pudo abrir la camara {self.device}")
+            self.last_error = f"No se pudo abrir la camara {self.device}"
+            print(f"[CAMERA][ERROR] {self.last_error}")
+            details = {
+                "requested_device": self.camera_index,
+                "resolved_device": self.device,
+            }
+            if self.is_windows():
+                details["attempted_backends"] = attempted_backends
             self.emit_diagnostic(
                 "ERROR",
-                f"No se pudo abrir la camara {self.device}",
-                "Cierra otras aplicaciones que usen la camara y revisa permisos",
-                details={"requested_device": self.camera_index, "resolved_device": self.device},
+                self.last_error,
+                "Revisa conexion/permisos o cambia camera.device en Configuracion y reinicia",
+                details=details,
                 blocking=True,
             )
             return False
 
         self.camera_open = True
+        self.last_error = None
 
         active_format = self.configure_resolution()
         self.emit_diagnostic(
@@ -1483,7 +1522,6 @@ class CameraWorker(QObject):
             if not self.open_camera():
                 print("[CAMERA][ERROR] No se pudo abrir la camara")
                 self._running = False
-                self.finished.emit()
                 return
 
             self.apply_base_controls()
@@ -1518,9 +1556,10 @@ class CameraWorker(QObject):
 
         except Exception as e:
             print(f"[CAMERA][ERROR] Error en camara: {e}")
+            self.last_error = f"El worker de camara termino por error: {e}"
             self.emit_diagnostic(
                 "ERROR",
-                f"El worker de camara termino por error: {e}",
+                self.last_error,
                 "Revisa el reporte de arranque, el dispositivo y el driver",
                 details={"resolved_device": self.device},
                 blocking=True,
