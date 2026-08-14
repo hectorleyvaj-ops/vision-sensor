@@ -1,0 +1,2253 @@
+From 5c6d140ac0c07f50d9d241bc18778ce9dc96dd9c Mon Sep 17 00:00:00 2001
+From: OpenAI Codex <noreply@openai.com>
+Date: Thu, 13 Aug 2026 15:37:20 -0600
+Subject: [PATCH] Add Worksurface ESP32 controller protocol phase 9
+
+---
+ .gitignore                                    |   1 +
+ .../CONTEXTO_PROYECTO_WORKSURFACE_V14.md      | 203 +++++
+ ESP32/FSM/FSM.ino                             | 716 ++++++++++++------
+ ESP32/FSM/worksurface_config.h                |  63 ++
+ Guias/GUIA_FASE9_ESP32_PROTOCOLO_PLC.md       | 179 +++++
+ docs/controller_protocol_v1.md                |  43 ++
+ scripts/controller_protocol_smoke.py          | 202 +++++
+ services/controller_protocol.py               |  19 +-
+ services/serial_comm.py                       |  88 ++-
+ tests/simulators/controller_simulator.py      |  53 +-
+ tests/test_controller_contract.py             |  52 ++
+ tests/test_controller_protocol.py             |  16 +
+ tests/test_controller_smoke_cli.py            |  16 +
+ tests/test_firmware_phase9_contract.py        |  76 ++
+ tests/test_installation_package.py            |  11 +-
+ tests/test_serial_protocol_retries.py         | 148 ++++
+ 16 files changed, 1627 insertions(+), 259 deletions(-)
+ create mode 100644 Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V14.md
+ create mode 100644 ESP32/FSM/worksurface_config.h
+ create mode 100644 Guias/GUIA_FASE9_ESP32_PROTOCOLO_PLC.md
+ create mode 100644 scripts/controller_protocol_smoke.py
+ create mode 100644 tests/test_controller_smoke_cli.py
+ create mode 100644 tests/test_firmware_phase9_contract.py
+ create mode 100644 tests/test_serial_protocol_retries.py
+
+diff --git a/.gitignore b/.gitignore
+index 157aa1a..ddf40c1 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -18,6 +18,7 @@ runtime/
+ 
+ # Archivos temporales
+ *.tmp
++*.bak
+ 
+ # Sistema
+ .DS_Store
+diff --git a/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V14.md b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V14.md
+new file mode 100644
+index 0000000..835569c
+--- /dev/null
++++ b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V14.md
+@@ -0,0 +1,203 @@
++# Contexto Worksurface V14 - Fase 9 ESP32 y protocolo
++
++**Fecha:** 2026-08-13
++
++**Base recibida:** `f18c61c Save preliminary worksurface calibration`
++
++**Rama de desarrollo:** `feature/worksurface-controller-phase9`
++
++## 1. Objetivo vigente
++
++El proyecto es un motor de vision universal con una instalacion externa
++Worksurface. El motor conserva herramientas, recetas, configuracion,
++trazabilidad y comunicación genericas. El firmware ESP32, el ladder PLC y los
++datos fisicos pertenecen a la instalacion.
++
++La fase 9 crea un controlador ESP32 compatible con
++`vision_controller_v1`, fortalece el enlace Python y deja una ruta de prueba de
++banco independiente del comisionamiento de recetas.
++
++## 2. Estado de fases
++
++| Fase | Estado | Evidencia principal |
++|---:|---|---|
++| 1-7 | Terminadas | Motor, configuracion, UI adaptable, operaciones y herramientas |
++| 8 | Implementada | Paquete externo A/B/C y validador |
++| 8B | Preliminar | ROI, DataMatrix, histogramas e imagenes capturados; falta aceptacion final |
++| 9 | Implementada en codigo | Firmware v1, enlace idempotente y prueba de banco |
++| 9 física | Pendiente | Carga ESP32 y matriz electrica/PLC |
++| 10 | Pendiente | Pruebas integrales y repetibilidad |
++| 11 | Pendiente | Servicio, autoarranque, backup y rollback |
++| 12 | Pendiente | UI final, paralelo y corte reversible |
++
++## 3. Calibracion preliminar recibida
++
++El paquete activo es:
++
++```text
++installations/worksurface/system.json
++installations/worksurface/recipes.json
++installations/worksurface/master_images/
++```
++
++Las recetas A/B/C contienen ROI y cinco imagenes maestras de histograma por
++modelo. Permanecen con:
++
++```json
++"commissioned": false
++```
++
++Este valor se cambia desde `CONFIGURACION -> RECETA -> Comisionada -> VALIDAR
++Y GUARDAR`. No debe editarse manualmente en JSON porque el dialogo ejecuta las
++reglas de comisionamiento.
++
++El estado `false` es correcto para fase 9. El programa puede completar el
++handshake y publicar `READY=0`; el script de banco prueba el protocolo sin
++ejecutar recetas.
++
++Datos que requieren confirmacion antes de fase 10:
++
++- MODELO_B declara DataMatrix esperado `0402010XB` aunque su numero de parte es
++  `0402012XB`;
++- MODELO_C declara `0402009XB` aunque su numero de parte es `0402012XC`;
++- MODELO_B aun no contiene enfoque;
++- A y C usan `manual_fixed`, mientras el manifiesto estricto pide enfoque
++  `calibrated`;
++- el umbral de histograma 80 es preliminar y necesita poblaciones OK/NG.
++
++Los codigos no se corrigen por suposicion: pueden ser contenidos fisicos reales
++distintos del numero de parte.
++
++## 4. Firmware fase 9
++
++Archivos:
++
++```text
++ESP32/FSM/FSM.ino
++ESP32/FSM/worksurface_config.h
++```
++
++Implementa:
++
++- STX/ETX a 115200 baud;
++- `HELLO/HELLO_ACK` con version de protocolo y firmware;
++- `READY=0/1`;
++- `PING/PONG` y watchdog de 7 segundos;
++- `MODEL`, `TRIGGER`, `VISION_RESULT`, `FINAL_RESULT` y `CANCEL` ligados al
++  mismo ID de ciclo;
++- ACK tipados;
++- reintentos idempotentes;
++- resultados separados `OK`, `NG` y `ERROR`;
++- reset de ciclo y reinicio explicito;
++- timeout de vision seguro;
++- retencion del modelo durante el ciclo;
++- rechazo de bits de modelo `00` al momento del trigger;
++- GPIO 32 seguro en arranque, NG, ERROR, timeout, cancelacion y perdida de
++  enlace.
++- cancelacion segura si falta el ACK final despues de diez reintentos.
++
++Version declarada:
++
++```text
++worksurface-controller-1.0.0
++```
++
++## 5. Configuracion fisica inicial
++
++| Funcion | GPIO |
++|---|---:|
++| Trigger | 5 |
++| Modelo bit 0 | 18 |
++| Modelo bit 1 | 19 |
++| Llave calidad | 4 |
++| Sensor izquierdo | 2 |
++| Sensor derecho | 15 |
++| Pass hacia PLC | 32 |
++
++Se asumen señales activas en HIGH. Deben medirse antes de reconectar GPIO 32 a
++la entrada PLC.
++
++Mapeo inicial:
++
++- `10 -> A`;
++- `01 -> B`;
++- `11 -> C`;
++- `00 -> invalido`.
++
++Patrones:
++
++- A: izquierda OK, derecha NG;
++- B: izquierda NG, derecha OK;
++- C: izquierda OK, derecha OK.
++
++## 6. Cambios del motor Python
++
++Se corrigieron dos casos de reintento:
++
++1. un TRIGGER identico recibe otro ACK sin iniciar ni cancelar otro ciclo;
++2. un FINAL_RESULT identico recibe otro ACK sin duplicar indicador ni registro.
++
++Un mensaje contradictorio con el mismo ciclo sigue rechazandose. El watchdog
++ahora cancela el contexto local y exige otro handshake, aunque el dispositivo
++serial permanezca abierto.
++
++Python tambien acepta `RESET` remoto para que la llave de calidad limpie la UI
++aun cuando no exista ciclo activo.
++
++## 7. Pruebas y herramientas
++
++La suite completa contiene 89 pruebas y pasa en la base limpia. Incluye nuevas
++pruebas para:
++
++- idempotencia de trigger y resultado;
++- rechazo de reintentos contradictorios;
++- cancelacion por heartbeat vencido;
++- mensajes obligatorios del firmware;
++- salida GPIO segura;
++- mapeo A/B/C y rechazo de bits 00;
++- proteccion del script de banco contra un OK accidental.
++
++El script:
++
++```text
++scripts/controller_protocol_smoke.py
++```
++
++permite comprobar handshake y PING/PONG sin Qt, camara ni recetas
++comisionadas. El modo de ciclo usa `ERROR` por defecto. Enviar `OK` requiere
++`--allow-pass-output`.
++
++El sketch paso una comprobacion de sintaxis C++11 con stubs de Arduino. Este
++entorno no contiene Arduino CLI ni el core ESP32, por lo que la compilacion
++nativa definitiva debe realizarse con Arduino IDE antes de cargarlo.
++
++## 8. PLC
++
++El ladder no cambia en fase 9. Primero se verifica:
++
++- continuidad Y0/Y1 a GPIO18/GPIO19;
++- polaridades reales;
++- GPIO32 siempre seguro durante reinicios y fallas;
++- llave X6 independiente;
++- tiempo desde Y2/Y3/Y4 hasta inmovilizacion;
++- permanencia de bits A/B/C durante al menos 80 ms.
++
++Solo una medicion que contradiga el contrato justifica modificar el ladder.
++El tiempo de asentamiento medido se guarda en
++`runtime.mechanical_settle_ms`.
++
++## 9. Siguiente paso
++
++1. Aplicar el parche de fase 9 sobre `f18c61c`.
++2. Verificar y cargar `ESP32/FSM/FSM.ino` con Arduino IDE.
++3. Mantener GPIO32 desconectado del PLC.
++4. Ejecutar handshake y heartbeat con el script de banco.
++5. Ejecutar la matriz ERROR/NG, cancelacion, timeout y desconexion.
++6. Medir A/B/C, sensores y polaridades.
++7. Probar OK unicamente con salida PLC aislada.
++8. Registrar resultados para cerrar la verificacion fisica de fase 9.
++9. Continuar a fase 10 con recetas autorizadas de manera controlada.
++
++La mejora estetica observada en las capturas sigue pendiente. La legibilidad,
++superposiciones y barra inferior se trataran antes de la aceptacion integral;
++no forman parte del firmware de esta fase.
+diff --git a/ESP32/FSM/FSM.ino b/ESP32/FSM/FSM.ino
+index c09200b..7ef2833 100644
+--- a/ESP32/FSM/FSM.ino
++++ b/ESP32/FSM/FSM.ino
+@@ -1,320 +1,540 @@
+-#define STX 0x02
+-#define ETX 0x03
+-
+-// INPUTS
+-const int trigger = 5;
+-const int bin_0 = 18;
+-const int bin_1 = 19;
+-const int quality_key = 4;
+-const int sensor_L = 2;
+-const int sensor_R = 15;
+-
+-// OUPUTS
+-const int result = 32;
+-
+-// FSM
+-enum State {
+-  IDLE,
+-  TRIGGERED,
+-  WAIT_SENSORS,
+-  EVALUATE,
+-  RESULT
+-};
++#include <Arduino.h>
++#include <esp_system.h>
+ 
+-State currentState = IDLE;
++#include "worksurface_config.h"
+ 
+-// VARIABLES
+-String currentModel = "A";
+-String lastModel = "A";
++using namespace WorksurfaceConfig;
+ 
+-String lastResultMsg = "";
++constexpr uint8_t STX = 0x02;
++constexpr uint8_t ETX = 0x03;
+ 
+-String buffer = "";
+-bool receiving = false;
+-bool visionResult = false;
+-bool visionReceived = false;
+-
+-bool finalResult = false;
++enum class CycleState {
++  IDLE,
++  WAIT_VISION,
++  WAIT_FINAL_ACK,
++  HOLD_RESULT,
++};
+ 
+-bool lastQualityState = false;
+-bool lastTriggerState = false;
++CycleState cycleState = CycleState::IDLE;
+ 
+-bool reseted = false;
++String rxPayload;
++bool receivingFrame = false;
++bool discardFrame = false;
+ 
+-bool triggerState = false;
+-bool lastStableState = false;
++bool linkSynced = false;
++bool visionReady = false;
++bool focusBusy = false;
++unsigned long lastEngineContactMs = 0;
+ 
+-bool triggerEvent = false;
+-bool triggerLatched = false;
++String bootToken;
++uint32_t cycleCounter = 0;
++String activeCycle;
++String activeModel = DEFAULT_MODEL;
++String lastPublishedModel = DEFAULT_MODEL;
++String acceptedVisionResult;
++String finalResult;
+ 
+-bool systemSynced = false;
+-bool handshakeReceived = false;
++bool triggerAcked = false;
++uint8_t triggerRetries = 0;
++unsigned long lastTriggerSendMs = 0;
++unsigned long visionDeadlineMs = 0;
+ 
+-bool rpiReady = false;
++bool finalAcked = false;
++uint8_t finalRetries = 0;
++unsigned long lastFinalSendMs = 0;
+ 
+-bool waitingAckResult = false;
++bool rawTrigger = false;
++bool stableTrigger = false;
++bool triggerLatched = false;
++unsigned long triggerChangedMs = 0;
++bool lastQualityRelease = false;
+ 
+-unsigned long lastSendTime = 0;
+-const unsigned long ackTimeout = 500;
++void debugLog(const String &message) {
++  if (DEBUG_SERIAL_LOGS) Serial.println(message);
++}
+ 
+-unsigned long triggerStartTime = 0;
+-const unsigned long miniTriggerTime = 100;
++bool isActiveLevel(uint8_t pin, bool activeHigh) {
++  return digitalRead(pin) == (activeHigh ? HIGH : LOW);
++}
+ 
+-unsigned long stateStartTime = 0;
+-unsigned long timeoutVision = 12000;
++void setPassOutput(bool pass) {
++  const bool levelHigh = pass == PLC_PASS_ACTIVE_HIGH;
++  digitalWrite(PIN_PLC_PASS, levelHigh ? HIGH : LOW);
++}
+ 
++bool isUnreserved(uint8_t value) {
++  return (value >= 'A' && value <= 'Z') ||
++         (value >= 'a' && value <= 'z') ||
++         (value >= '0' && value <= '9') || value == '-' || value == '_' ||
++         value == '.' || value == ':';
++}
+ 
+-// HELPERS
+-void handleTrigger() {
+-  bool reading = digitalRead(trigger);
++char hexDigit(uint8_t value) {
++  return value < 10 ? static_cast<char>('0' + value)
++                    : static_cast<char>('A' + value - 10);
++}
+ 
+-  // CONTEO
+-  if (reading == HIGH && triggerStartTime == 0) {
+-    triggerStartTime = millis();
+-  }
++int hexValue(char value) {
++  if (value >= '0' && value <= '9') return value - '0';
++  if (value >= 'A' && value <= 'F') return value - 'A' + 10;
++  if (value >= 'a' && value <= 'f') return value - 'a' + 10;
++  return -1;
++}
+ 
+-  if (reading == HIGH && triggerStartTime > 0) {
+-    if (millis() - triggerStartTime > miniTriggerTime) {
+-      triggerState = true;
++String percentEncode(const String &value) {
++  String encoded;
++  encoded.reserve(value.length() + 16);
++  for (size_t index = 0; index < value.length(); ++index) {
++    const uint8_t current = static_cast<uint8_t>(value[index]);
++    if (isUnreserved(current)) {
++      encoded += static_cast<char>(current);
++    } else {
++      encoded += '%';
++      encoded += hexDigit((current >> 4) & 0x0F);
++      encoded += hexDigit(current & 0x0F);
+     }
+   }
++  return encoded;
++}
+ 
+-  // RESET SI CAE A LOW
+-  if (reading == LOW) {
+-    triggerStartTime = 0;
+-    triggerState = false;
+-    triggerLatched = false;
++String percentDecode(const String &value) {
++  String decoded;
++  decoded.reserve(value.length());
++  for (size_t index = 0; index < value.length(); ++index) {
++    if (value[index] == '%' && index + 2 < value.length()) {
++      const int high = hexValue(value[index + 1]);
++      const int low = hexValue(value[index + 2]);
++      if (high >= 0 && low >= 0) {
++        decoded += static_cast<char>((high << 4) | low);
++        index += 2;
++        continue;
++      }
++    }
++    decoded += value[index];
+   }
++  return decoded;
++}
+ 
+-  if (triggerState && !triggerLatched) {
+-    triggerLatched = true;
++String messageKind(const String &payload) {
++  const int separator = payload.indexOf('|');
++  String kind = separator < 0 ? payload : payload.substring(0, separator);
++  kind.trim();
++  kind.toUpperCase();
++  return kind;
++}
+ 
+-    Serial.println("[ESP] Trigger valido");
+-    sendSerial("TRIGGER");
+-    triggerEvent = true;
++String fieldValue(const String &payload, const String &requestedKey) {
++  String key = requestedKey;
++  key.toUpperCase();
++  int start = payload.indexOf('|');
++  while (start >= 0 && start + 1 < static_cast<int>(payload.length())) {
++    const int end = payload.indexOf('|', start + 1);
++    const String item = end < 0 ? payload.substring(start + 1)
++                                : payload.substring(start + 1, end);
++    const int equals = item.indexOf('=');
++    if (equals > 0) {
++      String candidate = item.substring(0, equals);
++      candidate.trim();
++      candidate.toUpperCase();
++      if (candidate == key) {
++        return percentDecode(item.substring(equals + 1));
++      }
++    }
++    start = end;
+   }
++  return "";
+ }
+ 
+-String getModel() {
+-  int b0 = digitalRead(bin_0);
+-  int b1 = digitalRead(bin_1);
++void sendPayload(const String &payload) {
++  Serial.write(STX);
++  Serial.print(payload);
++  Serial.write(ETX);
++  Serial.flush();
++}
+ 
+-  if (b0 == HIGH && b1 == LOW) return "B";
+-  if (b0 == LOW && b1 == HIGH) return "A";
+-  if (b0 == HIGH && b1 == HIGH) return "C";
++void sendAck(const String &type, const String &cycle = "",
++             const String &status = "OK", const String &error = "") {
++  String payload = "ACK|TYPE=" + percentEncode(type);
++  if (cycle.length() > 0) payload += "|CYCLE=" + percentEncode(cycle);
++  payload += "|STATUS=" + percentEncode(status);
++  if (error.length() > 0) payload += "|ERROR=" + percentEncode(error);
++  sendPayload(payload);
++}
+ 
+-  return currentModel;
++void sendError(const String &code, const String &detail = "") {
++  String payload = "ERROR|CODE=" + percentEncode(code);
++  if (detail.length() > 0) payload += "|DETAIL=" + percentEncode(detail);
++  sendPayload(payload);
+ }
+ 
+-void sendSerial(String msg) {
+-  Serial.write(STX);
+-  Serial.print(msg);
+-  Serial.write(ETX);
+-  Serial.println("");
++String readModel() {
++  const bool bit0 = isActiveLevel(PIN_MODEL_BIT_0, MODEL_BITS_ACTIVE_HIGH);
++  const bool bit1 = isActiveLevel(PIN_MODEL_BIT_1, MODEL_BITS_ACTIVE_HIGH);
++  if (bit0 && !bit1) return MODEL_BITS_10;
++  if (!bit0 && bit1) return MODEL_BITS_01;
++  if (bit0 && bit1) return MODEL_BITS_11;
++  return "";
+ }
+ 
+-void processSerial() {
+-  while (Serial.available()) {
+-    byte b = Serial.read();
++bool stableSensorIsOk(uint8_t pin) {
++  uint8_t activeSamples = 0;
++  for (uint8_t index = 0; index < SENSOR_STABLE_SAMPLES; ++index) {
++    if (isActiveLevel(pin, SENSOR_OK_ACTIVE_HIGH)) ++activeSamples;
++    delayMicroseconds(SENSOR_SAMPLE_DELAY_US);
++  }
++  return activeSamples == SENSOR_STABLE_SAMPLES;
++}
+ 
+-    if (b == STX){
+-      buffer = "";
+-      receiving = true;
++bool physicalPatternPasses(const String &model) {
++  const bool leftOk = stableSensorIsOk(PIN_SENSOR_LEFT);
++  const bool rightOk = stableSensorIsOk(PIN_SENSOR_RIGHT);
++  for (const SensorPattern &pattern : SENSOR_PATTERNS) {
++    if (model == pattern.model) {
++      return leftOk == pattern.left_ok && rightOk == pattern.right_ok;
+     }
++  }
++  return false;
++}
+ 
+-    else if (b == ETX && receiving == true){
+-      receiving = false;
+-      procesar(buffer);   // FUNCION PARA OBTENER EL RESULTADO DE VISION
+-    }
++void resetCycleState() {
++  setPassOutput(false);
++  cycleState = CycleState::IDLE;
++  activeCycle = "";
++  acceptedVisionResult = "";
++  finalResult = "";
++  triggerAcked = false;
++  triggerRetries = 0;
++  finalAcked = false;
++  finalRetries = 0;
++  focusBusy = false;
++  visionDeadlineMs = 0;
++}
+ 
+-    else if (receiving){
+-      buffer += (char)b;
+-    }
+-  }
++void loseLink(const String &reason) {
++  debugLog("[LINK] " + reason);
++  setPassOutput(false);
++  linkSynced = false;
++  visionReady = false;
++  resetCycleState();
+ }
+ 
+-void procesar(String message){
+-  if (message == "OK"){
+-    visionResult = true;
+-    visionReceived = true;
+-    sendSerial("ACK");
++void sendHelloAck() {
++  const String detectedModel = readModel();
++  if (detectedModel.length() > 0) {
++    activeModel = detectedModel;
++    lastPublishedModel = detectedModel;
+   }
+-  else if (message == "NG"){
+-    visionResult = false;
+-    visionReceived = true;
+-    sendSerial("ACK");
+-  }
+-  else if (message == "SYNC"){
+-    handshakeReceived = true;
+-    sendSerial("ACK");
+-  }
+-  else if (message == "ACK"){
+-    if (waitingAckResult){
+-      waitingAckResult = false;
+-      Serial.println("[ESP] ACK de RESULT recibido");
+-    }
++  String payload = "HELLO_ACK|PROTO=" + String(PROTOCOL_VERSION) +
++                   "|FW=" + percentEncode(FIRMWARE_VERSION) + "|READY=1";
++  if (detectedModel.length() > 0) {
++    payload += "|MODEL=" + percentEncode(detectedModel);
+   }
++  sendPayload(payload);
+ }
+ 
+-void sendResultWithAck(String msg) {
+-  sendSerial(msg);
+-  lastResultMsg = msg;
+-  waitingAckResult = true;
+-  lastSendTime = millis();
++void sendTrigger() {
++  sendPayload("TRIGGER|CYCLE=" + percentEncode(activeCycle) +
++              "|MODEL=" + percentEncode(activeModel));
++  lastTriggerSendMs = millis();
++  ++triggerRetries;
++}
+ 
+-  Serial.print("[ESP] Enviado: ");
+-  Serial.println(msg);
++void sendFinalResult() {
++  sendPayload("FINAL_RESULT|CYCLE=" + percentEncode(activeCycle) +
++              "|RESULT=" + percentEncode(finalResult));
++  lastFinalSendMs = millis();
++  ++finalRetries;
+ }
+ 
+-void sendHandshake() {
+-  currentModel = getModel();
+-  lastModel = currentModel;
++void finishVisionDecision(const String &visionResult) {
++  if (visionResult == "ERROR") {
++    finalResult = "ERROR";
++  } else if (visionResult == "NG") {
++    finalResult = "NG";
++  } else if (visionResult == "OK") {
++    finalResult = physicalPatternPasses(activeModel) ? "OK" : "NG";
++  } else {
++    finalResult = "ERROR";
++  }
++
++  setPassOutput(finalResult == "OK");
++  cycleState = CycleState::WAIT_FINAL_ACK;
++  finalAcked = false;
++  finalRetries = 0;
++  sendFinalResult();
++}
+ 
+-  sendSerial("SYNC_OK|MODEL: " + currentModel);
+-  systemSynced = true;
++void beginPhysicalCycle() {
++  if (!linkSynced || !visionReady || focusBusy ||
++      cycleState != CycleState::IDLE) {
++    return;
++  }
+ 
+-  Serial.println("[ESP] Handshake completado");
++  const String detectedModel = readModel();
++  if (detectedModel.length() == 0) {
++    sendError("INVALID_MODEL_BITS", "Y0=0 Y1=0 durante trigger");
++    return;
++  }
++  activeModel = detectedModel;
++  ++cycleCounter;
++  activeCycle = bootToken + "-" + String(cycleCounter);
++  acceptedVisionResult = "";
++  triggerAcked = false;
++  triggerRetries = 0;
++  visionDeadlineMs = millis() + VISION_TIMEOUT_MS;
++  cycleState = CycleState::WAIT_VISION;
++  sendTrigger();
+ }
+ 
+-bool readStable(int pin) {
+-  bool a = digitalRead(pin);
+-  delayMicroseconds(200);
+-  bool b = digitalRead(pin);
+-  return (a && b);
++void cancelFromQualityRelease() {
++  setPassOutput(false);
++  if (linkSynced && activeCycle.length() > 0) {
++    sendPayload("CANCEL|CYCLE=" + percentEncode(activeCycle) +
++                "|REASON=QUALITY_RELEASE");
++  } else if (linkSynced) {
++    sendPayload("RESET|SCOPE=CYCLE|REASON=QUALITY_RELEASE");
++  }
++  resetCycleState();
+ }
+ 
+-void setup() {
+-  // put your setup code here, to run once:
+-  Serial.begin(115200);
+-  pinMode(trigger, INPUT_PULLDOWN);
+-  pinMode(bin_0, INPUT);
+-  pinMode(bin_1, INPUT);
+-  pinMode(quality_key, INPUT);
+-  pinMode(sensor_L, INPUT);
+-  pinMode(sensor_R, INPUT);
+-  pinMode(result, OUTPUT);
++void handleProtocolMessage(const String &payload) {
++  const String kind = messageKind(payload);
++  if (kind.length() == 0) return;
++  lastEngineContactMs = millis();
++
++  if (kind == "HELLO") {
++    const String protocol = fieldValue(payload, "PROTO");
++    if (protocol != PROTOCOL_VERSION) {
++      loseLink("Version de protocolo incompatible");
++      sendError("INCOMPATIBLE_PROTOCOL", "ESP=1 RPI=" + protocol);
++      return;
++    }
++    resetCycleState();
++    linkSynced = true;
++    visionReady = false;
++    sendHelloAck();
++    return;
++  }
+ 
+-  digitalWrite(result, LOW);
+-}
++  if (!linkSynced) {
++    sendError("HANDSHAKE_REQUIRED");
++    return;
++  }
+ 
+-void loop() {
+-  // put your main code here, to run repeatedly:
+-  processSerial();
+-
+-  if (waitingAckResult) {
+-    if (millis() - lastSendTime > ackTimeout){
+-      Serial.println("[ESP] Reenviando RESULT...");
+-      sendSerial(lastResultMsg);
+-      lastSendTime = millis();
++  if (kind == "PING") {
++    const String sequence = fieldValue(payload, "SEQ");
++    sendPayload("PONG|SEQ=" + percentEncode(sequence));
++    return;
++  }
++
++  if (kind == "READY") {
++    const String state = fieldValue(payload, "STATE");
++    if (state != "0" && state != "1") {
++      sendAck("READY", "", "REJECTED", "INVALID_STATE");
++      return;
++    }
++    visionReady = state == "1";
++    sendAck("READY");
++    return;
++  }
++
++  if (kind == "FOCUS") {
++    const String state = fieldValue(payload, "STATE");
++    focusBusy = state == "BUSY";
++    if (focusBusy && activeCycle.length() > 0) {
++      visionDeadlineMs = millis() + FOCUS_BUSY_TIMEOUT_MS;
++    }
++    sendAck("FOCUS", activeCycle);
++    return;
++  }
++
++  if (kind == "VISION_RESULT") {
++    const String cycle = fieldValue(payload, "CYCLE");
++    String result = fieldValue(payload, "RESULT");
++    result.toUpperCase();
++
++    if (cycle != activeCycle || activeCycle.length() == 0) {
++      sendAck("VISION_RESULT", cycle, "REJECTED", "STALE_CYCLE");
++      return;
++    }
++    if (result != "OK" && result != "NG" && result != "ERROR") {
++      sendAck("VISION_RESULT", cycle, "REJECTED", "INVALID_RESULT");
++      return;
++    }
++    if (acceptedVisionResult.length() > 0) {
++      if (acceptedVisionResult == result) {
++        sendAck("VISION_RESULT", cycle);
++      } else {
++        sendAck("VISION_RESULT", cycle, "REJECTED", "CONFLICTING_RESULT");
++      }
++      return;
+     }
++
++    acceptedVisionResult = result;
++    sendAck("VISION_RESULT", cycle);
++    finishVisionDecision(result);
++    return;
+   }
+ 
+-  if (!systemSynced && handshakeReceived) {
+-    delay(200);
+-    sendHandshake();
+-    handshakeReceived = false;
++  if (kind == "ACK") {
++    const String type = fieldValue(payload, "TYPE");
++    const String cycle = fieldValue(payload, "CYCLE");
++    const String status = fieldValue(payload, "STATUS");
++    if (cycle != activeCycle || status != "OK") return;
++    if (type == "TRIGGER") {
++      triggerAcked = true;
++    } else if (type == "FINAL_RESULT") {
++      finalAcked = true;
++      cycleState = CycleState::HOLD_RESULT;
++      if (!stableTrigger) resetCycleState();
++    }
++    return;
+   }
+ 
+-  bool currentQuality = digitalRead(quality_key);
++  if (kind == "RESET") {
++    const String cycle = activeCycle;
++    resetCycleState();
++    sendAck("RESET", cycle);
++    return;
++  }
+ 
+-  if (currentQuality && !lastQualityState) {
+-    Serial.println("[FSM] Reset de calidad");
++  if (kind == "RESTART") {
++    sendAck("RESTART", activeCycle);
++    setPassOutput(false);
++    delay(100);
++    ESP.restart();
++    return;
++  }
+ 
+-    buffer = "";
+-    receiving = false;
+-    visionReceived = false;
+-    visionResult = false;
+-    reseted = true;
+-    currentState = IDLE;
++  sendError("UNKNOWN_MESSAGE", kind);
++}
+ 
+-    sendSerial("RESET");
++void processSerialFrames() {
++  while (Serial.available() > 0) {
++    const uint8_t value = static_cast<uint8_t>(Serial.read());
++    if (value == STX) {
++      rxPayload = "";
++      receivingFrame = true;
++      discardFrame = false;
++      continue;
++    }
++    if (value == ETX && receivingFrame) {
++      receivingFrame = false;
++      if (!discardFrame) handleProtocolMessage(rxPayload);
++      rxPayload = "";
++      discardFrame = false;
++      continue;
++    }
++    if (!receivingFrame || discardFrame) continue;
++    if (rxPayload.length() >= MAX_PAYLOAD_BYTES) {
++      discardFrame = true;
++      continue;
++    }
++    rxPayload += static_cast<char>(value);
+   }
++}
+ 
+-  lastQualityState = currentQuality;
++void updateTriggerInput() {
++  const bool current = isActiveLevel(PIN_TRIGGER, TRIGGER_ACTIVE_HIGH);
++  if (current != rawTrigger) {
++    rawTrigger = current;
++    triggerChangedMs = millis();
++  }
++  if (millis() - triggerChangedMs < INPUT_DEBOUNCE_MS) return;
++  if (stableTrigger == rawTrigger) return;
+ 
+-  if (reseted && digitalRead(trigger) == LOW) {
+-      digitalWrite(result, LOW);
+-      reseted = false;
++  stableTrigger = rawTrigger;
++  if (stableTrigger && !triggerLatched) {
++    triggerLatched = true;
++    beginPhysicalCycle();
++  } else if (!stableTrigger) {
++    triggerLatched = false;
++    if (cycleState == CycleState::HOLD_RESULT && finalAcked) {
++      resetCycleState();
+     }
++  }
++}
++
++void updateQualityRelease() {
++  const bool current =
++      isActiveLevel(PIN_QUALITY_RELEASE, QUALITY_RELEASE_ACTIVE_HIGH);
++  if (current && !lastQualityRelease) cancelFromQualityRelease();
++  lastQualityRelease = current;
++}
++
++void updateModelPublication() {
++  if (!linkSynced || cycleState != CycleState::IDLE) return;
++  const String current = readModel();
++  if (current.length() == 0) return;
++  activeModel = current;
++  if (current != lastPublishedModel) {
++    lastPublishedModel = current;
++    sendPayload("MODEL|CODE=" + percentEncode(current));
++  }
++}
++
++void updateCycleTimeoutsAndRetries() {
++  const unsigned long now = millis();
+ 
+-  if (!systemSynced){
+-      // BLOQUEAR FSM HASTA HANDSHAKE
++  if (cycleState == CycleState::WAIT_VISION) {
++    if (!triggerAcked && triggerRetries < MAX_TRIGGER_RETRIES &&
++        now - lastTriggerSendMs >= RETRY_INTERVAL_MS) {
++      sendTrigger();
+     }
+-  else {
+-  // FSM
+-    switch (currentState) {
+-      case IDLE:
+-        handleTrigger();
+-
+-        if (triggerEvent) {
+-          triggerEvent = false;
+-          receiving = false;
+-          visionResult = false;
+-          visionReceived = false;
+-          waitingAckResult = false;
+-          lastResultMsg = "";
+-          buffer = "";
+-          stateStartTime = millis();
+-          currentState = WAIT_SENSORS;
+-        }
+-        currentModel = getModel();
+-
+-        if (currentModel != lastModel) {
+-          sendSerial("MODEL: " + currentModel);
+-          lastModel = currentModel;
+-        }
+-        break;
+-
+-      case WAIT_SENSORS:
+-        if (currentState != WAIT_SENSORS) break;
+-
+-        if (visionReceived) {
+-          currentState = EVALUATE;
+-        }
+-        else if (millis() - stateStartTime > timeoutVision) {
+-          visionResult = false;
+-          currentState = EVALUATE;
+-          Serial.print(millis());
+-          Serial.println("[FSM]Timeout Vision\n");
+-        }
+-        break;
+-
+-      case EVALUATE: {
+-        bool sensorL = readStable(sensor_L);
+-        bool sensorR = readStable(sensor_R);
+-
+-        if (currentModel == "A") {
+-          finalResult = (!sensorL && !sensorR && visionResult);
+-        }
+-        else if (currentModel == "B") {
+-          finalResult = (!sensorL && sensorR && visionResult);
+-        }
+-        else if (currentModel == "C") {
+-          finalResult = (sensorL && sensorR && visionResult);
+-        }
+-
+-        digitalWrite(result, finalResult ? HIGH: LOW);
+-
+-        String resultMsg = finalResult ? "OK": "NG";
+-
+-        Serial.print("[RESULT] ");
+-        Serial.println(resultMsg);
+-
+-        sendResultWithAck(resultMsg);
+-
+-        currentState = RESULT;
+-        break;
+-      }
++    if (static_cast<long>(now - visionDeadlineMs) >= 0) {
++      acceptedVisionResult = "ERROR";
++      finishVisionDecision("ERROR");
++    }
++  }
+ 
+-      case RESULT:
+-        if (finalResult){
+-          Serial.println("[FSM] Fin de ciclo exitoso");
+-          if (digitalRead(trigger) == LOW) {
+-            digitalWrite(result, LOW);
+-            currentState = IDLE;
+-          }
+-        }
++  if (cycleState == CycleState::WAIT_FINAL_ACK &&
++      now - lastFinalSendMs >= RETRY_INTERVAL_MS) {
++    if (finalRetries < MAX_FINAL_RETRIES) {
++      sendFinalResult();
++    } else {
++      const String cancelledCycle = activeCycle;
++      setPassOutput(false);
++      sendPayload("CANCEL|CYCLE=" + percentEncode(cancelledCycle) +
++                  "|REASON=FINAL_ACK_TIMEOUT");
++      resetCycleState();
+     }
+   }
+-  delay(50);
++}
++
++void setup() {
++  Serial.begin(SERIAL_BAUDRATE);
++  pinMode(PIN_TRIGGER, INPUT_PULLDOWN);
++  pinMode(PIN_MODEL_BIT_0, INPUT);
++  pinMode(PIN_MODEL_BIT_1, INPUT);
++  pinMode(PIN_QUALITY_RELEASE, INPUT);
++  pinMode(PIN_SENSOR_LEFT, INPUT);
++  pinMode(PIN_SENSOR_RIGHT, INPUT);
++  pinMode(PIN_PLC_PASS, OUTPUT);
++  setPassOutput(false);
++
++  bootToken = "WS-" + String(static_cast<uint32_t>(esp_random()), HEX);
++  bootToken.toUpperCase();
++  const String startupModel = readModel();
++  if (startupModel.length() > 0) activeModel = startupModel;
++  lastPublishedModel = startupModel;
++  rawTrigger = isActiveLevel(PIN_TRIGGER, TRIGGER_ACTIVE_HIGH);
++  stableTrigger = rawTrigger;
++  triggerLatched = stableTrigger;
++  triggerChangedMs = millis();
++  lastQualityRelease =
++      isActiveLevel(PIN_QUALITY_RELEASE, QUALITY_RELEASE_ACTIVE_HIGH);
++}
++
++void loop() {
++  processSerialFrames();
++  updateQualityRelease();
++  updateTriggerInput();
++
++  if (linkSynced && millis() - lastEngineContactMs > LINK_TIMEOUT_MS) {
++    loseLink("Timeout de enlace con Raspberry");
++  }
++
++  updateModelPublication();
++  updateCycleTimeoutsAndRetries();
++  delay(2);
+ }
+diff --git a/ESP32/FSM/worksurface_config.h b/ESP32/FSM/worksurface_config.h
+new file mode 100644
+index 0000000..589ef85
+--- /dev/null
++++ b/ESP32/FSM/worksurface_config.h
+@@ -0,0 +1,63 @@
++#pragma once
++
++#include <Arduino.h>
++
++namespace WorksurfaceConfig {
++
++// Firmware y transporte.
++constexpr char FIRMWARE_VERSION[] = "worksurface-controller-1.0.0";
++constexpr char PROTOCOL_VERSION[] = "1";
++constexpr uint32_t SERIAL_BAUDRATE = 115200;
++constexpr size_t MAX_PAYLOAD_BYTES = 512;
++
++// Entradas y salida conservadas del gabinete Worksurface actual.
++constexpr uint8_t PIN_TRIGGER = 5;
++constexpr uint8_t PIN_MODEL_BIT_0 = 18;
++constexpr uint8_t PIN_MODEL_BIT_1 = 19;
++constexpr uint8_t PIN_QUALITY_RELEASE = 4;
++constexpr uint8_t PIN_SENSOR_LEFT = 2;
++constexpr uint8_t PIN_SENSOR_RIGHT = 15;
++constexpr uint8_t PIN_PLC_PASS = 32;
++
++// Polaridades. Deben comprobarse con multimetro antes del corte productivo.
++constexpr bool TRIGGER_ACTIVE_HIGH = true;
++constexpr bool MODEL_BITS_ACTIVE_HIGH = true;
++constexpr bool QUALITY_RELEASE_ACTIVE_HIGH = true;
++constexpr bool SENSOR_OK_ACTIVE_HIGH = true;
++constexpr bool PLC_PASS_ACTIVE_HIGH = true;
++
++// Mapeo esperado si bit 0 esta cableado a Y0 y bit 1 a Y1.
++// Si la medicion fisica demuestra que A/B estan invertidos, intercambiar solo
++// MODEL_BITS_10 y MODEL_BITS_01; no cambiar recetas ni el motor Python.
++constexpr char MODEL_BITS_10[] = "A";
++constexpr char MODEL_BITS_01[] = "B";
++constexpr char MODEL_BITS_11[] = "C";
++constexpr char DEFAULT_MODEL[] = "A";
++
++struct SensorPattern {
++  const char *model;
++  bool left_ok;
++  bool right_ok;
++};
++
++// Patron funcional confirmado para los tres modelos.
++constexpr SensorPattern SENSOR_PATTERNS[] = {
++    {"A", true, false},
++    {"B", false, true},
++    {"C", true, true},
++};
++
++constexpr uint32_t INPUT_DEBOUNCE_MS = 80;
++constexpr uint32_t VISION_TIMEOUT_MS = 30000;
++constexpr uint32_t FOCUS_BUSY_TIMEOUT_MS = 90000;
++constexpr uint32_t LINK_TIMEOUT_MS = 7000;
++constexpr uint32_t RETRY_INTERVAL_MS = 500;
++constexpr uint8_t MAX_TRIGGER_RETRIES = 5;
++constexpr uint8_t MAX_FINAL_RETRIES = 10;
++constexpr uint8_t SENSOR_STABLE_SAMPLES = 5;
++constexpr uint32_t SENSOR_SAMPLE_DELAY_US = 500;
++
++// Mantener false en produccion para que solo existan tramas STX/ETX.
++constexpr bool DEBUG_SERIAL_LOGS = false;
++
++}  // namespace WorksurfaceConfig
+diff --git a/Guias/GUIA_FASE9_ESP32_PROTOCOLO_PLC.md b/Guias/GUIA_FASE9_ESP32_PROTOCOLO_PLC.md
+new file mode 100644
+index 0000000..6113f92
+--- /dev/null
++++ b/Guias/GUIA_FASE9_ESP32_PROTOCOLO_PLC.md
+@@ -0,0 +1,179 @@
++# Guia fase 9 - ESP32, protocolo y revision PLC Worksurface
++
++## 1. Alcance
++
++Esta fase reemplaza el firmware heredado por `vision_controller_v1`, fortalece
++los reintentos del enlace Python y prepara pruebas de banco sin depender de que
++las recetas esten comisionadas.
++
++No modifica el ladder PLC. Las mediciones de polaridad, pinout y tiempos se
++realizan antes de decidir si el ladder necesita cambios.
++
++## 2. Estado de `commissioned`
++
++`commissioned` se modifica desde la interfaz:
++
++1. abrir `CONFIGURACION`;
++2. elegir un modelo;
++3. pulsar `RECETA`;
++4. activar `Comisionada`;
++5. pulsar `VALIDAR Y GUARDAR`.
++
++No se recomienda editar el JSON manualmente. El dialogo valida los parametros
++antes de guardar. Durante fase 9 las recetas pueden permanecer en `false`: el
++script de banco prueba el ESP32 sin abrir la aplicacion ni ejecutar vision.
++
++## 3. Archivos de firmware
++
++| Archivo | Funcion |
++|---|---|
++| `ESP32/FSM/FSM.ino` | FSM, tramas, ciclo, heartbeat y estado seguro |
++| `ESP32/FSM/worksurface_config.h` | Pines, polaridades, A/B/C, sensores y tiempos |
++
++Configuracion inicial:
++
++| Señal | GPIO | Nivel funcional asumido |
++|---|---:|---|
++| Trigger PLC | 5 | HIGH |
++| Modelo bit 0 / Y0 | 18 | HIGH |
++| Modelo bit 1 / Y1 | 19 | HIGH |
++| Llave de calidad | 4 | HIGH |
++| Sensor izquierdo | 2 | HIGH = OK |
++| Sensor derecho | 15 | HIGH = OK |
++| Liberacion PLC | 32 | HIGH = pieza aprobada |
++
++Mapeo inicial que debe medirse:
++
++| Bit 0 | Bit 1 | Modelo |
++|---:|---:|---|
++| 1 | 0 | A |
++| 0 | 1 | B |
++| 1 | 1 | C |
++| 0 | 0 | Invalido; trigger rechazado |
++
++Patrones confirmados funcionalmente:
++
++| Modelo | Izquierdo | Derecho |
++|---|---|---|
++| A | OK | NG |
++| B | NG | OK |
++| C | OK | OK |
++
++Si la medicion demuestra que Y0/Y1 estan invertidos, intercambiar unicamente
++`MODEL_BITS_10` y `MODEL_BITS_01` en `worksurface_config.h`.
++
++## 4. Cargar el firmware
++
++1. Desconectar temporalmente GPIO 32 de la entrada PLC o impedir fisicamente
++   cualquier movimiento/liberacion.
++2. Abrir `ESP32/FSM/FSM.ino` en Arduino IDE.
++3. Verificar que `worksurface_config.h` aparezca como segunda pestaña.
++4. Seleccionar la tarjeta ESP32 correcta y su puerto.
++5. Pulsar **Verify** y corregir cualquier error antes de conectar E/S.
++6. Pulsar **Upload**. Algunas tarjetas requieren mantener presionado BOOT
++   mientras comienza la carga.
++
++Referencias oficiales:
++
++- https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html
++- https://docs.arduino.cc/software/ide-v2/tutorials/getting-started/ide-v2-uploading-a-sketch
++
++## 5. Prueba serial aislada
++
++Detener completamente el software Worksurface: solo un proceso puede abrir el
++puerto CP2102.
++
++En Raspberry:
++
++```bash
++cd ~/calibration/vision-sensor
++source venv-rpi32/bin/activate
++```
++
++Identificar el puerto:
++
++```bash
++ls -l /dev/serial/by-id/
++```
++
++### Solo handshake y heartbeat
++
++```bash
++python scripts/controller_protocol_smoke.py \
++  --port /dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
++```
++
++Debe mostrar `HELLO_ACK`, firmware `worksurface-controller-1.0.0` y `PONG` con
++la misma secuencia.
++
++### Ciclo seguro con ERROR
++
++Con GPIO 32 aun desconectado del PLC:
++
++```bash
++python scripts/controller_protocol_smoke.py \
++  --port /dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0 \
++  --exercise-cycle \
++  --result ERROR
++```
++
++Activar manualmente una combinacion A/B/C y despues el trigger. El resultado
++final debe ser `ERROR` y GPIO 32 debe permanecer en estado seguro.
++
++Repetir con `--result NG`. La prueba `OK` requiere deliberadamente:
++
++```bash
++--result OK --allow-pass-output
++```
++
++No usarla hasta medir las cinco entradas y mantener aislada la salida PLC.
++
++## 6. Matriz minima antes de reconectar el PLC
++
++| Prueba | Resultado obligatorio |
++|---|---|
++| Arranque ESP32 | GPIO 32 seguro |
++| Sin handshake | Trigger ignorado; GPIO 32 seguro |
++| `READY=0` | Trigger ignorado |
++| Bits 00 | Ciclo rechazado |
++| Resultado NG | GPIO 32 seguro |
++| Resultado ERROR | GPIO 32 seguro |
++| Timeout de vision | `FINAL_RESULT=ERROR`; GPIO 32 seguro |
++| Llave de calidad | CANCEL/RESET y salida segura |
++| Desconectar USB | En menos de 7 s, salida segura |
++| Repetir TRIGGER | Un solo ciclo; ACK repetido |
++| Repetir resultado igual | ACK repetido; sin segunda evaluacion |
++| Resultado contradictorio | Rechazado |
++| Sin ACK de resultado final | Cancelacion y GPIO 32 seguro tras 10 intentos |
++
++## 7. Revision del PLC
++
++No modificar el ladder por suposicion. Registrar con multimetro o entradas de
++diagnostico:
++
++1. continuidad real `Y0 -> GPIO18` y `Y1 -> GPIO19`;
++2. niveles activos de trigger, selectores y sensores;
++3. nivel de GPIO32 durante arranque, reset y desconexion;
++4. tiempo desde Y2/Y3/Y4 hasta que la pieza queda inmovil;
++5. funcionamiento independiente de X6/llave de calidad;
++6. que Y0/Y1 permanezcan validos al menos durante el debounce de 80 ms.
++
++El tiempo medido en el punto 4 se carga después en
++`runtime.mechanical_settle_ms`. Si los niveles o conexiones contradicen el
++header, primero se actualiza `worksurface_config.h`; el ladder solo cambia si
++la secuencia fisica lo exige.
++
++## 8. Integracion con el software
++
++Para abrir Worksurface con su paquete externo:
++
++```bash
++env VISION_QT_API=pyqt5 \
++  VISION_SYSTEM_CONFIG="$PWD/installations/worksurface/system.json" \
++  python main.py
++```
++
++Mientras `commissioned=false`, el programa debe completar handshake y publicar
++`READY=0` con la razon de bloqueo. Es el comportamiento correcto de fase 9.
++Las pruebas automaticas de ciclo completo se reservan para fase 10, despues de
++autorizar una receta probada y reconectar el PLC bajo la matriz anterior.
+diff --git a/docs/controller_protocol_v1.md b/docs/controller_protocol_v1.md
+index 71cc51a..03d4545 100644
+--- a/docs/controller_protocol_v1.md
++++ b/docs/controller_protocol_v1.md
+@@ -39,6 +39,7 @@ logica PLC se crean y versionan por separado para cada maquina.
+ | Controlador a motor | `FINAL_RESULT` | `CYCLE`, `RESULT` |
+ | Cualquiera | `ACK` | `TYPE`, `CYCLE?`, `STATUS`, `ERROR?` |
+ | Controlador a motor | `CANCEL` | `CYCLE`, `REASON` |
++| Cualquiera | `RESET` | `SCOPE`, `CYCLE?`, `REASON?` |
+ | Cualquiera | `ERROR` | `CODE`, `DETAIL?` |
+ 
+ `MODEL` es un identificador opaco. El motor no impone A/B/C ni interpreta
+@@ -55,3 +56,45 @@ sensores. El archivo de instalacion lo mapea al nombre de una receta.
+ - un timeout o error nunca se convierte en OK;
+ - el controlador no debe iniciar un ciclo mientras el motor publique
+   `READY|STATE=0`.
++
++## Reintentos e idempotencia
++
++La perdida de un ACK no debe crear ni cerrar otro ciclo:
++
++- un `TRIGGER` repetido con el mismo `CYCLE` y `MODEL` recibe nuevamente ACK,
++  pero el motor no vuelve a ejecutar la receta;
++- el mismo `CYCLE` con otro `MODEL` se rechaza;
++- un `VISION_RESULT` repetido con igual ciclo y resultado recibe otro ACK, sin
++  volver a evaluar sensores;
++- un `VISION_RESULT` contradictorio para el mismo ciclo se rechaza;
++- un `FINAL_RESULT` repetido con el mismo ciclo y resultado recibe nuevamente
++  ACK, pero la interfaz no duplica el resultado ni la trazabilidad;
++- todo mensaje perteneciente a un ciclo anterior se rechaza como tardio.
++
++## Heartbeat y recuperacion
++
++El motor publica `PING|SEQ=n` cada dos segundos. El controlador devuelve el
++mismo valor en `PONG|SEQ=n`. Siete segundos sin una trama valida hacen que
++ambos extremos:
++
++1. retiren `READY`;
++2. cancelen el ciclo activo;
++3. fuercen la salida de aprobacion a estado seguro;
++4. repitan `HELLO/HELLO_ACK` antes de aceptar otro trigger.
++
++`RESET|SCOPE=CYCLE` libera solamente el ciclo actual. `RESTART` reinicia el
++ESP32 y no forma parte de la recuperacion normal.
++
++## Implementacion Worksurface de fase 9
++
++El firmware de `ESP32/FSM/` es especifico de Worksurface. El motor conserva el
++protocolo generico y mapea los IDs opacos A/B/C mediante `system.json`.
++
++En Worksurface, GPIO 32 solo puede activar la liberacion PLC cuando:
++
++- vision entrega `OK` para el ciclo activo;
++- los sensores fisicos coinciden con el patron del modelo retenido;
++- el enlace continua sincronizado.
++
++`NG`, `ERROR`, timeout, cancelacion, perdida de enlace y reinicio mantienen la
++salida en estado seguro.
+diff --git a/scripts/controller_protocol_smoke.py b/scripts/controller_protocol_smoke.py
+new file mode 100644
+index 0000000..848153d
+--- /dev/null
++++ b/scripts/controller_protocol_smoke.py
+@@ -0,0 +1,202 @@
++"""Bench test for an ESP32 running ``vision_controller_v1``.
++
++The script does not load recipes, Qt or the camera. It lets phase 9 verify the
++serial contract while production remains blocked by ``commissioned=false``.
++Run it only with the Worksurface application stopped so both processes do not
++open the same serial port.
++"""
++
++import argparse
++import sys
++import time
++from pathlib import Path
++
++PROJECT_ROOT = Path(__file__).resolve().parents[1]
++if str(PROJECT_ROOT) not in sys.path:
++    sys.path.insert(0, str(PROJECT_ROOT))
++
++from services.controller_protocol import (  # noqa: E402
++    PROTOCOL_VERSION,
++    ProtocolError,
++    decode_message,
++    encode_message,
++)
++
++STX = b"\x02"
++ETX = b"\x03"
++
++
++class ProtocolTimeout(RuntimeError):
++    pass
++
++
++def send_message(port, kind, **fields):
++    payload = encode_message(kind, **fields)
++    port.write(STX + payload.encode("utf-8") + ETX)
++    port.flush()
++    print(f"TX  {payload}")
++
++
++def read_message(port, timeout):
++    deadline = time.monotonic() + timeout
++    payload = bytearray()
++    receiving = False
++    while time.monotonic() < deadline:
++        byte = port.read(1)
++        if not byte:
++            continue
++        if byte == STX:
++            payload.clear()
++            receiving = True
++        elif byte == ETX and receiving:
++            text = payload.decode("utf-8").strip()
++            print(f"RX  {text}")
++            return decode_message(text)
++        elif receiving:
++            payload.extend(byte)
++    raise ProtocolTimeout(f"No llego una trama valida en {timeout:.1f} s")
++
++
++def wait_for(port, expected_kind, timeout, cycle=None):
++    deadline = time.monotonic() + timeout
++    while time.monotonic() < deadline:
++        message = read_message(port, max(0.1, deadline - time.monotonic()))
++        if message.kind != expected_kind:
++            continue
++        if cycle is not None and message.fields.get("CYCLE") != cycle:
++            continue
++        return message
++    raise ProtocolTimeout(f"No llego {expected_kind}")
++
++
++def handshake(port, timeout):
++    send_message(port, "HELLO", proto=PROTOCOL_VERSION, role="VISION_ENGINE")
++    hello = wait_for(port, "HELLO_ACK", timeout)
++    hello.require("PROTO", "FW", "READY")
++    if hello.fields["PROTO"] != PROTOCOL_VERSION:
++        raise ProtocolError(
++            f"Firmware usa protocolo {hello.fields['PROTO']}; se requiere 1"
++        )
++    if hello.fields["READY"] != "1":
++        raise ProtocolError(
++            f"Controlador no listo: {hello.fields.get('REASON', 'sin detalle')}"
++        )
++
++    send_message(port, "PING", seq="SMOKE-1")
++    pong = wait_for(port, "PONG", timeout)
++    if pong.fields.get("SEQ") != "SMOKE-1":
++        raise ProtocolError("PONG no conserva la secuencia del PING")
++    return hello
++
++
++def exercise_cycle(port, timeout, vision_result):
++    send_message(port, "READY", state=1)
++    wait_for(port, "ACK", timeout)
++    print("Esperando trigger fisico del banco...")
++    trigger = wait_for(port, "TRIGGER", timeout)
++    trigger.require("CYCLE", "MODEL")
++    cycle = trigger.fields["CYCLE"]
++    model = trigger.fields["MODEL"]
++
++    send_message(port, "ACK", type="TRIGGER", cycle=cycle, status="OK")
++    send_message(
++        port,
++        "VISION_RESULT",
++        cycle=cycle,
++        result=vision_result,
++    )
++    vision_ack = wait_for(port, "ACK", timeout, cycle=cycle)
++    if (
++        vision_ack.fields.get("TYPE") != "VISION_RESULT"
++        or vision_ack.fields.get("STATUS") != "OK"
++    ):
++        raise ProtocolError(f"VISION_RESULT rechazado: {vision_ack.fields}")
++
++    final = wait_for(port, "FINAL_RESULT", timeout, cycle=cycle)
++    final.require("RESULT")
++    send_message(port, "ACK", type="FINAL_RESULT", cycle=cycle, status="OK")
++    return {
++        "cycle": cycle,
++        "model": model,
++        "vision_result": vision_result,
++        "final_result": final.fields["RESULT"],
++    }
++
++
++def build_parser():
++    parser = argparse.ArgumentParser(
++        description="Prueba aislada del protocolo ESP32 Worksurface fase 9",
++    )
++    parser.add_argument("--port", required=True, help="COM7 o /dev/ttyUSB0")
++    parser.add_argument("--baudrate", type=int, default=115200)
++    parser.add_argument("--timeout", type=float, default=8.0)
++    parser.add_argument(
++        "--exercise-cycle",
++        action="store_true",
++        help="Ademas del handshake, espera un trigger fisico",
++    )
++    parser.add_argument(
++        "--result",
++        choices=("NG", "ERROR", "OK"),
++        default="ERROR",
++        help="Resultado de vision simulado; ERROR es el valor seguro",
++    )
++    parser.add_argument(
++        "--allow-pass-output",
++        action="store_true",
++        help="Autoriza enviar OK; puede activar GPIO 32 si sensores coinciden",
++    )
++    return parser
++
++
++def main(argv=None):
++    args = build_parser().parse_args(argv)
++    if args.result == "OK" and not args.allow_pass_output:
++        print(
++            "ERROR: --result OK requiere --allow-pass-output. "
++            "Desconecta primero GPIO 32 del PLC y prueba en banco.",
++            file=sys.stderr,
++        )
++        return 2
++
++    try:
++        import serial
++    except ImportError:
++        print("ERROR: instala pyserial en el entorno activo", file=sys.stderr)
++        return 2
++
++    try:
++        with serial.Serial(
++            args.port,
++            baudrate=args.baudrate,
++            timeout=0.1,
++        ) as port:
++            time.sleep(1.0)
++            port.reset_input_buffer()
++            hello = handshake(port, args.timeout)
++            print(
++                f"Handshake OK: firmware={hello.fields['FW']} "
++                f"modelo={hello.fields.get('MODEL', 'sin bits activos')}"
++            )
++
++            if args.exercise_cycle:
++                result = exercise_cycle(
++                    port,
++                    max(args.timeout, 30.0),
++                    args.result,
++                )
++                print(
++                    "Ciclo OK: "
++                    f"{result['cycle']} modelo={result['model']} "
++                    f"vision={result['vision_result']} "
++                    f"final={result['final_result']}"
++                )
++            send_message(port, "READY", state=0, reason="SMOKE_TEST_FINISHED")
++        return 0
++    except (OSError, ProtocolError, ProtocolTimeout) as exc:
++        print(f"ERROR: {exc}", file=sys.stderr)
++        return 1
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/services/controller_protocol.py b/services/controller_protocol.py
+index 4332cc2..184bcf6 100644
+--- a/services/controller_protocol.py
++++ b/services/controller_protocol.py
+@@ -102,10 +102,19 @@ class CycleGuard:
+             raise ProtocolError("TRIGGER sin CYCLE")
+         selected_model = validate_external_model(model)
+ 
++        if self.active_cycle_id == cycle:
++            if self.active_model != selected_model:
++                raise ProtocolError(
++                    f"Trigger repetido con otro modelo: {cycle}; "
++                    f"activo={self.active_model}, recibido={selected_model}"
++                )
++            return {
++                "cycle_id": cycle,
++                "model": selected_model,
++                "duplicate": True,
++            }
+         if cycle == self.last_closed_cycle_id:
+             raise ProtocolError(f"Ciclo ya cerrado: {cycle}")
+-        if self.active_cycle_id == cycle:
+-            raise ProtocolError(f"Trigger duplicado: {cycle}")
+         if self.active_cycle_id is not None:
+             raise ProtocolError(
+                 f"Ya existe un ciclo activo: {self.active_cycle_id}"
+@@ -113,7 +122,11 @@ class CycleGuard:
+ 
+         self.active_cycle_id = cycle
+         self.active_model = selected_model
+-        return {"cycle_id": cycle, "model": selected_model}
++        return {
++            "cycle_id": cycle,
++            "model": selected_model,
++            "duplicate": False,
++        }
+ 
+     def require_active(self, cycle_id: str) -> str:
+         cycle = str(cycle_id or "").strip()
+diff --git a/services/serial_comm.py b/services/serial_comm.py
+index 5800479..39727c9 100644
+--- a/services/serial_comm.py
++++ b/services/serial_comm.py
+@@ -69,6 +69,8 @@ class SerialComm(QObject):
+ 
+         self.last_result_rx = None
+         self.last_result_rx_time = 0
++        self.last_final_cycle_id = None
++        self.last_pong_sequence = None
+ 
+ 
+         self._serial_lock = threading.RLock()
+@@ -159,6 +161,7 @@ class SerialComm(QObject):
+             print(f"[SERIAL][DESCONECTADO] {reason}")
+ 
+         self.synced = False
++        self.remote_not_ready_reason = reason or "Controlador desconectado"
+         self.emit_diagnostic(
+             "ERROR",
+             f"Conexion con controlador perdida: {reason or 'sin detalle'}",
+@@ -186,6 +189,35 @@ class SerialComm(QObject):
+             finally:
+                 self.ser = None
+ 
++    def mark_link_stale(self, reason):
++        """Invalidate protocol state without closing an otherwise open port."""
++        if not self.synced and self.cycle_guard.active_cycle_id is None:
++            return
++
++        print(f"[SERIAL][WATCHDOG] {reason}")
++        self.synced = False
++        self.remote_not_ready_reason = reason
++        cancelled_cycle = self.cycle_guard.cancel()
++        if cancelled_cycle:
++            self.cycle_cancelled.emit(
++                {
++                    "cycle_id": cancelled_cycle,
++                    "reason": "CONTROLLER_LINK_TIMEOUT",
++                }
++            )
++        self.emit_diagnostic(
++            "ERROR",
++            reason,
++            "Verifica el firmware, cable USB y heartbeat PING/PONG",
++            details={
++                "port": self.port,
++                "connected": self.is_connected(),
++                "synced": False,
++            },
++            blocking=True,
++        )
++        self.connection_lost.emit(reason)
++
+     def reconnect(self):
+         print("[SERIAL] Intentando reconectar...")
+ 
+@@ -330,7 +362,6 @@ class SerialComm(QObject):
+         return normalize_model(model, self.model_map)
+ 
+     def process_message(self, msg: str):
+-        self.last_rx_time = time.time()
+         self.process_controller_message((msg or "").strip())
+ 
+     def process_controller_message(self, payload: str):
+@@ -340,6 +371,8 @@ class SerialComm(QObject):
+             print(f"[SERIAL][PROTOCOL][WARNING] Mensaje invalido: {exc}")
+             return
+ 
++        self.last_rx_time = time.time()
++
+         kind = message.kind
+         fields = message.fields
+ 
+@@ -432,9 +465,15 @@ class SerialComm(QObject):
+                     raise ProtocolError(
+                         f"Modelo no configurado: {event['model']}"
+                     )
+-                event["recipe_name"] = normalized_model
+-
+                 self.send_protocol_ack("TRIGGER", cycle_id)
++                if event.get("duplicate"):
++                    print(
++                        f"[SERIAL][PROTOCOL] TRIGGER {cycle_id} repetido; "
++                        "ACK reenviado sin ejecutar otro ciclo"
++                    )
++                    return
++
++                event["recipe_name"] = normalized_model
+                 if normalized_model != self.current_model:
+                     self.current_model = normalized_model
+                     self.model_received.emit(normalized_model)
+@@ -456,9 +495,24 @@ class SerialComm(QObject):
+             try:
+                 message.require("CYCLE", "RESULT")
+                 result = validate_result(fields["RESULT"])
++
++                if cycle_id == self.last_final_cycle_id:
++                    if result != self.last_result_rx:
++                        raise ProtocolError(
++                            f"Resultado final contradictorio para {cycle_id}: "
++                            f"anterior={self.last_result_rx}, recibido={result}"
++                        )
++                    self.send_protocol_ack("FINAL_RESULT", cycle_id)
++                    print(
++                        f"[SERIAL][PROTOCOL] FINAL_RESULT {cycle_id} repetido; "
++                        "ACK reenviado"
++                    )
++                    return
++
+                 self.cycle_guard.close(cycle_id)
+                 self.send_protocol_ack("FINAL_RESULT", cycle_id)
+                 self.last_result_rx = result
++                self.last_final_cycle_id = cycle_id
+                 self.last_result_rx_time = time.time()
+                 self.esp_result_received.emit(result)
+             except ProtocolError as exc:
+@@ -492,7 +546,30 @@ class SerialComm(QObject):
+                 print(f"[SERIAL][PROTOCOL][WARNING] CANCEL rechazado: {exc}")
+             return
+ 
++        if kind == "RESET":
++            cycle_id = fields.get("CYCLE")
++            try:
++                if cycle_id:
++                    cancelled = self.cycle_guard.cancel(cycle_id)
++                else:
++                    cancelled = self.cycle_guard.cancel()
++                self.send_protocol_ack("RESET", cancelled or cycle_id)
++                if cancelled:
++                    self.cycle_cancelled.emit(
++                        {
++                            "cycle_id": cancelled,
++                            "reason": fields.get("REASON", "REMOTE_RESET"),
++                        }
++                    )
++                self.reset_received.emit()
++            except ProtocolError as exc:
++                self.send_protocol_ack(
++                    "RESET", cycle_id, status="REJECTED", error=str(exc)
++                )
++            return
++
+         if kind == "PONG":
++            self.last_pong_sequence = fields.get("SEQ")
+             return
+ 
+         if kind == "ACK":
+@@ -660,8 +737,9 @@ class SerialComm(QObject):
+                     and self.synced
+                     and now - self.last_rx_time >= self.connection_timeout
+                 ):
+-                    print("[SERIAL][WATCHDOG] ESP32 sin respuesta, sincronizacion perdida")
+-                    self.synced = False
++                    self.mark_link_stale(
++                        "ESP32 sin respuesta al heartbeat; sincronizacion perdida"
++                    )
+ 
+                 if self.is_connected() and not self.synced and now - last_try_handshake > 5.0:
+                     last_try_handshake = now
+diff --git a/tests/simulators/controller_simulator.py b/tests/simulators/controller_simulator.py
+index b4a9250..64e306f 100644
+--- a/tests/simulators/controller_simulator.py
++++ b/tests/simulators/controller_simulator.py
+@@ -16,6 +16,8 @@ class ControllerSimulator:
+         self.active_cycle = None
+         self.model = None
+         self.vision_result = None
++        self.final_value = None
++        self.focus_busy = False
+ 
+     def receive(self, payload):
+         message = decode_message(payload)
+@@ -39,6 +41,20 @@ class ControllerSimulator:
+             status = "OK" if self.vision_ready == requested else "REJECTED"
+             return [encode_message("ACK", type="READY", status=status)]
+ 
++        if message.kind == "PING":
++            return [encode_message("PONG", seq=fields.get("SEQ", ""))]
++
++        if message.kind == "FOCUS":
++            self.focus_busy = fields.get("STATE") == "BUSY"
++            return [
++                encode_message(
++                    "ACK",
++                    type="FOCUS",
++                    cycle=self.active_cycle,
++                    status="OK",
++                )
++            ]
++
+         if message.kind == "VISION_RESULT":
+             cycle = fields.get("CYCLE")
+             if cycle != self.active_cycle:
+@@ -51,7 +67,18 @@ class ControllerSimulator:
+                         error="STALE_CYCLE",
+                     )
+                 ]
+-            self.vision_result = fields.get("RESULT")
++            result = fields.get("RESULT")
++            if self.vision_result is not None and self.vision_result != result:
++                return [
++                    encode_message(
++                        "ACK",
++                        type="VISION_RESULT",
++                        cycle=cycle,
++                        status="REJECTED",
++                        error="CONFLICTING_RESULT",
++                    )
++                ]
++            self.vision_result = result
+             return [
+                 encode_message(
+                     "ACK",
+@@ -61,6 +88,18 @@ class ControllerSimulator:
+                 )
+             ]
+ 
++        if message.kind == "RESET":
++            cycle = self.active_cycle
++            self.release_cycle()
++            return [
++                encode_message(
++                    "ACK",
++                    type="RESET",
++                    cycle=cycle,
++                    status="OK",
++                )
++            ]
++
+         return [encode_message("ERROR", code="UNKNOWN_MESSAGE")]
+ 
+     def trigger(self, model):
+@@ -82,6 +121,7 @@ class ControllerSimulator:
+     def final_result(self, result):
+         if self.active_cycle is None:
+             return encode_message("ERROR", code="NO_ACTIVE_CYCLE")
++        self.final_value = result
+         return encode_message(
+             "FINAL_RESULT",
+             cycle=self.active_cycle,
+@@ -91,8 +131,19 @@ class ControllerSimulator:
+     def release_cycle(self):
+         self.active_cycle = None
+         self.vision_result = None
++        self.final_value = None
++        self.focus_busy = False
+ 
+     def cancel(self, reason="EXTERNAL_CANCEL"):
+         cycle = self.active_cycle
+         self.release_cycle()
+         return encode_message("CANCEL", cycle=cycle, reason=reason)
++
++    def repeat_trigger(self):
++        if self.active_cycle is None:
++            return encode_message("ERROR", code="NO_ACTIVE_CYCLE")
++        return encode_message(
++            "TRIGGER",
++            cycle=self.active_cycle,
++            model=self.model,
++        )
+diff --git a/tests/test_controller_contract.py b/tests/test_controller_contract.py
+index 18f83b1..005d16f 100644
+--- a/tests/test_controller_contract.py
++++ b/tests/test_controller_contract.py
+@@ -79,6 +79,58 @@ class ControllerContractTests(unittest.TestCase):
+             {"CYCLE", "RESULT"},
+         )
+ 
++    def test_heartbeat_echoes_sequence(self):
++        pong = decode_message(
++            self.controller.receive(encode_message("PING", seq="42"))[0]
++        )
++        self.assertEqual(pong.kind, "PONG")
++        self.assertEqual(pong.fields["SEQ"], "42")
++
++    def test_identical_vision_result_retry_is_idempotent(self):
++        trigger = decode_message(self.controller.trigger("PART-1"))
++        first = decode_message(
++            self.controller.receive(
++                encode_message(
++                    "VISION_RESULT",
++                    cycle=trigger.fields["CYCLE"],
++                    result="OK",
++                )
++            )[0]
++        )
++        retry = decode_message(
++            self.controller.receive(
++                encode_message(
++                    "VISION_RESULT",
++                    cycle=trigger.fields["CYCLE"],
++                    result="OK",
++                )
++            )[0]
++        )
++        self.assertEqual(first.fields["STATUS"], "OK")
++        self.assertEqual(retry.fields["STATUS"], "OK")
++        self.assertEqual(self.controller.vision_result, "OK")
++
++    def test_conflicting_vision_result_retry_is_rejected(self):
++        trigger = decode_message(self.controller.trigger("PART-1"))
++        self.controller.receive(
++            encode_message(
++                "VISION_RESULT",
++                cycle=trigger.fields["CYCLE"],
++                result="OK",
++            )
++        )
++        conflict = decode_message(
++            self.controller.receive(
++                encode_message(
++                    "VISION_RESULT",
++                    cycle=trigger.fields["CYCLE"],
++                    result="NG",
++                )
++            )[0]
++        )
++        self.assertEqual(conflict.fields["STATUS"], "REJECTED")
++        self.assertEqual(conflict.fields["ERROR"], "CONFLICTING_RESULT")
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_controller_protocol.py b/tests/test_controller_protocol.py
+index 0993c85..c09ad65 100644
+--- a/tests/test_controller_protocol.py
++++ b/tests/test_controller_protocol.py
+@@ -39,6 +39,22 @@ class ControllerProtocolTests(unittest.TestCase):
+         with self.assertRaises(ProtocolError):
+             guard.begin("boot1-2", "PART-2")
+ 
++    def test_cycle_guard_accepts_identical_trigger_retry(self):
++        guard = CycleGuard()
++        first = guard.begin("boot1-1", "PART-1")
++        retry = guard.begin("boot1-1", "PART-1")
++
++        self.assertFalse(first["duplicate"])
++        self.assertTrue(retry["duplicate"])
++        self.assertEqual(guard.active_cycle_id, "boot1-1")
++
++    def test_cycle_guard_rejects_retry_with_different_model(self):
++        guard = CycleGuard()
++        guard.begin("boot1-1", "PART-1")
++
++        with self.assertRaises(ProtocolError):
++            guard.begin("boot1-1", "PART-2")
++
+     def test_cycle_guard_rejects_late_result(self):
+         guard = CycleGuard()
+         guard.begin("boot1-1", "PART-1")
+diff --git a/tests/test_controller_smoke_cli.py b/tests/test_controller_smoke_cli.py
+new file mode 100644
+index 0000000..a37f94c
+--- /dev/null
++++ b/tests/test_controller_smoke_cli.py
+@@ -0,0 +1,16 @@
++import unittest
++from contextlib import redirect_stderr
++from io import StringIO
++
++from scripts.controller_protocol_smoke import main
++
++
++class ControllerSmokeCliTests(unittest.TestCase):
++    def test_ok_requires_explicit_pass_output_permission(self):
++        with redirect_stderr(StringIO()):
++            exit_code = main(["--port", "TEST", "--result", "OK"])
++        self.assertEqual(exit_code, 2)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_firmware_phase9_contract.py b/tests/test_firmware_phase9_contract.py
+new file mode 100644
+index 0000000..b117195
+--- /dev/null
++++ b/tests/test_firmware_phase9_contract.py
+@@ -0,0 +1,76 @@
++import re
++import unittest
++from pathlib import Path
++
++
++class FirmwarePhase9ContractTests(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        root = Path(__file__).resolve().parents[1]
++        cls.firmware = (root / "ESP32" / "FSM" / "FSM.ino").read_text(
++            encoding="utf-8"
++        )
++        cls.config = (
++            root / "ESP32" / "FSM" / "worksurface_config.h"
++        ).read_text(encoding="utf-8")
++
++    def test_firmware_implements_required_protocol_messages(self):
++        for token in (
++            "HELLO_ACK|PROTO=",
++            "PONG|SEQ=",
++            "TRIGGER|CYCLE=",
++            "VISION_RESULT",
++            "FINAL_RESULT|CYCLE=",
++            "CANCEL|CYCLE=",
++            "RESET|SCOPE=CYCLE",
++        ):
++            self.assertIn(token, self.firmware)
++
++    def test_pass_output_is_forced_safe_on_reset_and_link_loss(self):
++        reset_body = re.search(
++            r"void resetCycleState\(\) \{(?P<body>.*?)\n\}",
++            self.firmware,
++            re.DOTALL,
++        ).group("body")
++        loss_body = re.search(
++            r"void loseLink\([^)]*\) \{(?P<body>.*?)\n\}",
++            self.firmware,
++            re.DOTALL,
++        ).group("body")
++        self.assertIn("setPassOutput(false)", reset_body)
++        self.assertIn("setPassOutput(false)", loss_body)
++
++    def test_worksurface_model_and_sensor_mapping_is_explicit(self):
++        self.assertIn('MODEL_BITS_10[] = "A"', self.config)
++        self.assertIn('MODEL_BITS_01[] = "B"', self.config)
++        self.assertIn('{"A", true, false}', self.config)
++        self.assertIn('{"B", false, true}', self.config)
++        self.assertIn('{"C", true, true}', self.config)
++
++    def test_only_final_ok_can_enable_plc_pass(self):
++        self.assertIn('setPassOutput(finalResult == "OK")', self.firmware)
++        self.assertNotIn('sendSerial("TRIGGER")', self.firmware)
++        self.assertNotIn('message == "OK"', self.firmware)
++
++    def test_missing_final_ack_eventually_forces_safe_cancel(self):
++        self.assertIn("MAX_FINAL_RETRIES = 10", self.config)
++        self.assertIn("FINAL_ACK_TIMEOUT", self.firmware)
++        timeout_position = self.firmware.index("FINAL_ACK_TIMEOUT")
++        safe_position = self.firmware.rfind(
++            "setPassOutput(false)", 0, timeout_position
++        )
++        self.assertGreater(safe_position, 0)
++
++    def test_zero_model_bits_are_rejected_instead_of_reusing_old_model(self):
++        self.assertIn('sendError("INVALID_MODEL_BITS"', self.firmware)
++        self.assertIsNotNone(
++            re.search(
++                r'String readModel\(\).*?return "";',
++                self.firmware,
++                re.DOTALL,
++            )
++        )
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_installation_package.py b/tests/test_installation_package.py
+index 894f65d..890b428 100644
+--- a/tests/test_installation_package.py
++++ b/tests/test_installation_package.py
+@@ -15,16 +15,16 @@ class InstallationPackageTests(unittest.TestCase):
+         self.package = self.project_root / "installations" / "worksurface"
+         self.manifest = self.package / "commissioning.json"
+ 
+-    def test_worksurface_package_is_structurally_ready_but_not_commissioned(self):
++    def test_preliminary_calibration_is_valid_but_not_commissioned(self):
+         report = validate_installation(self.manifest)
+ 
+         self.assertEqual(report["errors"], [])
+         self.assertTrue(report["ready_for_commissioning"])
+         self.assertFalse(report["ready_for_production"])
+         pending_codes = {item["code"] for item in report["pending"]}
+-        self.assertIn("TOOL_COMMISSIONING", pending_codes)
+         self.assertIn("FOCUS_COMMISSIONING", pending_codes)
+         self.assertIn("RECIPE_NOT_COMMISSIONED", pending_codes)
++        self.assertNotIn("TOOL_COMMISSIONING", pending_codes)
+         self.assertEqual(
+             Path(report["manifest"]),
+             self.manifest.resolve(),
+@@ -55,6 +55,13 @@ class InstallationPackageTests(unittest.TestCase):
+             },
+         )
+         self.assertTrue(all(recipe["commissioned"] is False for recipe in recipes))
++        self.assertTrue(
++            all(
++                recipe["steps"][0]["params"].get("roi")
++                and recipe["steps"][1]["params"].get("template_paths")
++                for recipe in recipes
++            )
++        )
+ 
+     def test_invalid_model_mapping_is_rejected(self):
+         with tempfile.TemporaryDirectory() as temp_dir:
+diff --git a/tests/test_serial_protocol_retries.py b/tests/test_serial_protocol_retries.py
+new file mode 100644
+index 0000000..811d6ec
+--- /dev/null
++++ b/tests/test_serial_protocol_retries.py
+@@ -0,0 +1,148 @@
++import importlib.util
++import sys
++import types
++import unittest
++from unittest.mock import patch
++
++from services.controller_protocol import decode_message, encode_message
++
++
++if not (
++    importlib.util.find_spec("PySide6") or importlib.util.find_spec("PyQt5")
++):
++    qt_stub = types.ModuleType("utils.qt_compat")
++
++    class QObject:
++        def __init__(self, *_args, **_kwargs):
++            super().__init__()
++
++    class _BoundSignal:
++        def __init__(self):
++            self.callbacks = []
++
++        def connect(self, callback):
++            self.callbacks.append(callback)
++
++        def emit(self, *args):
++            for callback in list(self.callbacks):
++                callback(*args)
++
++    class Signal:
++        def __init__(self, *_args, **_kwargs):
++            self.storage_name = None
++
++        def __set_name__(self, _owner, name):
++            self.storage_name = f"__test_signal_{name}"
++
++        def __get__(self, instance, _owner):
++            if instance is None:
++                return self
++            signal = instance.__dict__.get(self.storage_name)
++            if signal is None:
++                signal = _BoundSignal()
++                instance.__dict__[self.storage_name] = signal
++            return signal
++
++    def Slot(*_args, **_kwargs):
++        return lambda function: function
++
++    qt_stub.QObject = QObject
++    qt_stub.Signal = Signal
++    qt_stub.Slot = Slot
++    sys.modules["utils.qt_compat"] = qt_stub
++
++if importlib.util.find_spec("serial") is None:
++    serial_stub = types.ModuleType("serial")
++    serial_stub.Serial = None
++    sys.modules["serial"] = serial_stub
++
++from services.serial_comm import ETX, STX, SerialComm
++
++
++class FakeSerial:
++    def __init__(self):
++        self.is_open = True
++        self.writes = []
++        self.in_waiting = 0
++
++    def write(self, value):
++        self.writes.append(bytes(value))
++        return len(value)
++
++    def flush(self):
++        return None
++
++    def close(self):
++        self.is_open = False
++
++    def reset_input_buffer(self):
++        return None
++
++    def reset_output_buffer(self):
++        return None
++
++    def read(self, _size=1):
++        return b""
++
++
++def framed_payload(packet):
++    if not (packet.startswith(STX) and packet.endswith(ETX)):
++        raise AssertionError(f"Paquete sin STX/ETX: {packet!r}")
++    return packet[1:-1].decode("utf-8")
++
++
++class SerialProtocolRetryTests(unittest.TestCase):
++    def setUp(self):
++        self.fake = FakeSerial()
++        patcher = patch("services.serial_comm.serial.Serial", return_value=self.fake)
++        self.addCleanup(patcher.stop)
++        patcher.start()
++        self.comm = SerialComm(
++            port="TEST",
++            reset_on_connect=False,
++            model_map={"A": "MODELO_A"},
++        )
++        self.comm.synced = True
++
++    def test_duplicate_trigger_is_acked_but_emitted_once(self):
++        events = []
++        self.comm.cycle_trigger_received.connect(events.append)
++        trigger = encode_message("TRIGGER", cycle="BOOT-1", model="A")
++
++        self.comm.process_controller_message(trigger)
++        self.comm.process_controller_message(trigger)
++
++        self.assertEqual(len(events), 1)
++        acks = [decode_message(framed_payload(value)) for value in self.fake.writes]
++        self.assertEqual([item.kind for item in acks], ["ACK", "ACK"])
++        self.assertTrue(all(item.fields["STATUS"] == "OK" for item in acks))
++        self.assertEqual(self.comm.cycle_guard.active_cycle_id, "BOOT-1")
++
++    def test_duplicate_final_result_is_acked_but_emitted_once(self):
++        results = []
++        self.comm.esp_result_received.connect(results.append)
++        self.comm.cycle_guard.begin("BOOT-1", "A")
++        final = encode_message("FINAL_RESULT", cycle="BOOT-1", result="NG")
++
++        self.comm.process_controller_message(final)
++        self.comm.process_controller_message(final)
++
++        self.assertEqual(results, ["NG"])
++        acks = [decode_message(framed_payload(value)) for value in self.fake.writes]
++        self.assertEqual(len(acks), 2)
++        self.assertTrue(all(item.fields["STATUS"] == "OK" for item in acks))
++
++    def test_link_timeout_cancels_active_cycle(self):
++        cancelled = []
++        self.comm.cycle_cancelled.connect(cancelled.append)
++        self.comm.cycle_guard.begin("BOOT-1", "A")
++
++        self.comm.mark_link_stale("heartbeat vencido")
++
++        self.assertFalse(self.comm.synced)
++        self.assertIsNone(self.comm.cycle_guard.active_cycle_id)
++        self.assertEqual(cancelled[0]["cycle_id"], "BOOT-1")
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.51.1
+
