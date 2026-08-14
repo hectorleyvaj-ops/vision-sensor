@@ -6,6 +6,11 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
+from core.acceptance import (
+    evaluate_acceptance,
+    load_acceptance_plan,
+    new_acceptance_session,
+)
 from scripts.validate_installation import main, validate_installation
 
 
@@ -98,6 +103,15 @@ class InstallationPackageTests(unittest.TestCase):
                 main([str(self.manifest), "--require-commissioned", "--json"]),
                 3,
             )
+
+    def test_worksurface_acceptance_plan_matches_manifest_and_starts_pending(self):
+        plan = load_acceptance_plan(self.package / "acceptance.json")
+        report = evaluate_acceptance(new_acceptance_session(plan), plan)
+
+        self.assertEqual(plan.models, ("A", "B", "C"))
+        self.assertEqual(report["status"], "PENDING")
+        self.assertEqual(plan.minimum_trials, {"OK": 10, "NG": 10})
+        self.assertIn("usb_disconnect_safe", plan.scenarios)
 
 
 if __name__ == "__main__":

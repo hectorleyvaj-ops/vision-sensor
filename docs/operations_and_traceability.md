@@ -68,3 +68,14 @@ configurado. Un error al guardar evidencia nunca se convierte en `NG`.
 3. Reiniciar cuando se haya cambiado hardware, puerto, configuracion o rutas.
 4. Confirmar que camara y controlador pasen de pendiente/error a `PASS`.
 5. No forzar `READY` ni comisionar una receta con recursos faltantes.
+
+## Uso en aceptacion
+
+La trazabilidad puede alimentar una sesion de aceptacion sin duplicar la
+ejecucion. Cada lote importado debe tener una clasificacion de referencia OK o
+NG independiente del resultado del software. El evaluador compara ambas y
+calcula falsos OK, falsos NG, errores y P95.
+
+El procedimiento completo y la diferencia entre diagnostico, aceptacion y
+comisionamiento estan descritos en `docs/acceptance_framework.md`. Importar una
+traza nunca edita recetas ni cambia `commissioned`.

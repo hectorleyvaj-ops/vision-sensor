@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "installation_id": "worksurface",
+  "installation_manifest": "commissioning.json",
+  "evidence_files": [
+    "commissioning.json",
+    "system.json",
+    "recipes.json",
+    "../../ESP32/FSM/FSM.ino",
+    "../../ESP32/FSM/worksurface_config.h"
+  ],
+  "criteria": {
+    "minimum_trials_per_model": {
+      "OK": 10,
+      "NG": 10
+    },
+    "max_false_accepts": 0,
+    "max_false_reject_rate": 0.05,
+    "max_execution_errors": 0,
+    "max_p95_cycle_ms": 20000,
+    "require_safe_output_for_non_ok": false
+  },
+  "required_scenarios": [
+    {
+      "id": "startup_output_safe",
+      "description": "GPIO de aprobacion permanece seguro durante arranque y reset"
+    },
+    {
+      "id": "not_ready_blocks_trigger",
+      "description": "READY=0 impide aceptar triggers"
+    },
+    {
+      "id": "invalid_model_bits_rejected",
+      "description": "Bits de modelo 00 no reutilizan el modelo anterior"
+    },
+    {
+      "id": "ng_output_safe",
+      "description": "Resultado NG conserva la salida PLC segura"
+    },
+    {
+      "id": "error_output_safe",
+      "description": "Resultado ERROR conserva la salida PLC segura"
+    },
+    {
+      "id": "vision_timeout_safe",
+      "description": "Timeout de vision termina en ERROR y salida segura"
+    },
+    {
+      "id": "quality_release_safe",
+      "description": "Llave de calidad cancela el ciclo y libera de forma segura"
+    },
+    {
+      "id": "usb_disconnect_safe",
+      "description": "Desconexion USB retira aprobacion dentro del watchdog"
+    },
+    {
+      "id": "trigger_retry_idempotent",
+      "description": "Un TRIGGER repetido ejecuta un solo ciclo"
+    },
+    {
+      "id": "conflicting_result_rejected",
+      "description": "Un resultado contradictorio para el mismo ciclo se rechaza"
+    },
+    {
+      "id": "final_ack_timeout_safe",
+      "description": "Falta de ACK final cancela y fuerza salida segura"
+    },
+    {
+      "id": "model_mapping_a",
+      "description": "La combinacion fisica A selecciona la receta configurada para A"
+    },
+    {
+      "id": "model_mapping_b",
+      "description": "La combinacion fisica B selecciona la receta configurada para B"
+    },
+    {
+      "id": "model_mapping_c",
+      "description": "La combinacion fisica C selecciona la receta configurada para C"
+    }
+  ]
+}

@@ -1,0 +1,2636 @@
+From 017552aa6831299d00b1a37fb13905a6b8f9075f Mon Sep 17 00:00:00 2001
+From: OpenAI Codex <noreply@openai.com>
+Date: Fri, 14 Aug 2026 10:46:41 -0600
+Subject: [PATCH] Add final configurable operator interface phase 11
+
+---
+ .../CONTEXTO_PROYECTO_WORKSURFACE_V16.md      | 193 ++++++++++++
+ Guias/GUIA_FASE11_INTERFAZ_FINAL.md           | 114 +++++++
+ app/app.py                                    | 288 ++++++++++--------
+ core/display_profile.py                       |  22 +-
+ core/focus_modes.py                           |  13 +
+ core/operator_status.py                       |  97 ++++++
+ core/resource_archive.py                      |  19 ++
+ docs/final_operator_interface.md              |  70 +++++
+ docs/universal_configuration_ui.md            |  24 +-
+ tests/test_configuration_ui_support.py        |   9 +-
+ tests/test_display_profile.py                 |   4 +-
+ tests/test_final_ui_contract.py               |  47 +++
+ tests/test_focus_modes.py                     |  21 ++
+ tests/test_operator_status.py                 |  50 +++
+ tests/test_resource_archive.py                |  51 ++++
+ ui/config_window.ui                           |  22 +-
+ ui/config_window_logic.py                     | 155 ++++++++--
+ ui/focus_config_dialog.py                     |  47 ++-
+ ui/main_window.ui                             |  10 +-
+ ui/pyqt5/config_window.py                     |  22 +-
+ ui/pyqt5/ui_main_window.py                    |  10 +-
+ ui/pyside6/ui_config_window.py                |  23 +-
+ ui/pyside6/ui_main_window.py                  |  11 +-
+ ui/recipe_policy_dialogs.py                   |   9 +-
+ ui/responsive.py                              |  21 +-
+ ui/system_config_dialog.py                    |  22 +-
+ ui/theme.py                                   | 231 +++++++++++---
+ 27 files changed, 1301 insertions(+), 304 deletions(-)
+ create mode 100644 Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V16.md
+ create mode 100644 Guias/GUIA_FASE11_INTERFAZ_FINAL.md
+ create mode 100644 core/focus_modes.py
+ create mode 100644 core/operator_status.py
+ create mode 100644 core/resource_archive.py
+ create mode 100644 docs/final_operator_interface.md
+ create mode 100644 tests/test_final_ui_contract.py
+ create mode 100644 tests/test_focus_modes.py
+ create mode 100644 tests/test_operator_status.py
+ create mode 100644 tests/test_resource_archive.py
+
+diff --git a/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V16.md b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V16.md
+new file mode 100644
+index 0000000..bcfbc2a
+--- /dev/null
++++ b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V16.md
+@@ -0,0 +1,193 @@
++# Contexto Worksurface V16 - Fase 11 interfaz final
++
++**Fecha:** 2026-08-14
++
++**Base:** fase 10 aplicada
++
++**Rama:** `feature/final-interface-phase11`
++
++## 1. Objetivo vigente
++
++El sistema es un motor de vision configurable y descentralizado. La Raspberry
++ejecuta recetas y herramientas; el controlador externo conserva trigger,
++modelo, sincronizacion y logica fisica segura. La interfaz debe permitir editar
++la instalacion y las recetas sin introducir reglas Worksurface en el motor.
++
++El orden final de trabajo se cambio por decision del proyecto:
++
++| Fase | Alcance |
++|---:|---|
++| 11 | Interfaz final, estetica, adaptable y amigable |
++| 12 | Despliegue industrial, servicio, backup/rollback y reparacion del touch |
++| 13 | Pruebas integrales, calibracion, aceptacion y corte reversible |
++
++No se planea una fase 14. Los hallazgos posteriores se trataran como defectos de
++la version candidata, no como ampliacion automatica del alcance.
++
++## 2. Estado de fases
++
++| Fase | Estado |
++|---:|---|
++| 1-10 codigo | Implementadas |
++| 9 fisica | Evidencia electrica pendiente |
++| 10 fisica | Poblaciones y escenarios pendientes |
++| 11 codigo | Implementada |
++| 11 visual | Pendiente de revisar en PC y Raspberry real |
++| 12 | Pendiente |
++| 13 | Pendiente |
++
++## 3. Interfaz principal
++
++Se elimino el texto heredado `SUMMIT USB`. El encabezado ahora usa
++`installation.name` de `system.json`, por lo que otra instalacion cambia su
++identidad sin modificar Python o archivos `.ui`.
++
++La pantalla muestra:
++
++- instalacion activa;
++- vista de camara y ROI;
++- receta activa;
++- estado textual;
++- causa de bloqueo;
++- resultado OK/NG/ERROR;
++- eventos recientes;
++- acceso a configuracion.
++
++Los estados se construyen en `core/operator_status.py`, sin Qt, y respetan esta
++prioridad:
++
++1. falla critica;
++2. no listo;
++3. ciclo en ejecucion;
++4. resultado final;
++5. espera de trigger.
++
++Un OK retenido no puede ocultar una desconexion o diagnostico bloqueante.
++
++## 4. Autoridad del controlador
++
++El indicador dejo de estar conectado a `run_fsm`. Es un indicador, no un boton
++de trigger. El ciclo productivo solo empieza con un evento valido del
++controlador que incluya ciclo y modelo.
++
++Este cambio conserva la arquitectura descentralizada:
++
++```text
++PLC/sensores -> ESP32 -> vision_controller_v1 -> motor -> receta
++```
++
++La interfaz no conoce pines o patrones de sensores. Worksurface continua
++requiriendo la ESP32 porque `require_controller_ready` y
++`require_controller_sync` estan activos.
++
++## 5. Sistema visual
++
++`ui/theme.py` contiene una paleta industrial unica para operador y editores:
++
++- fondo azul oscuro;
++- tarjetas con borde discreto;
++- acento cian;
++- verde para OK;
++- rojo para NG/falla;
++- ambar para no listo;
++- azul para ciclo en proceso.
++
++El estado siempre se comunica con texto y color. Se agregaron nombres
++accesibles y tooltips a los elementos principales.
++
++En 800x480:
++
++- objetivo tactil minimo: 42 px;
++- indicador: 72 px;
++- encabezado: 48 px;
++- eventos: 64 px.
++
++Los maximos heredados de 30 px se eliminan de los botones de configuracion.
++
++## 6. Configuracion
++
++La ventana usa vocabulario de operador:
++
++- NUEVA, BORRAR y ACTIVAR receta;
++- AGREGAR, EDITAR y BORRAR PASO;
++- ESTACION y PROPIEDADES;
++- CAMARA Y ENFOQUE;
++- GUARDAR y VOLVER.
++
++Cada receta muestra un resumen:
++
++```text
++ACTIVA · 2 PASOS · EN CALIBRACION
++```
++
++Los IDs internos de enfoque continúan estables en JSON, pero la interfaz
++muestra nombres en español. La seleccion de receta refresca inmediatamente la
++pantalla principal y sus ROI.
++
++## 7. Borrado recuperable
++
++Borrar una receta o paso requiere confirmacion. Los recursos asociados se
++mueven a:
++
++```text
++runtime/deleted_resources/
++```
++
++No se usa `rmtree` en ese flujo. El archivado evita sobrescribir un destino
++existente y puede restaurarse manualmente. La politica completa de backups y
++rollback se implementara en fase 12.
++
++## 8. Configurabilidad y limites
++
++Desde la interfaz ya se editan:
++
++- nombre e ID de instalacion;
++- catalogo de recetas;
++- camara, resolucion y FPS;
++- enfoque predeterminado;
++- puerto, baudrate y timeouts;
++- heartbeat y READY;
++- mapeo de IDs externos a recetas;
++- condiciones de disponibilidad;
++- asentamiento mecanico y timeout de inspeccion;
++- trazabilidad;
++- recetas, pasos, herramientas, ROI, imagenes y enfoque.
++
++No se editan desde Python los pines, polaridades o patrones de sensores de la
++ESP32. Esos valores siguen en el firmware de cada instalacion. Tampoco se
++implementan transportes hipoteticos que Worksurface no usa.
++
++## 9. Pruebas
++
++La suite contiene 118 pruebas y pasa completa. Las 15 nuevas verifican:
++
++- prioridad y textos del estado de operador;
++- receta sin nombre y estados OK/NG;
++- perfiles tactiles 480x320 y 800x480;
++- seis niveles semanticos de color;
++- ausencia de Summit y modelo A en la interfaz generica;
++- consistencia PyQt5/PySide6;
++- controlador como unica autoridad del trigger;
++- protecciones de borrado;
++- archivado recuperable sin sobrescritura;
++- nombres legibles para todos los modos de enfoque.
++
++El entorno de construccion no tiene Qt instalado, por lo que no se genero una
++captura real. La sintaxis Python, XML, contratos estaticos y logica pura estan
++validados. La revision visual en la Raspberry sigue siendo obligatoria.
++
++El validador de instalacion conserva:
++
++```text
++Resultado: LISTA PARA CALIBRAR
++```
++
++## 10. Siguiente paso
++
++1. Aplicar el parche de fase 11.
++2. Ejecutar las 118 pruebas.
++3. Revisar visualmente en PC.
++4. Copiar a Raspberry y tomar capturas en 800x480.
++5. Ajustar solamente defectos visuales comprobados.
++6. Continuar fase 12 con servicio, encapsulamiento, backup, rollback y touch.
++7. Ejecutar fase 13 con aceptacion completa y hardware real.
+diff --git a/Guias/GUIA_FASE11_INTERFAZ_FINAL.md b/Guias/GUIA_FASE11_INTERFAZ_FINAL.md
+new file mode 100644
+index 0000000..aa638fe
+--- /dev/null
++++ b/Guias/GUIA_FASE11_INTERFAZ_FINAL.md
+@@ -0,0 +1,114 @@
++# Guia fase 11 - Interfaz final
++
++## 1. Alcance
++
++Esta fase termina la interfaz de operador y unifica la apariencia de los
++editores. No modifica recetas Worksurface, firmware, protocolo, pines ni
++salidas PLC.
++
++Cambios principales:
++
++- nombre de instalacion obtenido desde `system.json`;
++- estado y causa visibles sin depender del color;
++- receta activa y resultado final claramente identificados;
++- pantalla 800x480 con controles de al menos 42 px;
++- nombres legibles para los modos de enfoque;
++- configuracion con resumen de receta;
++- confirmacion antes de borrar;
++- recursos borrados archivados de forma recuperable;
++- indicador visual sin funcion de trigger manual.
++
++El touch se diagnosticara y reparara en fase 12, junto con el despliegue
++industrial. Aqui se preparan tamaños y navegacion adecuados.
++
++## 2. Aplicar el parche
++
++Desde una copia limpia que ya contenga fase 10:
++
++```bash
++git status --short
++git switch -c feature/final-interface-phase11
++git am /ruta/0001-Add-final-configurable-operator-interface-phase-11.patch
++```
++
++## 3. Validacion automatica
++
++```bash
++python -m unittest discover -s tests -p "test_*.py" -v
++python -m compileall -q app core processing services tools ui vision tests
++python scripts/validate_installation.py
++```
++
++Resultado esperado:
++
++```text
++Ran 118 tests
++OK
++Resultado: LISTA PARA CALIBRAR
++```
++
++`LISTA PARA CALIBRAR` continua siendo correcto mientras las recetas sean
++preliminares.
++
++## 4. Revision visual en PC
++
++Ejecutar con la instalacion activa:
++
++```cmd
++set VISION_SYSTEM_CONFIG=installations\worksurface\system.json
++python main.py
++```
++
++Verificar:
++
++1. El titulo muestra `Worksurface`, no `Summit USB`.
++2. La vista de camara ocupa el panel principal.
++3. La receta activa aparece aunque su nombre no sea A/B/C.
++4. El estado incluye encabezado y explicacion.
++5. WARNING o CRITICAL tienen prioridad sobre un OK anterior.
++6. El indicador no inicia un ciclo al hacer clic.
++7. CONFIGURAR ESTACION se bloquea durante una inspeccion.
++8. Los eventos recientes permanecen visibles sin dominar la pantalla.
++9. Los dialogos permiten scroll y no cortan sus botones.
++10. Los modos de enfoque se muestran en español.
++
++## 5. Revision en Raspberry 800x480
++
++Esta revision es obligatoria antes de cerrar visualmente la fase:
++
++1. Iniciar a pantalla completa.
++2. Confirmar que no haya superposiciones.
++3. Abrir configuracion, estacion, propiedades, enfoque y un paso.
++4. Confirmar que todos los botones sean visibles.
++5. Probar desplazamiento con mouse o teclado si el touch aun falla.
++6. Tomar capturas de pantalla principal, configuracion y enfoque.
++7. Registrar la fuente y resolucion reales si el texto se corta.
++
++No cambiar `system.json` para corregir el tamaño de la pantalla. La geometria
++pertenece a `core/display_profile.py`.
++
++## 6. Borrado recuperable
++
++Al borrar una receta o paso se solicita confirmacion. Los recursos se mueven a:
++
++```text
++runtime/deleted_resources/
++```
++
++No se versionan en Git. Si el borrado fue accidental, detener la aplicacion y
++restaurar la carpeta antes de seguir editando. La automatizacion formal de
++backup y restauracion pertenece a fase 12.
++
++## 7. Siguiente fase
++
++Fase 12 incluira:
++
++- instalacion encapsulada;
++- servicio `systemd`;
++- inicio y cierre seguros;
++- actualizacion, backup y rollback;
++- diagnostico y correccion del touch en Linux;
++- procedimientos operativos de recuperacion.
++
++Fase 13 ejecutara la aceptacion integral, calibracion final, prueba paralela y
++corte productivo reversible.
+diff --git a/app/app.py b/app/app.py
+index 35c38c3..d602689 100644
+--- a/app/app.py
++++ b/app/app.py
+@@ -2,7 +2,18 @@ import sys
+ import cv2
+ import os
+ # IMPORTS DE QT
+-from utils.qt_compat import load_ui, QT_LIB, QThread, QImage, QPixmap, QMainWindow, QMetaObject, Qt, QTimer
++from utils.qt_compat import (
++    load_ui,
++    QT_LIB,
++    QThread,
++    QImage,
++    QPixmap,
++    QMainWindow,
++    QMetaObject,
++    Qt,
++    QTimer,
++    QLabel,
++)
+ from utils.ui_logger import get_ui_logger
+ # IMPORTS DE UI
+ if QT_LIB == "PySide6":
+@@ -22,11 +33,14 @@ from core.recipe_manager import RecipeManager
+ from core.system_config import SystemConfig
+ from core.diagnostics import DiagnosticsManager, run_static_diagnostics
+ from core.traceability import CycleTraceWriter
++from core.operator_status import build_operator_status
+ from ui.responsive import (
+     apply_main_window_layout,
++    compact_stylesheet,
+     profile_from_screen,
+     profile_from_widget,
+ )
++from ui.theme import interface_stylesheet, operator_stylesheet
+ 
+ class MainWindow(QMainWindow):
+     def __init__(self):
+@@ -36,6 +50,8 @@ class MainWindow(QMainWindow):
+         self.ui.setupUi(self)
+         self.display_profile = profile_from_widget(self)
+         apply_main_window_layout(self, self.ui, self.display_profile)
++        self.installation_name = "Motor de vision"
++        self._configure_operator_interface()
+         QTimer.singleShot(0, self._bind_display_screen)
+ 
+         self.setup_ui_logger()
+@@ -50,6 +66,13 @@ class MainWindow(QMainWindow):
+         self.controller_config = self.system_config.section("controller")
+         self.runtime_config = self.system_config.section("runtime")
+         installation = self.system_config.section("installation")
++        self.installation_name = installation.get(
++            "name",
++            installation.get("id", "Motor de vision"),
++        )
++        self.ui.lbl_tittle.setText(
++            f"SISTEMA DE VISIÓN  ·  {self.installation_name}"
++        )
+         print(
+             f"[CONFIG] Instalacion activa: "
+             f"{installation.get('name', installation.get('id'))}"
+@@ -64,7 +87,6 @@ class MainWindow(QMainWindow):
+         self.btn_config = self.ui.btn_config
+ 
+         # CONECTAR WIDGETS
+-        self.btn_trigger.clicked.connect(self.run_fsm)
+         self.btn_config.clicked.connect(self.open_config)
+         self.ui.btn_cerrar.clicked.connect(self.close)
+         self.ui.btn_minimizar.clicked.connect(self.minimize)
+@@ -108,6 +130,7 @@ class MainWindow(QMainWindow):
+         # WARNING/CRITICAL tienen prioridad sobre cualquier resultado.
+         self.current_system_visual_state = "WARNING"
+         self.current_system_ready_error = "Sistema iniciando"
++        self.refresh_operator_dashboard()
+ 
+         # EVALUAR SISTEMA LISTO PARA TRIGGER
+         self.last_ready_sent = None
+@@ -117,59 +140,6 @@ class MainWindow(QMainWindow):
+         self.ready_timer.timeout.connect(self.publish_rpi_ready_status)
+         self.ready_timer.start(self.ready_notify_interval)
+ 
+-        self.BASE_STYLE = """
+-        border: 2px solid;
+-        font-size: 16px;
+-        border-radius: 30px;
+-        border-color: rgb(46, 196, 182);
+-        color: rgb(46, 196, 182);
+-        background-color: rgb(15, 27, 61);
+-        """
+-
+-        self.OK_STYLE = """
+-        border: 2px solid;
+-        font-size: 16px;
+-        border-radius: 30px;
+-        border-color: rgb(82, 183, 136);
+-        color: white;
+-        background-color: rgb(46, 125, 50);
+-        """
+-
+-        self.NG_STYLE = """
+-        border: 2px solid;
+-        font-size: 16px;
+-        border-radius: 30px;
+-        border-color: rgb(230, 57, 70);
+-        color: white;
+-        background-color: rgb(183, 28, 28);
+-        """
+-
+-        self.NOT_READY_STYLE = """
+-        border: 2px solid;
+-        font-size: 16px;
+-        border-radius: 30px;
+-        border-color: rgb(255, 183, 3);
+-        color: white;
+-        background-color: rgb(180, 120, 0);
+-        """
+-
+-        self.CRITICAL_STYLE = """
+-        border: 2px solid;
+-        font-size: 16px;
+-        border-radius: 30px;
+-        border-color: rgb(255, 76, 76);
+-        color: white;
+-        background-color: rgb(120, 0, 0);
+-        """
+-
+-        self.lbl_video.setStyleSheet("""
+-            QLabel {
+-                background-color: black;
+-                border-radius: 0px;
+-                border: 2px solid rgb(91, 192, 190);
+-            }
+-        """)
+-
+         self.tool_registry = discover_tool_registry()
+         self.recipe_manager = RecipeManager(
+             self.system_config.recipe_file,
+@@ -218,6 +188,98 @@ class MainWindow(QMainWindow):
+ 
+         print("[LOGGER] Loger de interfaz iniciao")
+ 
++    def _configure_operator_interface(self):
++        """Remove legacy per-widget styling and expose one semantic dashboard."""
++        for widget in (
++            self.ui.centralwidget,
++            self.ui.top_bar,
++            self.ui.lbl_tittle,
++            self.ui.btn_minimizar,
++            self.ui.btn_cerrar,
++            self.ui.lbl_cam,
++            self.ui.lbl_video,
++            self.ui.lbl_model,
++            self.ui.btn_config,
++            self.ui.indicator_1,
++            self.ui.lbl_indicator_1,
++            self.ui.bttm_bar,
++            self.ui.list_log,
++        ):
++            widget.setStyleSheet("")
++
++        self.ui.lbl_cam.setText("VISTA DE INSPECCIÓN")
++        self.ui.btn_config.setText("CONFIGURAR ESTACIÓN")
++        self.ui.btn_minimizar.setText("—")
++        self.ui.btn_cerrar.setText("×")
++        self.ui.btn_config.setProperty("buttonRole", "primary")
++        self.ui.btn_cerrar.setProperty("buttonRole", "danger")
++        self.ui.indicator_1.setProperty("statusLevel", "warning")
++        self.ui.indicator_1.setToolTip(
++            "Indicador de estado. Los ciclos son iniciados por el controlador."
++        )
++        self.ui.indicator_1.setFocusPolicy(Qt.NoFocus)
++        self.ui.indicator_1.setAttribute(Qt.WA_TransparentForMouseEvents, True)
++        self.ui.lbl_model.setWordWrap(True)
++        self.ui.lbl_indicator_1.setWordWrap(True)
++        self.ui.lbl_model.setAlignment(Qt.AlignCenter)
++        self.ui.lbl_indicator_1.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
++
++        self.ui.lbl_tittle.setAccessibleName("Instalacion activa")
++        self.ui.lbl_video.setAccessibleName("Vista de la camara")
++        self.ui.lbl_model.setAccessibleName("Receta activa")
++        self.ui.indicator_1.setAccessibleName("Estado de inspeccion")
++        self.ui.lbl_indicator_1.setAccessibleName("Detalle del estado")
++        self.ui.btn_config.setAccessibleName("Abrir configuracion")
++        self.ui.btn_minimizar.setAccessibleName("Minimizar")
++        self.ui.btn_cerrar.setAccessibleName("Cerrar aplicacion")
++        self.lbl_recent_events = QLabel("EVENTOS\nRECIENTES")
++        self.lbl_recent_events.setObjectName("lbl_recent_events")
++        self.lbl_recent_events.setProperty("uiRole", "logCaption")
++        self.lbl_recent_events.setAlignment(Qt.AlignCenter)
++        self.lbl_recent_events.setAccessibleName("Eventos recientes")
++        self.ui.horizontalLayout_3.insertWidget(0, self.lbl_recent_events)
++        self.ui.list_log.setToolTip(
++            "Ultimos eventos del motor. Consulte la trazabilidad para el detalle."
++        )
++        self._apply_interface_theme()
++
++    def _apply_interface_theme(self):
++        self.setStyleSheet(
++            interface_stylesheet(self.display_profile)
++            + operator_stylesheet(self.display_profile)
++            + compact_stylesheet(self.display_profile)
++        )
++
++    @staticmethod
++    def _refresh_widget_style(widget):
++        style = widget.style()
++        style.unpolish(widget)
++        style.polish(widget)
++        widget.update()
++
++    def refresh_operator_dashboard(self):
++        recipe = getattr(self, "selected_recipe", None)
++        recipe_name = recipe.get("name") if isinstance(recipe, dict) else None
++        view = build_operator_status(
++            getattr(self, "current_system_visual_state", "WARNING"),
++            getattr(self, "current_system_ready_error", "Sistema iniciando"),
++            final_result=getattr(self, "indicator_latched_result", None),
++            cycle_busy=bool(getattr(self, "fsm_busy", False)),
++            recipe_name=recipe_name,
++        )
++        self.ui.lbl_model.setText(f"RECETA ACTIVA\n{view.recipe_caption}")
++        self.ui.lbl_indicator_1.setText(
++            f"{view.headline}\n{view.detail}"
++        )
++        self.ui.lbl_indicator_1.setToolTip(view.detail)
++        self.ui.indicator_1.setText(view.indicator_text)
++        self.ui.indicator_1.setProperty("statusLevel", view.level)
++        self.ui.btn_config.setEnabled(
++            not bool(getattr(self, "fsm_busy", False))
++            and not bool(getattr(self, "focus_check_busy", False))
++        )
++        self._refresh_widget_style(self.ui.indicator_1)
++
+     def detect_platform(self):
+         if sys.platform.startswith("win"):
+             return "windows"
+@@ -240,6 +302,8 @@ class MainWindow(QMainWindow):
+     def on_display_screen_changed(self, screen):
+         self.display_profile = profile_from_screen(screen)
+         apply_main_window_layout(self, self.ui, self.display_profile)
++        self._apply_interface_theme()
++        self.refresh_operator_dashboard()
+         print(
+             f"[UI] Pantalla activa: {self.display_profile.width}x"
+             f"{self.display_profile.height} ({self.display_profile.mode})"
+@@ -254,53 +318,7 @@ class MainWindow(QMainWindow):
+             self.add_button_feedback(btn)
+ 
+     def add_button_feedback(self, button):
+-        base_style = button.styleSheet().strip()
+-
+-        feedback_style = """
+-        QPushButton:hover {
+-            background-color: rgb(20, 38, 82);
+-            border-color: rgb(46, 196, 182);
+-        }
+-
+-        QPushButton:pressed {
+-            background-color: rgb(46, 196, 182);
+-            color: rgb(11, 19, 43);
+-        }
+-        """
+-
+-        if base_style:
+-            if "{" in base_style and "}" in base_style:
+-                final_style = base_style + "\n" + feedback_style
+-            else:
+-                final_style = f"""
+-                QPushButton {{
+-                    {base_style}
+-                }}
+-                {feedback_style}
+-                """
+-        else:
+-            final_style = """
+-            QPushButton {
+-                color: rgb(234, 234, 234);
+-                border-radius: 10px;
+-                border: 2px solid rgb(91, 192, 190);
+-                background-color: rgb(15, 27, 61);
+-                min-height: 28px;
+-                padding: 4px 12px;
+-            }
+-
+-            QPushButton:hover {
+-                background-color: rgb(20, 38, 82);
+-                border-color: rgb(46, 196, 182);
+-            }
+-
+-            QPushButton:pressed {
+-                background-color: rgb(46, 196, 182);
+-                color: rgb(11, 19, 43);
+-            }
+-            """
+-
+-        button.setStyleSheet(final_style)
++        button.setStyleSheet("")
+         button.setCursor(Qt.PointingHandCursor)
+ 
+     def setup_camera(self):
+@@ -348,6 +366,8 @@ class MainWindow(QMainWindow):
+             self.lbl_video.set_rois(self.rois_to_apply)
+ 
+         self.apply_focus_from_recipe(self.selected_recipe)
++        if hasattr(self, "current_system_visual_state"):
++            self.refresh_operator_dashboard()
+ 
+     def apply_focus_from_recipe(self, recipe):
+         self.focus_ready_for_active_recipe = False
+@@ -458,6 +478,7 @@ class MainWindow(QMainWindow):
+         self.state_manager.load_selected_recipe()
+         self.selected_recipe = self.recipe_manager.get_selected()
+         self.apply_rois_from_recipe()
++        self.refresh_operator_dashboard()
+ 
+         # LOG
+         self.state_worker.log.connect(print)
+@@ -495,18 +516,34 @@ class MainWindow(QMainWindow):
+         )
+ 
+     def set_indicator_result_style(self, result):
+-        if result == "OK":
+-            self.ui.indicator_1.setStyleSheet(self.OK_STYLE)
+-        elif result == "NG":
+-            self.ui.indicator_1.setStyleSheet(self.NG_STYLE)
+-        elif result == "ERROR":
+-            self.ui.indicator_1.setStyleSheet(self.CRITICAL_STYLE)
+-        elif result == "NOT_READY":
+-            self.ui.indicator_1.setStyleSheet(self.NOT_READY_STYLE)
++        synthetic_state = "READY"
++        synthetic_result = result
++        synthetic_reason = None
++        if result == "NOT_READY":
++            synthetic_state = "WARNING"
++            synthetic_result = None
++            synthetic_reason = self.current_system_ready_error
+         elif result == "CRITICAL":
+-            self.ui.indicator_1.setStyleSheet(self.CRITICAL_STYLE)
+-        else:
+-            self.ui.indicator_1.setStyleSheet(self.BASE_STYLE)
++            synthetic_state = "CRITICAL"
++            synthetic_result = None
++            synthetic_reason = self.current_system_ready_error
++        elif result == "BASE":
++            synthetic_result = None
++
++        recipe = self.selected_recipe if isinstance(self.selected_recipe, dict) else {}
++        view = build_operator_status(
++            synthetic_state,
++            synthetic_reason,
++            final_result=synthetic_result,
++            cycle_busy=False,
++            recipe_name=recipe.get("name"),
++        )
++        self.ui.lbl_model.setText(f"RECETA ACTIVA\n{view.recipe_caption}")
++        self.ui.lbl_indicator_1.setText(f"{view.headline}\n{view.detail}")
++        self.ui.lbl_indicator_1.setToolTip(view.detail)
++        self.ui.indicator_1.setText(view.indicator_text)
++        self.ui.indicator_1.setProperty("statusLevel", view.level)
++        self._refresh_widget_style(self.ui.indicator_1)
+ 
+     def refresh_indicator_visual(self):
+         """
+@@ -518,23 +555,7 @@ class MainWindow(QMainWindow):
+         3. Resultado final OK/NG de ESP si el sistema está READY
+         4. BASE si el sistema está READY y no hay resultado
+         """
+-        if self.current_system_visual_state == "CRITICAL":
+-            self.set_indicator_result_style("CRITICAL")
+-            return
+-
+-        if self.current_system_visual_state == "WARNING":
+-            self.set_indicator_result_style("NOT_READY")
+-            return
+-
+-        if self.current_system_visual_state == "READY":
+-            if self.indicator_latched_result is not None:
+-                self.set_indicator_result_style(self.indicator_latched_result)
+-            else:
+-                self.set_indicator_result_style("BASE")
+-            return
+-
+-        # Fallback seguro
+-        self.set_indicator_result_style("NOT_READY")
++        self.refresh_operator_dashboard()
+ 
+     # MEJORAR PARA ACTUALIZAR LA PALETA DE COLORES DE TODA LA INTERFAZ SEGUN EL ESTADO O RESULTADO
+     def set_system_status_visual(self, state, reason=None, log=True):
+@@ -980,6 +1001,7 @@ class MainWindow(QMainWindow):
+ 
+         self.focus_check_busy = True
+         self.pending_trigger_after_focus = True
++        self.refresh_operator_dashboard()
+         self.camera_worker.request_focus_check_before_trigger(focus_config)
+ 
+     def start_fsm_cycle(self, reset_indicator=True):
+@@ -997,6 +1019,7 @@ class MainWindow(QMainWindow):
+             self.clear_indicator_for_new_cycle()
+ 
+         self.fsm_busy = True
++        self.refresh_operator_dashboard()
+ 
+         if self.state_thread.isRunning():
+             QMetaObject.invokeMethod(
+@@ -1007,10 +1030,12 @@ class MainWindow(QMainWindow):
+             return True
+ 
+         self.fsm_busy = False
++        self.refresh_operator_dashboard()
+         return False
+ 
+     def on_fsm_finished(self):
+         self.fsm_busy = False
++        self.refresh_operator_dashboard()
+ 
+     def get_current_frame(self):
+         return self.current_frame
+@@ -1030,7 +1055,7 @@ class MainWindow(QMainWindow):
+         self.apply_rois_from_recipe()
+         self.apply_focus_from_recipe(self.selected_recipe)
+ 
+-        self.ui.lbl_model.setText(model_name)
++        self.refresh_operator_dashboard()
+ 
+     def open_config(self):
+         if self.fsm_busy or self.focus_check_busy or (hasattr(self, "state_manager") and self.state_manager.state != "IDLE"):
+@@ -1090,6 +1115,7 @@ class MainWindow(QMainWindow):
+         print(f"[APP] Resultado verificación enfoque: {result}")
+ 
+         self.focus_check_busy = False
++        self.refresh_operator_dashboard()
+ 
+         if not isinstance(result, dict) or not result.get("ok"):
+             print("[APP][ERROR] Verificación de enfoque no válida")
+diff --git a/core/display_profile.py b/core/display_profile.py
+index 7ac73e6..77c2ea4 100644
+--- a/core/display_profile.py
++++ b/core/display_profile.py
+@@ -51,12 +51,12 @@ def build_display_profile(width, height):
+             scale=scale,
+             margin=4,
+             spacing=4,
+-            touch_target=34,
++            touch_target=38,
+             title_points=11,
+             body_points=9,
+-            top_bar_height=38,
+-            log_height=44,
+-            indicator_size=48,
++            top_bar_height=42,
++            log_height=42,
++            indicator_size=54,
+             dialog_video_height=max(112, min(140, int(height * 0.40))),
+         )
+ 
+@@ -68,10 +68,10 @@ def build_display_profile(width, height):
+             scale=scale,
+             margin=14,
+             spacing=12,
+-            touch_target=44,
++            touch_target=48,
+             title_points=16,
+             body_points=12,
+-            top_bar_height=54,
++            top_bar_height=58,
+             log_height=110,
+             indicator_size=72,
+             dialog_video_height=min(420, int(height * 0.48)),
+@@ -84,12 +84,12 @@ def build_display_profile(width, height):
+         scale=scale,
+         margin=9,
+         spacing=8,
+-        touch_target=38,
+-        title_points=14,
++        touch_target=42,
++        title_points=13,
+         body_points=10,
+-        top_bar_height=45,
+-        log_height=80,
+-        indicator_size=60,
++        top_bar_height=48,
++        log_height=64,
++        indicator_size=72,
+         dialog_video_height=min(300, int(height * 0.45)),
+     )
+ 
+diff --git a/core/focus_modes.py b/core/focus_modes.py
+new file mode 100644
+index 0000000..0be57b4
+--- /dev/null
++++ b/core/focus_modes.py
+@@ -0,0 +1,13 @@
++"""Stable focus-mode IDs with operator-facing Spanish labels."""
++
++
++FOCUS_MODE_LABELS = {
++    "calibrated": "Calibrado por receta",
++    "manual_fixed": "Valor manual fijo",
++    "auto_continuous": "Enfoque automático continuo",
++    "disabled": "Sin control de enfoque",
++}
++
++
++def focus_mode_label(mode):
++    return FOCUS_MODE_LABELS.get(str(mode or ""), str(mode or "Desconocido"))
+diff --git a/core/operator_status.py b/core/operator_status.py
+new file mode 100644
+index 0000000..bd7ff26
+--- /dev/null
++++ b/core/operator_status.py
+@@ -0,0 +1,97 @@
++"""Pure presentation model for the operator screen.
++
++The UI consumes this module, but it has no Qt dependency.  Keeping status
++wording here makes the production screen deterministic and testable without a
++display server.
++"""
++
++from dataclasses import dataclass
++
++
++@dataclass(frozen=True)
++class OperatorStatusView:
++    headline: str
++    detail: str
++    level: str
++    indicator_text: str
++    recipe_caption: str
++
++
++def _clean(value):
++    return str(value or "").strip()
++
++
++def build_operator_status(
++    system_state,
++    reason=None,
++    final_result=None,
++    cycle_busy=False,
++    recipe_name=None,
++):
++    """Return the operator-facing status with safety-first precedence."""
++    state = _clean(system_state).upper() or "WARNING"
++    result = _clean(final_result).upper()
++    recipe = _clean(recipe_name) or "SIN RECETA"
++    detail = _clean(reason)
++
++    if state == "CRITICAL":
++        return OperatorStatusView(
++            headline="ATENCIÓN REQUERIDA",
++            detail=detail or "Existe una falla que bloquea la inspección.",
++            level="critical",
++            indicator_text="!",
++            recipe_caption=recipe,
++        )
++
++    if state != "READY":
++        return OperatorStatusView(
++            headline="SISTEMA NO LISTO",
++            detail=detail or "Comprobando los componentes de la estación.",
++            level="warning",
++            indicator_text="!",
++            recipe_caption=recipe,
++        )
++
++    if cycle_busy:
++        return OperatorStatusView(
++            headline="INSPECCIONANDO",
++            detail="Procesando el ciclo activo. Mantenga la pieza en posición.",
++            level="working",
++            indicator_text="…",
++            recipe_caption=recipe,
++        )
++
++    if result == "OK":
++        return OperatorStatusView(
++            headline="RESULTADO OK",
++            detail="La inspección finalizó correctamente.",
++            level="ok",
++            indicator_text="OK",
++            recipe_caption=recipe,
++        )
++
++    if result == "NG":
++        return OperatorStatusView(
++            headline="RESULTADO NG",
++            detail="La pieza no cumplió los criterios configurados.",
++            level="ng",
++            indicator_text="NG",
++            recipe_caption=recipe,
++        )
++
++    if result == "ERROR":
++        return OperatorStatusView(
++            headline="ERROR DE CICLO",
++            detail="La inspección terminó sin una decisión válida.",
++            level="critical",
++            indicator_text="!",
++            recipe_caption=recipe,
++        )
++
++    return OperatorStatusView(
++        headline="LISTO PARA INSPECCIÓN",
++        detail="Esperando un ciclo válido del controlador.",
++        level="ready",
++        indicator_text="●",
++        recipe_caption=recipe,
++    )
+diff --git a/core/resource_archive.py b/core/resource_archive.py
+new file mode 100644
+index 0000000..3c056e4
+--- /dev/null
++++ b/core/resource_archive.py
+@@ -0,0 +1,19 @@
++"""Recoverable archive for resources removed from the configuration UI."""
++
++import shutil
++import uuid
++from pathlib import Path
++
++
++def archive_resource_path(source, archive_root="runtime/deleted_resources", token=None):
++    source = Path(source)
++    if not source.exists():
++        return None
++    archive_root = Path(archive_root)
++    archive_root.mkdir(parents=True, exist_ok=True)
++    suffix = str(token or uuid.uuid4().hex[:8]).strip()
++    target = archive_root / f"{source.name}-{suffix}"
++    if target.exists():
++        raise FileExistsError(f"El destino de archivo ya existe: {target}")
++    shutil.move(str(source), str(target))
++    return target
+diff --git a/docs/final_operator_interface.md b/docs/final_operator_interface.md
+new file mode 100644
+index 0000000..b717791
+--- /dev/null
++++ b/docs/final_operator_interface.md
+@@ -0,0 +1,70 @@
++# Interfaz final de operador
++
++## Objetivo
++
++La pantalla principal presenta el estado operativo sin exigir que el usuario
++interprete colores, logs o nombres internos. La instalacion sigue siendo un
++dato de `system.json`; no existe texto Worksurface, A/B/C ni Summit dentro del
++contrato visual generico.
++
++## Jerarquia de la pantalla
++
++1. instalacion activa, obtenida de `installation.name`;
++2. vista de inspeccion con ROI de la receta;
++3. receta activa;
++4. estado textual y causa;
++5. indicador de resultado;
++6. eventos recientes;
++7. acceso a configuracion.
++
++El indicador ya no inicia ciclos con el mouse o touch. El controlador conserva
++la autoridad y debe enviar un `TRIGGER` valido. Esto evita que un elemento
++visual omita el contexto de ciclo, modelo o seguridad.
++
++## Estados visibles
++
++| Nivel | Encabezado | Uso |
++|---|---|---|
++| `ready` | LISTO PARA INSPECCION | Espera un trigger del controlador |
++| `working` | INSPECCIONANDO | Existe un ciclo activo |
++| `ok` | RESULTADO OK | Resultado final aprobado |
++| `ng` | RESULTADO NG | Resultado final rechazado |
++| `warning` | SISTEMA NO LISTO | Calibracion o condicion recuperable |
++| `critical` | ATENCION REQUERIDA | Falla de infraestructura o ciclo |
++
++La prioridad continua siendo seguridad, luego ciclo y finalmente resultado. Un
++OK retenido nunca oculta una perdida serial o un bloqueo de diagnostico.
++
++## Adaptacion de pantalla
++
++`core/display_profile.py` conserva una sola politica para `compact`, `standard`
++y `wide`. En 800x480 se usan objetivos tactiles de al menos 42 px, indicador de
++72 px y una franja reducida de eventos. Los dialogos largos usan scroll y los
++botones de configuracion ya no conservan el maximo heredado de 30 px.
++
++La reparacion electrica o de mapeo del touch no pertenece a Qt ni a las recetas.
++Se realizara en fase 12 sobre el dispositivo de entrada de Linux. Esta fase
++solo deja los controles con dimensiones aptas para tocar.
++
++## Configuracion final
++
++La pantalla de configuracion distingue:
++
++- recetas y su estado activa/inactiva;
++- cantidad de pasos habilitados;
++- calibracion o comisionamiento;
++- propiedades de receta;
++- estacion, camara, controlador, mapeos y runtime;
++- enfoque con nombres legibles, conservando IDs estables en JSON.
++
++Los botones de borrado solicitan confirmacion. Los recursos retirados se mueven
++a `runtime/deleted_resources/` en vez de eliminarse definitivamente. El
++catalogo JSON conserva sus propias escrituras atomicas y respaldos.
++
++## Limites
++
++- La interfaz no cambia pines, polaridades ni sensores del firmware.
++- El protocolo continua siendo `vision_controller_v1`.
++- Guardar configuracion de estacion requiere reiniciar la aplicacion.
++- La apariencia debe revisarse en la Raspberry real porque las fuentes y el
++  servidor grafico pueden variar respecto de Windows.
+diff --git a/docs/universal_configuration_ui.md b/docs/universal_configuration_ui.md
+index d7d9593..e84d9d2 100644
+--- a/docs/universal_configuration_ui.md
++++ b/docs/universal_configuration_ui.md
+@@ -10,7 +10,7 @@ Se calcula desde la pantalla activa mediante los modos `compact`, `standard` y
+ 
+ ## Sistema
+ 
+-`SISTEMA` abre un editor por pestanas para:
++`ESTACION` abre un editor por pestanas para:
+ 
+ - identificador y nombre de la instalacion;
+ - archivo de recetas y migracion automatica;
+@@ -32,7 +32,8 @@ sesion activa sigue usando los valores anteriores.
+ 
+ ## Receta
+ 
+-`RECETA` permite revisar el ID interno y cambiar el estado de comisionamiento.
++`PROPIEDADES` permite revisar el ID interno y cambiar el estado de
++comisionamiento.
+ Una receta solo puede marcarse como comisionada cuando:
+ 
+ - tiene al menos un step habilitado;
+@@ -46,11 +47,11 @@ Una receta solo puede marcarse como comisionada cuando:
+ Desmarcar el comisionamiento siempre es posible y bloquea inmediatamente la
+ produccion con esa receta.
+ 
+-## Steps y condiciones
++## Pasos y condiciones
+ 
+ Al agregar o editar una herramienta se separan dos grupos:
+ 
+-- politica del step: `id`, `enabled`, `required` y `condition`;
++- politica del paso: `id`, `enabled`, `required` y `condition`;
+ - parametros propios de la herramienta, definidos en su clase y publicados por
+   `ToolRegistry`.
+ 
+@@ -89,10 +90,19 @@ Ejemplos:
+ - comparacion DataMatrix `exact` o `prefix` y votos por intento;
+ - cancelacion cooperativa y timeout global de inspeccion.
+ 
+-## Fuera del alcance actual
++## Interfaz final
++
++La pantalla principal obtiene el nombre de la instalacion desde `system.json`,
++muestra receta activa, estado, causa y resultado con texto, y mantiene el
++trigger bajo autoridad del controlador. La configuracion usa objetivos tactiles
++y archiva recursos retirados en `runtime/deleted_resources/`.
++
++Consulte `docs/final_operator_interface.md` para el contrato visual completo.
++
++## Fuera del alcance de la interfaz
+ 
+ - no se agregan recetas, numeros de parte ni sensores de Worksurface;
+ - no se crea ni modifica firmware ESP32 o PLC;
+ - no se recargan en caliente camara, serial o runtime;
+-- no se adapta todavia toda la interfaz de forma responsiva a cualquier
+-  resolucion de pantalla.
++- no se corrige desde Qt la calibracion del dispositivo touch de Linux;
++- no se instala todavia el servicio de autoarranque o rollback.
+diff --git a/tests/test_configuration_ui_support.py b/tests/test_configuration_ui_support.py
+index f6091cd..106cdb3 100644
+--- a/tests/test_configuration_ui_support.py
++++ b/tests/test_configuration_ui_support.py
+@@ -8,7 +8,7 @@ from core.camera_runtime import (
+ )
+ from core.display_profile import build_display_profile
+ from core.resource_paths import recipe_resource_root
+-from ui.theme import interface_stylesheet
++from ui.theme import interface_stylesheet, operator_stylesheet
+ 
+ 
+ class ConfigurationUiSupportTests(unittest.TestCase):
+@@ -71,6 +71,13 @@ class ConfigurationUiSupportTests(unittest.TestCase):
+         ):
+             self.assertIn(selector, stylesheet)
+ 
++    def test_operator_theme_has_semantic_ready_warning_and_result_states(self):
++        stylesheet = operator_stylesheet(build_display_profile(800, 480))
++        for state in ("ready", "working", "ok", "ng", "warning", "critical"):
++            self.assertIn(f'statusLevel="{state}"', stylesheet)
++        self.assertIn("QPushButton#btn_config", stylesheet)
++        self.assertIn("QLabel#lbl_model", stylesheet)
++
+     def test_rpi_instructions_install_v4l2_tools(self):
+         requirements = Path("requirements-rpi32.txt").read_text(encoding="utf-8")
+         guide = Path("docs/raspberry_pi_32bit_runtime.md").read_text(
+diff --git a/tests/test_display_profile.py b/tests/test_display_profile.py
+index 086ddf0..51242d3 100644
+--- a/tests/test_display_profile.py
++++ b/tests/test_display_profile.py
+@@ -12,7 +12,7 @@ class DisplayProfileTests(unittest.TestCase):
+         profile = build_display_profile(480, 320)
+         self.assertEqual(profile.mode, "compact")
+         self.assertEqual(preferred_window_size(profile), (480, 320))
+-        self.assertGreaterEqual(profile.touch_target, 34)
++        self.assertGreaterEqual(profile.touch_target, 38)
+         self.assertLessEqual(profile.dialog_video_height, 140)
+ 
+     def test_small_dimensions_are_clamped_to_safe_minimum(self):
+@@ -23,6 +23,8 @@ class DisplayProfileTests(unittest.TestCase):
+         profile = build_display_profile(800, 480)
+         self.assertEqual(profile.mode, "standard")
+         self.assertEqual(preferred_window_size(profile), (800, 480))
++        self.assertGreaterEqual(profile.touch_target, 42)
++        self.assertGreaterEqual(profile.indicator_size, 70)
+ 
+     def test_large_monitor_uses_wide_layout_without_unbounded_window(self):
+         profile = build_display_profile(1920, 1080)
+diff --git a/tests/test_final_ui_contract.py b/tests/test_final_ui_contract.py
+new file mode 100644
+index 0000000..6ba8d06
+--- /dev/null
++++ b/tests/test_final_ui_contract.py
+@@ -0,0 +1,47 @@
++import unittest
++from pathlib import Path
++from xml.etree import ElementTree
++
++
++class FinalUiContractTests(unittest.TestCase):
++    def test_canonical_main_window_is_installation_neutral(self):
++        root = ElementTree.parse("ui/main_window.ui").getroot()
++        texts = {
++            (node.text or "").strip()
++            for node in root.iter("string")
++            if (node.text or "").strip()
++        }
++        self.assertIn("SISTEMA DE VISIÓN", texts)
++        self.assertIn("RECETA ACTIVA", texts)
++        self.assertIn("CONFIGURAR ESTACIÓN", texts)
++        self.assertNotIn("SISTEMA DE VISIÓN - SUMMIT USB", texts)
++        self.assertFalse(any("MODELO DE PIEZA: A" in text for text in texts))
++
++    def test_both_generated_backends_match_canonical_operator_copy(self):
++        for filename in (
++            "ui/pyqt5/ui_main_window.py",
++            "ui/pyside6/ui_main_window.py",
++        ):
++            text = Path(filename).read_text(encoding="utf-8")
++            self.assertNotIn("SUMMIT USB", text, filename)
++            self.assertIn("RECETA ACTIVA", text, filename)
++
++    def test_controller_remains_authority_for_production_cycle(self):
++        text = Path("app/app.py").read_text(encoding="utf-8")
++        self.assertNotIn("btn_trigger.clicked.connect(self.run_fsm)", text)
++        self.assertIn("Los ciclos son iniciados por el controlador", text)
++
++    def test_configuration_copy_and_destructive_guards_are_explicit(self):
++        text = Path("ui/config_window_logic.py").read_text(encoding="utf-8")
++        for label in (
++            "CONFIGURACION DEL MOTOR DE VISION",
++            "CONFIGURAR ENFOQUE",
++            "EN CALIBRACION",
++        ):
++            self.assertIn(label, text)
++        self.assertIn("confirm_action", text)
++        self.assertIn("archive_resource_path", text)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_focus_modes.py b/tests/test_focus_modes.py
+new file mode 100644
+index 0000000..0ed617b
+--- /dev/null
++++ b/tests/test_focus_modes.py
+@@ -0,0 +1,21 @@
++import unittest
++
++from core.focus_modes import FOCUS_MODE_LABELS, focus_mode_label
++
++
++class FocusModeLabelTests(unittest.TestCase):
++    def test_every_runtime_mode_has_a_friendly_label(self):
++        self.assertEqual(
++            set(FOCUS_MODE_LABELS),
++            {"calibrated", "manual_fixed", "auto_continuous", "disabled"},
++        )
++        for value, label in FOCUS_MODE_LABELS.items():
++            self.assertNotEqual(value, label)
++            self.assertTrue(label)
++
++    def test_unknown_future_mode_remains_visible(self):
++        self.assertEqual(focus_mode_label("future_mode"), "future_mode")
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_operator_status.py b/tests/test_operator_status.py
+new file mode 100644
+index 0000000..d8b062e
+--- /dev/null
++++ b/tests/test_operator_status.py
+@@ -0,0 +1,50 @@
++import unittest
++
++from core.operator_status import build_operator_status
++
++
++class OperatorStatusTests(unittest.TestCase):
++    def test_critical_state_has_priority_over_latched_ok(self):
++        view = build_operator_status(
++            "CRITICAL",
++            "Serial desconectado",
++            final_result="OK",
++            recipe_name="MODELO_A",
++        )
++        self.assertEqual(view.level, "critical")
++        self.assertEqual(view.headline, "ATENCIÓN REQUERIDA")
++        self.assertIn("Serial", view.detail)
++
++    def test_warning_explains_why_system_is_not_ready(self):
++        view = build_operator_status(
++            "WARNING",
++            "Enfoque pendiente",
++            recipe_name="MODELO_B",
++        )
++        self.assertEqual(view.level, "warning")
++        self.assertEqual(view.detail, "Enfoque pendiente")
++
++    def test_busy_cycle_precedes_previous_result(self):
++        view = build_operator_status(
++            "READY",
++            final_result="NG",
++            cycle_busy=True,
++        )
++        self.assertEqual(view.level, "working")
++        self.assertEqual(view.headline, "INSPECCIONANDO")
++
++    def test_ready_result_is_shown_in_words(self):
++        ok_view = build_operator_status("READY", final_result="OK")
++        ng_view = build_operator_status("READY", final_result="NG")
++        self.assertEqual(ok_view.headline, "RESULTADO OK")
++        self.assertEqual(ng_view.headline, "RESULTADO NG")
++
++    def test_ready_idle_state_and_recipe_fallback_are_explicit(self):
++        view = build_operator_status("READY")
++        self.assertEqual(view.level, "ready")
++        self.assertEqual(view.recipe_caption, "SIN RECETA")
++        self.assertIn("Esperando", view.detail)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_resource_archive.py b/tests/test_resource_archive.py
+new file mode 100644
+index 0000000..a80d0c1
+--- /dev/null
++++ b/tests/test_resource_archive.py
+@@ -0,0 +1,51 @@
++import tempfile
++import unittest
++from pathlib import Path
++
++from core.resource_archive import archive_resource_path
++
++
++class ResourceArchiveTests(unittest.TestCase):
++    def test_directory_is_moved_to_recoverable_archive(self):
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary)
++            source = root / "MODELO_A"
++            source.mkdir()
++            (source / "master.png").write_bytes(b"image")
++
++            target = archive_resource_path(
++                source,
++                archive_root=root / "archive",
++                token="test",
++            )
++
++            self.assertFalse(source.exists())
++            self.assertEqual(target.name, "MODELO_A-test")
++            self.assertEqual((target / "master.png").read_bytes(), b"image")
++
++    def test_missing_source_is_a_safe_noop(self):
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary)
++            target = archive_resource_path(
++                root / "missing",
++                archive_root=root / "archive",
++            )
++            self.assertIsNone(target)
++            self.assertFalse((root / "archive").exists())
++
++    def test_existing_archive_target_is_not_overwritten(self):
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary)
++            source = root / "resource"
++            source.mkdir()
++            archive = root / "archive"
++            (archive / "resource-fixed").mkdir(parents=True)
++
++            with self.assertRaises(FileExistsError):
++                archive_resource_path(source, archive, token="fixed")
++
++            self.assertTrue(source.exists())
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/ui/config_window.ui b/ui/config_window.ui
+index 1b548b8..d79a22b 100644
+--- a/ui/config_window.ui
++++ b/ui/config_window.ui
+@@ -117,7 +117,7 @@
+ background-color: transparent;</string>
+         </property>
+         <property name="text">
+-         <string>SISTEMA DE VISIÓN - CONFIGURACIÓN</string>
++         <string>CONFIGURACIÓN DEL MOTOR DE VISIÓN</string>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignCenter</set>
+@@ -231,7 +231,7 @@ border-color: rgb(91, 192, 190);
+ background-color: rgb(15, 27, 61);</string>
+            </property>
+            <property name="text">
+-            <string>AGREGAR</string>
++            <string>NUEVA</string>
+            </property>
+           </widget>
+          </item>
+@@ -263,7 +263,7 @@ border-color: rgb(91, 192, 190);
+ background-color: rgb(15, 27, 61);</string>
+            </property>
+            <property name="text">
+-            <string>ELIMINAR</string>
++            <string>BORRAR</string>
+            </property>
+           </widget>
+          </item>
+@@ -299,7 +299,7 @@ border-color: rgb(91, 192, 190);
+ background-color: rgb(15, 27, 61);</string>
+            </property>
+            <property name="text">
+-            <string>SELECCIONAR</string>
++            <string>ACTIVAR</string>
+            </property>
+           </widget>
+          </item>
+@@ -384,7 +384,7 @@ background-color: rgb(15, 27, 61);</string>
+ background-color: transparent;</string>
+            </property>
+            <property name="text">
+-            <string>HERRAMIENTAS</string>
++          <string>PASOS DE INSPECCIÓN</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+@@ -456,7 +456,7 @@ border-color: rgb(91, 192, 190);
+ background-color: rgb(15, 27, 61);</string>
+            </property>
+            <property name="text">
+-            <string>EDITAR</string>
++            <string>EDITAR PASO</string>
+            </property>
+           </widget>
+          </item>
+@@ -492,7 +492,7 @@ border-color: rgb(91, 192, 190);
+ background-color: rgb(15, 27, 61);</string>
+            </property>
+            <property name="text">
+-            <string>AGREGAR</string>
++            <string>AGREGAR PASO</string>
+            </property>
+           </widget>
+          </item>
+@@ -524,7 +524,7 @@ border-color: rgb(91, 192, 190);
+ background-color: rgb(15, 27, 61);</string>
+            </property>
+            <property name="text">
+-            <string>ELIMINAR</string>
++            <string>BORRAR PASO</string>
+            </property>
+           </widget>
+          </item>
+@@ -586,7 +586,7 @@ background-color: rgb(15, 27, 61);</string>
+ background-color: transparent;</string>
+            </property>
+            <property name="text">
+-            <string>ENFOQUE DE CAMARA</string>
++          <string>CÁMARA Y ENFOQUE</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+@@ -625,7 +625,7 @@ border-color: rgb(91, 192, 190);
+ background-color: rgb(15, 27, 61);</string>
+            </property>
+            <property name="text">
+-            <string>FOCUS CONFIG</string>
++          <string>CONFIGURAR ENFOQUE</string>
+            </property>
+           </widget>
+          </item>
+@@ -719,7 +719,7 @@ border-color: rgb(91, 192, 190);
+ background-color: rgb(15, 27, 61);</string>
+        </property>
+        <property name="text">
+-        <string>SALIR</string>
++        <string>VOLVER</string>
+        </property>
+        <property name="checkable">
+         <bool>false</bool>
+diff --git a/ui/config_window_logic.py b/ui/config_window_logic.py
+index 5cd7d7b..122294f 100644
+--- a/ui/config_window_logic.py
++++ b/ui/config_window_logic.py
+@@ -1,10 +1,11 @@
+ import copy
+-import os
+ from utils.qt_compat import (
+     QT_LIB, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+-    QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea, QMessageBox
++    QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea, QMessageBox,
++    QLabel,
+ )
+ from core.editor_models import EditorValueError
++from core.resource_archive import archive_resource_path as archive_path
+ from core.resource_paths import recipe_resource_root
+ from utils.ui_logger import get_ui_logger
+ if QT_LIB == "PySide6":
+@@ -23,7 +24,6 @@ from ui.responsive import (
+     profile_from_widget,
+ )
+ from ui.theme import interface_stylesheet
+-import shutil
+ 
+ class ConfigWindow(QWidget):
+     update_rois = Signal()
+@@ -76,8 +76,29 @@ class ConfigWindow(QWidget):
+         self.load_recipes()
+ 
+     def _build_universal_controls(self):
+-        self.btn_installation_config = QPushButton("SISTEMA")
+-        self.btn_recipe_config = QPushButton("RECETA")
++        self.ui.lbl_tittle.setText("CONFIGURACION DEL MOTOR DE VISION")
++        self.ui.lbl_recipes.setText("RECETAS")
++        self.ui.lbl_tools.setText("PASOS DE INSPECCION")
++        self.ui.lbl_focus.setText("CAMARA Y ENFOQUE")
++        self.ui.btn_add_r.setText("NUEVA")
++        self.ui.btn_del_r.setText("BORRAR")
++        self.ui.btn_select_r.setText("ACTIVAR")
++        self.ui.btn_add_t.setText("AGREGAR PASO")
++        self.ui.btn_del_t.setText("BORRAR PASO")
++        self.ui.btn_edit_t.setText("EDITAR PASO")
++        self.ui.btn_focus_config.setText("CONFIGURAR ENFOQUE")
++        self.ui.btn_save.setText("GUARDAR")
++        self.ui.btn_out.setText("VOLVER")
++
++        self.lbl_recipe_state = QLabel("Selecciona una receta")
++        self.lbl_recipe_state.setObjectName("lbl_recipe_state")
++        self.lbl_recipe_state.setProperty("uiRole", "summary")
++        self.lbl_recipe_state.setWordWrap(True)
++        self.lbl_recipe_state.setAlignment(Qt.AlignCenter)
++        self.ui.left_panel.insertWidget(2, self.lbl_recipe_state)
++
++        self.btn_installation_config = QPushButton("ESTACION")
++        self.btn_recipe_config = QPushButton("PROPIEDADES")
+         self.ui.bttm_layout.setSpacing(6)
+         self.ui.bttm_layout.insertWidget(1, self.btn_installation_config)
+         self.ui.bttm_layout.insertWidget(2, self.btn_recipe_config)
+@@ -90,7 +111,39 @@ class ConfigWindow(QWidget):
+         ):
+             button.setMaximumWidth(max_width)
+ 
++        self.ui.btn_select_r.setProperty("buttonRole", "primary")
++        self.ui.btn_save.setProperty("buttonRole", "primary")
++        self.ui.btn_del_r.setProperty("buttonRole", "danger")
++        self.ui.btn_del_t.setProperty("buttonRole", "danger")
++        self.ui.btn_add_r.setToolTip("Crear una receta configurable")
++        self.ui.btn_select_r.setToolTip("Usar esta receta en nuevos ciclos")
++        self.ui.btn_del_r.setToolTip("Archivar y retirar la receta seleccionada")
++        self.ui.btn_del_t.setToolTip("Archivar y retirar el paso seleccionado")
++
+     def apply_config_style(self):
++        for widget in (
++            self.ui.top_bar,
++            self.ui.lbl_tittle,
++            self.ui.lbl_recipes,
++            self.ui.cmb_recipes,
++            self.ui.btn_add_r,
++            self.ui.btn_del_r,
++            self.ui.btn_select_r,
++            self.ui.line,
++            self.ui.lbl_tools,
++            self.ui.cmb_tools,
++            self.ui.btn_add_t,
++            self.ui.btn_del_t,
++            self.ui.btn_edit_t,
++            self.ui.line_2,
++            self.ui.lbl_focus,
++            self.ui.btn_focus_config,
++            self.ui.frame,
++            self.ui.list_log_config,
++            self.ui.btn_save,
++            self.ui.btn_out,
++        ):
++            widget.setStyleSheet("")
+         self.setStyleSheet(
+             interface_stylesheet(self.display_profile)
+             + compact_stylesheet(self.display_profile)
+@@ -126,6 +179,39 @@ class ConfigWindow(QWidget):
+ 
+     def safe_name(self, name):
+         return name.replace(" ","_").replace("/","_").replace("\\","_")
++
++    def confirm_action(self, title, message):
++        buttons = getattr(QMessageBox, "StandardButton", QMessageBox)
++        yes = getattr(buttons, "Yes")
++        no = getattr(buttons, "No")
++        answer = QMessageBox.question(self, title, message, yes | no, no)
++        return answer == yes
++
++    def archive_resource_path(self, path):
++        target = archive_path(path)
++        if target is not None:
++            print(f"[CONFIG] Recursos archivados en {target}")
++        return target
++
++    def refresh_recipe_summary(self):
++        if not isinstance(self.current_recipe, dict):
++            self.lbl_recipe_state.setText("SIN RECETA SELECCIONADA")
++            return
++        steps = self.current_recipe.get("steps", [])
++        active_steps = [
++            step
++            for step in steps
++            if isinstance(step, dict) and step.get("enabled", True)
++        ]
++        selected = "ACTIVA" if self.current_recipe.get("selected") else "INACTIVA"
++        commissioned = (
++            "COMISIONADA"
++            if self.current_recipe.get("commissioned") is True
++            else "EN CALIBRACION"
++        )
++        self.lbl_recipe_state.setText(
++            f"{selected}  ·  {len(active_steps)} PASOS  ·  {commissioned}"
++        )
+     
+     def ensure_steps(self):
+         if "steps" not in self.current_recipe or not isinstance(self.current_recipe["steps"], list):
+@@ -301,6 +387,7 @@ class ConfigWindow(QWidget):
+             if not recipes:
+                 self.current_recipe = None
+                 self.ui.cmb_tools.clear()
++                self.refresh_recipe_summary()
+                 return
+             
+             selected_index = 0
+@@ -322,6 +409,7 @@ class ConfigWindow(QWidget):
+             if self.ui.cmb_recipes.count() == 0:
+                 self.current_recipe = None
+                 self.ui.cmb_tools.clear()
++                self.refresh_recipe_summary()
+                 return
+             
+             selected_index = max(0, min(selected_index, self.ui.cmb_recipes.count() - 1))
+@@ -341,6 +429,7 @@ class ConfigWindow(QWidget):
+         if item < 0:
+             self.current_recipe = None
+             self.ui.cmb_tools.clear()
++            self.refresh_recipe_summary()
+             return
+ 
+         name = self.ui.cmb_recipes.itemText(item).strip()
+@@ -348,6 +437,7 @@ class ConfigWindow(QWidget):
+         if not name:
+             self.current_recipe = None
+             self.ui.cmb_tools.clear()
++            self.refresh_recipe_summary()
+             return
+ 
+         print(name)
+@@ -358,9 +448,11 @@ class ConfigWindow(QWidget):
+             print(f"[CONFIG][WARNING] Receta no encontrada al seleccionar: {name}")
+             self.current_recipe = None
+             self.ui.cmb_tools.clear()
++            self.refresh_recipe_summary()
+             return
+ 
+         self.current_recipe = recipe
++        self.refresh_recipe_summary()
+ 
+         print(f"Current Recipe: {self.current_recipe.get('name', 'UNKNOWN')}")
+ 
+@@ -435,6 +527,7 @@ class ConfigWindow(QWidget):
+ 
+         btn_save = QPushButton("GUARDAR CAMBIOS")
+         btn_cancel = QPushButton("CANCELAR")
++        btn_save.setProperty("buttonRole", "primary")
+ 
+         btn_save.setCursor(Qt.PointingHandCursor)
+         btn_cancel.setCursor(Qt.PointingHandCursor)
+@@ -450,7 +543,7 @@ class ConfigWindow(QWidget):
+             try:
+                 policy = policy_editor.get_values()
+             except EditorValueError as exc:
+-                QMessageBox.critical(dialog, "Step invalido", str(exc))
++                QMessageBox.critical(dialog, "Paso invalido", str(exc))
+                 return
+             new_params = editor.get_values()
+ 
+@@ -470,7 +563,7 @@ class ConfigWindow(QWidget):
+             try:
+                 self.recipe_manager.save(candidate)
+             except ValueError as exc:
+-                QMessageBox.critical(dialog, "Step invalido", str(exc))
++                QMessageBox.critical(dialog, "Paso invalido", str(exc))
+                 return
+ 
+             self.current_recipe.clear()
+@@ -507,7 +600,7 @@ class ConfigWindow(QWidget):
+ 
+         # VENTANA Y WIDGETS
+         dialog = QDialog(self)
+-        dialog.setWindowTitle("Agregando nuevo Step")
++        dialog.setWindowTitle("Agregar paso de inspeccion")
+ 
+         dialog.setStyleSheet(self.styleSheet())
+         layout = QVBoxLayout()
+@@ -581,7 +674,8 @@ class ConfigWindow(QWidget):
+         self.apply_scrollbar_style(scroll)
+ 
+         btn_cancel = QPushButton("CANCELAR")
+-        btn_save = QPushButton("GUARDAR STEP")
++        btn_save = QPushButton("GUARDAR PASO")
++        btn_save.setProperty("buttonRole", "primary")
+ 
+         btn_save.setCursor(Qt.PointingHandCursor)
+         btn_cancel.setCursor(Qt.PointingHandCursor)
+@@ -599,7 +693,7 @@ class ConfigWindow(QWidget):
+             try:
+                 policy = policy_editor.get_values()
+             except EditorValueError as exc:
+-                QMessageBox.critical(dialog, "Step invalido", str(exc))
++                QMessageBox.critical(dialog, "Paso invalido", str(exc))
+                 return
+             new_params = editor.get_values()
+             new_step = {
+@@ -612,7 +706,7 @@ class ConfigWindow(QWidget):
+                 self.recipe_manager.save(self.current_recipe)
+             except ValueError as exc:
+                 self.current_recipe["steps"].pop()
+-                QMessageBox.critical(dialog, "Step invalido", str(exc))
++                QMessageBox.critical(dialog, "Paso invalido", str(exc))
+                 return
+ 
+             self.load_tools()  # RECARGA LA LISTA DE HERRAMIENTAS PARA MOSTRAR LA NUEVA AGREGADA
+@@ -654,18 +748,26 @@ class ConfigWindow(QWidget):
+         
+         step = self.current_recipe["steps"][selected]
+         tool_name = step["tool"]
++        step_name = step.get("id", tool_name)
+ 
+-        path = self.build_base_path(tool_name, selected)
+-        
+-        del self.current_recipe["steps"][selected]
++        if not self.confirm_action(
++            "Borrar paso",
++            f"Se retirara el paso '{step_name}' de la receta. "
++            "Sus recursos se archivaran para recuperacion. ¿Continuar?",
++        ):
++            return
+ 
+-        # ELIMINAR LA CARPETA DE IMAGENES ASOCIADA A LA HERRAMIENTA ELIMINADA
+-        if os.path.exists(path):
+-            shutil.rmtree(path)
++        path = self.build_base_path(tool_name, selected)
+ 
+-        self.recipe_manager.save(self.current_recipe)
++        candidate = copy.deepcopy(self.current_recipe)
++        del candidate["steps"][selected]
++        self.recipe_manager.save(candidate)
++        self.current_recipe.clear()
++        self.current_recipe.update(candidate)
++        self.archive_resource_path(path)
+ 
+         self.load_tools()
++        self.refresh_recipe_summary()
+           
+ 
+     def load_tools(self):
+@@ -745,18 +847,22 @@ class ConfigWindow(QWidget):
+             print("Receta no encontrada")
+             return
+ 
+-        # ELIMINAR CARPETA DE IMAGENES ASOCIADA A LA RECETA
++        if not self.confirm_action(
++            "Borrar receta",
++            f"Se retirara la receta '{name}' y sus recursos se archivaran. "
++            "Esta accion no puede realizarse durante produccion. ¿Continuar?",
++        ):
++            return
++
+         safe = self.safe_name(name)
+         path = str(self.recipe_resource_root() / safe)
+ 
+-        if os.path.exists(path):
+-            shutil.rmtree(path)
+-
+         was_active = False
+         if self.state_manager and getattr(self.state_manager, "active_recipe_name", None) == name:
+             was_active = True
+ 
+         self.recipe_manager.delete(name)
++        self.archive_resource_path(path)
+ 
+         recipes = self.recipe_manager.get_all()
+ 
+@@ -769,6 +875,7 @@ class ConfigWindow(QWidget):
+                 self.state_manager.set_active_recipe(None)
+ 
+             print("[CONFIG] No quedan recetas disponibles")
++            self.refresh_recipe_summary()
+             return
+ 
+         # Seleccionar la primera receta restante.
+@@ -792,6 +899,7 @@ class ConfigWindow(QWidget):
+             return
+ 
+         self.recipe_manager.save(self.current_recipe)
++        self.refresh_recipe_summary()
+ 
+         if self.state_manager:
+             self.state_manager.set_active_recipe(self.current_recipe["name"])
+@@ -807,10 +915,13 @@ class ConfigWindow(QWidget):
+             return
+         
+         self.recipe_manager.set_selected(name)
++        self.current_recipe = self.recipe_manager.get(name)
++        self.refresh_recipe_summary()
+         
+         if self.state_manager:
+             self.state_manager.set_active_recipe(name)
+ 
++        self.update_rois.emit()
+         print(f"Receta seleccionada: {name}")
+ 
+     def closeEvent(self, event):
+diff --git a/ui/focus_config_dialog.py b/ui/focus_config_dialog.py
+index c921a2e..918baf0 100644
+--- a/ui/focus_config_dialog.py
++++ b/ui/focus_config_dialog.py
+@@ -4,6 +4,7 @@ from utils.qt_compat import (
+ )
+ 
+ from core.camera_runtime import format_camera_runtime, manual_focus_preflight
++from core.focus_modes import FOCUS_MODE_LABELS, focus_mode_label
+ from ui.widgets.video_widget import VideoWidget
+ from ui.responsive import compact_stylesheet, profile_from_widget
+ from ui.theme import interface_stylesheet
+@@ -30,7 +31,7 @@ class FocusConfigDialog(QDialog):
+ 
+         self.focus_result = None
+ 
+-        self.setWindowTitle("Calibracion de enfoque")
++        self.setWindowTitle("Calibracion de enfoque de la receta")
+         self.setStyleSheet(
+             interface_stylesheet(self.display_profile)
+             + compact_stylesheet(self.display_profile)
+@@ -55,16 +56,8 @@ class FocusConfigDialog(QDialog):
+         self.lbl_status = QLabel("Selecciona una ROI de enfoque o usa la existente")
+         self.lbl_status.setAlignment(Qt.AlignCenter)
+         self.lbl_status.setWordWrap(True)
+-        self.lbl_status.setMinimumHeight(38)
+-        radius = max(5, round(8 * self.display_profile.scale))
+-        self.lbl_status.setStyleSheet(f"""
+-            QLabel {{
+-                padding: 8px;
+-                border-radius: {radius}px;
+-                background-color: rgb(15, 27, 61);
+-                border: 1px solid rgb(91, 192, 190);
+-            }}
+-        """)
++        self.lbl_status.setMinimumHeight(self.display_profile.touch_target)
++        self.lbl_status.setProperty("uiRole", "summary")
+ 
+         self.lbl_camera = QLabel(format_camera_runtime(self.camera_runtime))
+         self.lbl_camera.setWordWrap(True)
+@@ -74,12 +67,8 @@ class FocusConfigDialog(QDialog):
+         )
+ 
+         self.cmb_focus_mode = QComboBox()
+-        self.cmb_focus_mode.addItems([
+-            "calibrated",
+-            "manual_fixed",
+-            "auto_continuous",
+-            "disabled",
+-        ])
++        for value, label in FOCUS_MODE_LABELS.items():
++            self.cmb_focus_mode.addItem(label, value)
+         self.cmb_focus_mode.setMinimumHeight(34)
+ 
+         self.video = VideoWidget(
+@@ -97,6 +86,8 @@ class FocusConfigDialog(QDialog):
+         self.btn_calibrate = QPushButton("CALIBRAR")
+         self.btn_save = QPushButton("GUARDAR")
+         self.btn_cancel = QPushButton("CANCELAR")
++        self.btn_calibrate.setProperty("buttonRole", "primary")
++        self.btn_save.setProperty("buttonRole", "primary")
+ 
+         buttons = [
+             self.btn_select_roi,
+@@ -108,7 +99,7 @@ class FocusConfigDialog(QDialog):
+ 
+         for btn in buttons:
+             btn.setCursor(Qt.PointingHandCursor)
+-            btn.setMinimumHeight(36)
++            btn.setMinimumHeight(self.display_profile.touch_target)
+             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+ 
+         buttons_top = QHBoxLayout()
+@@ -143,13 +134,18 @@ class FocusConfigDialog(QDialog):
+         self.btn_calibrate.clicked.connect(self.request_calibration)
+         self.btn_save.clicked.connect(self.save_focus_config)
+         self.btn_cancel.clicked.connect(self.reject)
+-        self.cmb_focus_mode.currentTextChanged.connect(self.on_focus_mode_changed)
++        self.cmb_focus_mode.currentIndexChanged.connect(
++            lambda _index: self.on_focus_mode_changed(self.current_focus_mode())
++        )
++
++    def current_focus_mode(self):
++        return str(self.cmb_focus_mode.currentData() or "disabled")
+ 
+     def load_focus_config(self):
+         focus = self.recipe.get("focus", {})
+ 
+         mode = focus.get("mode", "calibrated")
+-        mode_index = self.cmb_focus_mode.findText(mode)
++        mode_index = self.cmb_focus_mode.findData(mode)
+         self.cmb_focus_mode.setCurrentIndex(max(0, mode_index))
+         roi = focus.get("roi")
+         value = focus.get("value")
+@@ -162,7 +158,8 @@ class FocusConfigDialog(QDialog):
+             roi_text = "ROI actual: frame completo"
+ 
+         self.lbl_status.setText(
+-            f"Modo: {mode} | {roi_text} | Focus: {value} | Min Score: {min_score}"
++            f"Modo: {focus_mode_label(mode)} | {roi_text} | Enfoque: {value} | "
++            f"Puntuacion minima: {min_score}"
+         )
+         self.on_focus_mode_changed(mode)
+ 
+@@ -198,7 +195,7 @@ class FocusConfigDialog(QDialog):
+         self.lbl_status.setText("ROI eliminada. Se usara el frame completo para enfocar.")
+ 
+     def request_calibration(self):
+-        mode = self.cmb_focus_mode.currentText()
++        mode = self.current_focus_mode()
+         if mode not in ("calibrated", "manual_fixed"):
+             self.lbl_status.setText("Este modo no requiere calibracion manual.")
+             return
+@@ -251,8 +248,8 @@ class FocusConfigDialog(QDialog):
+             self.video.set_rois([tuple(roi)])
+ 
+         self.lbl_status.setText(
+-            f"Calibración OK en {device} | Focus: {focus_value} | "
+-            f"Score: {median_score} | Min score: {min_score}"
++            f"Calibracion correcta en {device} | Enfoque: {focus_value} | "
++            f"Puntuacion: {median_score} | Minima: {min_score}"
+         )
+ 
+     @Slot(str)
+@@ -268,7 +265,7 @@ class FocusConfigDialog(QDialog):
+             self.recipe["focus"] = {}
+ 
+         roi = self.video.get_roi()
+-        mode = self.cmb_focus_mode.currentText()
++        mode = self.current_focus_mode()
+ 
+         if self.focus_result and mode in ("calibrated", "manual_fixed"):
+             self.recipe["focus"] = {
+diff --git a/ui/main_window.ui b/ui/main_window.ui
+index fed97af..51ca684 100644
+--- a/ui/main_window.ui
++++ b/ui/main_window.ui
+@@ -129,7 +129,7 @@
+ background-color: transparent;</string>
+          </property>
+          <property name="text">
+-          <string>SISTEMA DE VISIÓN - SUMMIT USB</string>
++          <string>SISTEMA DE VISIÓN</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+@@ -264,7 +264,7 @@ border-radius: 8px;</string>
+ background-color: transparent;</string>
+           </property>
+           <property name="text">
+-           <string>CAMARA</string>
++          <string>VISTA DE INSPECCIÓN</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+@@ -380,7 +380,7 @@ border-color: rgb(94, 192, 190);
+ background-color: transparent;</string>
+             </property>
+             <property name="text">
+-             <string>MODELO DE PIEZA: A</string>
++             <string>RECETA ACTIVA</string>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignCenter</set>
+@@ -426,7 +426,7 @@ border-color: rgb(91, 192, 190);
+ background-color: rgb(15, 27, 61);</string>
+             </property>
+             <property name="text">
+-             <string>CONFIGURACIÓN</string>
++             <string>CONFIGURAR ESTACIÓN</string>
+             </property>
+            </widget>
+           </item>
+@@ -522,7 +522,7 @@ background-color: rgb(15, 27, 61);
+ background-color: transparent;</string>
+             </property>
+             <property name="text">
+-             <string>INSPECCION</string>
++             <string>SISTEMA INICIANDO</string>
+             </property>
+            </widget>
+           </item>
+diff --git a/ui/pyqt5/config_window.py b/ui/pyqt5/config_window.py
+index 874bfb5..6115b2b 100644
+--- a/ui/pyqt5/config_window.py
++++ b/ui/pyqt5/config_window.py
+@@ -386,16 +386,16 @@ class Ui_Form(object):
+     def retranslateUi(self, Form):
+         _translate = QtCore.QCoreApplication.translate
+         Form.setWindowTitle(_translate("Form", "Form"))
+-        self.lbl_tittle.setText(_translate("Form", "SISTEMA DE VISIÓN - CONFIGURACIÓN"))
++        self.lbl_tittle.setText(_translate("Form", "CONFIGURACIÓN DEL MOTOR DE VISIÓN"))
+         self.lbl_recipes.setText(_translate("Form", "RECETAS"))
+-        self.btn_add_r.setText(_translate("Form", "AGREGAR"))
+-        self.btn_del_r.setText(_translate("Form", "ELIMINAR"))
+-        self.btn_select_r.setText(_translate("Form", "SELECCIONAR"))
+-        self.lbl_tools.setText(_translate("Form", "HERRAMIENTAS"))
+-        self.btn_edit_t.setText(_translate("Form", "EDITAR"))
+-        self.btn_add_t.setText(_translate("Form", "AGREGAR"))
+-        self.btn_del_t.setText(_translate("Form", "ELIMINAR"))
+-        self.lbl_focus.setText(_translate("Form", "ENFOQUE DE CAMARA"))
+-        self.btn_focus_config.setText(_translate("Form", "FOCUS CONFIG"))
++        self.btn_add_r.setText(_translate("Form", "NUEVA"))
++        self.btn_del_r.setText(_translate("Form", "BORRAR"))
++        self.btn_select_r.setText(_translate("Form", "ACTIVAR"))
++        self.lbl_tools.setText(_translate("Form", "PASOS DE INSPECCIÓN"))
++        self.btn_edit_t.setText(_translate("Form", "EDITAR PASO"))
++        self.btn_add_t.setText(_translate("Form", "AGREGAR PASO"))
++        self.btn_del_t.setText(_translate("Form", "BORRAR PASO"))
++        self.lbl_focus.setText(_translate("Form", "CÁMARA Y ENFOQUE"))
++        self.btn_focus_config.setText(_translate("Form", "CONFIGURAR ENFOQUE"))
+         self.btn_save.setText(_translate("Form", "GUARDAR"))
+-        self.btn_out.setText(_translate("Form", "SALIR"))
++        self.btn_out.setText(_translate("Form", "VOLVER"))
+diff --git a/ui/pyqt5/ui_main_window.py b/ui/pyqt5/ui_main_window.py
+index 555f928..eb36634 100644
+--- a/ui/pyqt5/ui_main_window.py
++++ b/ui/pyqt5/ui_main_window.py
+@@ -273,12 +273,12 @@ class Ui_MainWindow(object):
+     def retranslateUi(self, MainWindow):
+         _translate = QtCore.QCoreApplication.translate
+         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
+-        self.lbl_tittle.setText(_translate("MainWindow", "SISTEMA DE VISIÓN - SUMMIT USB"))
++        self.lbl_tittle.setText(_translate("MainWindow", "SISTEMA DE VISIÓN"))
+         self.btn_minimizar.setText(_translate("MainWindow", "-"))
+         self.btn_cerrar.setText(_translate("MainWindow", "X"))
+-        self.lbl_cam.setText(_translate("MainWindow", "CAMARA"))
+-        self.lbl_model.setText(_translate("MainWindow", "MODELO DE PIEZA: A"))
+-        self.btn_config.setText(_translate("MainWindow", "CONFIGURACIÓN"))
++        self.lbl_cam.setText(_translate("MainWindow", "VISTA DE INSPECCIÓN"))
++        self.lbl_model.setText(_translate("MainWindow", "RECETA ACTIVA"))
++        self.btn_config.setText(_translate("MainWindow", "CONFIGURAR ESTACIÓN"))
+         self.indicator_1.setText(_translate("MainWindow", "✔"))
+-        self.lbl_indicator_1.setText(_translate("MainWindow", "INSPECCION"))
++        self.lbl_indicator_1.setText(_translate("MainWindow", "SISTEMA INICIANDO"))
+ from ui.widgets.video_widget import VideoWidget
+diff --git a/ui/pyside6/ui_config_window.py b/ui/pyside6/ui_config_window.py
+index 65123a3..821a0e7 100644
+--- a/ui/pyside6/ui_config_window.py
++++ b/ui/pyside6/ui_config_window.py
+@@ -418,18 +418,17 @@ class Ui_Form(object):
+ 
+     def retranslateUi(self, Form):
+         Form.setWindowTitle(QCoreApplication.translate("Form", u"Form", None))
+-        self.lbl_tittle.setText(QCoreApplication.translate("Form", u"SISTEMA DE VISI\u00d3N - CONFIGURACI\u00d3N", None))
++        self.lbl_tittle.setText(QCoreApplication.translate("Form", u"CONFIGURACI\u00d3N DEL MOTOR DE VISI\u00d3N", None))
+         self.lbl_recipes.setText(QCoreApplication.translate("Form", u"RECETAS", None))
+-        self.btn_add_r.setText(QCoreApplication.translate("Form", u"AGREGAR", None))
+-        self.btn_del_r.setText(QCoreApplication.translate("Form", u"ELIMINAR", None))
+-        self.btn_select_r.setText(QCoreApplication.translate("Form", u"SELECCIONAR", None))
+-        self.lbl_tools.setText(QCoreApplication.translate("Form", u"HERRAMIENTAS", None))
+-        self.btn_edit_t.setText(QCoreApplication.translate("Form", u"EDITAR", None))
+-        self.btn_add_t.setText(QCoreApplication.translate("Form", u"AGREGAR", None))
+-        self.btn_del_t.setText(QCoreApplication.translate("Form", u"ELIMINAR", None))
+-        self.lbl_focus.setText(QCoreApplication.translate("Form", u"ENFOQUE DE CAMARA", None))
+-        self.btn_focus_config.setText(QCoreApplication.translate("Form", u"FOCUS CONFIG", None))
++        self.btn_add_r.setText(QCoreApplication.translate("Form", u"NUEVA", None))
++        self.btn_del_r.setText(QCoreApplication.translate("Form", u"BORRAR", None))
++        self.btn_select_r.setText(QCoreApplication.translate("Form", u"ACTIVAR", None))
++        self.lbl_tools.setText(QCoreApplication.translate("Form", u"PASOS DE INSPECCI\u00d3N", None))
++        self.btn_edit_t.setText(QCoreApplication.translate("Form", u"EDITAR PASO", None))
++        self.btn_add_t.setText(QCoreApplication.translate("Form", u"AGREGAR PASO", None))
++        self.btn_del_t.setText(QCoreApplication.translate("Form", u"BORRAR PASO", None))
++        self.lbl_focus.setText(QCoreApplication.translate("Form", u"C\u00c1MARA Y ENFOQUE", None))
++        self.btn_focus_config.setText(QCoreApplication.translate("Form", u"CONFIGURAR ENFOQUE", None))
+         self.btn_save.setText(QCoreApplication.translate("Form", u"GUARDAR", None))
+-        self.btn_out.setText(QCoreApplication.translate("Form", u"SALIR", None))
++        self.btn_out.setText(QCoreApplication.translate("Form", u"VOLVER", None))
+     # retranslateUi
+-
+diff --git a/ui/pyside6/ui_main_window.py b/ui/pyside6/ui_main_window.py
+index f5eaf7a..aaf2239 100644
+--- a/ui/pyside6/ui_main_window.py
++++ b/ui/pyside6/ui_main_window.py
+@@ -299,14 +299,13 @@ class Ui_MainWindow(object):
+ 
+     def retranslateUi(self, MainWindow):
+         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"MainWindow", None))
+-        self.lbl_tittle.setText(QCoreApplication.translate("MainWindow", u"SISTEMA DE VISI\u00d3N - SUMMIT USB", None))
++        self.lbl_tittle.setText(QCoreApplication.translate("MainWindow", u"SISTEMA DE VISI\u00d3N", None))
+         self.btn_minimizar.setText(QCoreApplication.translate("MainWindow", u"-", None))
+         self.btn_cerrar.setText(QCoreApplication.translate("MainWindow", u"X", None))
+-        self.lbl_cam.setText(QCoreApplication.translate("MainWindow", u"CAMARA", None))
++        self.lbl_cam.setText(QCoreApplication.translate("MainWindow", u"VISTA DE INSPECCI\u00d3N", None))
+         self.lbl_video.setText("")
+-        self.lbl_model.setText(QCoreApplication.translate("MainWindow", u"MODELO DE PIEZA: A", None))
+-        self.btn_config.setText(QCoreApplication.translate("MainWindow", u"CONFIGURACI\u00d3N", None))
++        self.lbl_model.setText(QCoreApplication.translate("MainWindow", u"RECETA ACTIVA", None))
++        self.btn_config.setText(QCoreApplication.translate("MainWindow", u"CONFIGURAR ESTACI\u00d3N", None))
+         self.indicator_1.setText(QCoreApplication.translate("MainWindow", u"\u2714", None))
+-        self.lbl_indicator_1.setText(QCoreApplication.translate("MainWindow", u"INSPECCION", None))
++        self.lbl_indicator_1.setText(QCoreApplication.translate("MainWindow", u"SISTEMA INICIANDO", None))
+     # retranslateUi
+-
+diff --git a/ui/recipe_policy_dialogs.py b/ui/recipe_policy_dialogs.py
+index ade72c4..435ceeb 100644
+--- a/ui/recipe_policy_dialogs.py
++++ b/ui/recipe_policy_dialogs.py
+@@ -21,6 +21,7 @@ from utils.qt_compat import (
+     Signal,
+ )
+ from ui.responsive import compact_stylesheet, profile_from_widget
++from core.focus_modes import focus_mode_label
+ 
+ 
+ class StepPolicyEditor(QWidget):
+@@ -47,7 +48,7 @@ class StepPolicyEditor(QWidget):
+         self.txt_condition.setPlaceholderText(
+             '{"type": "always"} o una condicion del esquema v2'
+         )
+-        form.addRow("ID unico del step", self.txt_step_id)
++        form.addRow("ID unico del paso", self.txt_step_id)
+         form.addRow("Habilitado", self.chk_enabled)
+         form.addRow("Requerido", self.chk_required)
+         form.addRow("Condicion (JSON)", self.txt_condition)
+@@ -65,7 +66,7 @@ class StepPolicyEditor(QWidget):
+     def get_values(self):
+         step_id = self.txt_step_id.text().strip()
+         if not step_id:
+-            raise EditorValueError("El ID del step es obligatorio")
++            raise EditorValueError("El ID del paso es obligatorio")
+         condition = parse_condition_text(
+             self.txt_condition.toPlainText(),
+             available_step_ids=self.available_step_ids,
+@@ -121,6 +122,7 @@ class RecipeSettingsDialog(QDialog):
+         buttons = QHBoxLayout()
+         cancel = QPushButton("CANCELAR")
+         save = QPushButton("VALIDAR Y GUARDAR")
++        save.setProperty("buttonRole", "primary")
+         buttons.addWidget(cancel)
+         buttons.addWidget(save)
+         layout.addLayout(buttons)
+@@ -137,7 +139,8 @@ class RecipeSettingsDialog(QDialog):
+         enabled = sum(1 for step in steps if step.get("enabled", True))
+         focus_mode = self.recipe.get("focus", {}).get("mode", "calibrated")
+         self.lbl_summary.setText(
+-            f"{enabled}/{len(steps)} steps habilitados | enfoque: {focus_mode}"
++            f"{enabled}/{len(steps)} pasos habilitados | "
++            f"enfoque: {focus_mode_label(focus_mode)}"
+         )
+ 
+     def _save(self):
+diff --git a/ui/responsive.py b/ui/responsive.py
+index b87df09..7cd4a95 100644
+--- a/ui/responsive.py
++++ b/ui/responsive.py
+@@ -75,6 +75,8 @@ def apply_main_window_layout(window, ui, profile):
+     ui.btn_config.setMinimumHeight(profile.touch_target)
+     ui.btn_config.setMaximumHeight(profile.touch_target + 6)
+     ui.indicator_1.setFixedSize(profile.indicator_size, profile.indicator_size)
++    ui.lbl_model.setMinimumHeight(profile.touch_target + 10)
++    ui.lbl_indicator_1.setMinimumHeight(profile.indicator_size)
+ 
+     ui.left_panel.setSpacing(profile.spacing)
+     ui.left_panel.setContentsMargins(0, 0, 0, 0)
+@@ -83,9 +85,10 @@ def apply_main_window_layout(window, ui, profile):
+         profile.spacing, 0, 0, 0
+     )
+     ui.status_1.setContentsMargins(0, 0, 0, 0)
++    ui.status_1.setSpacing(profile.spacing)
+     ui.central_panel.setSpacing(profile.spacing)
+-    ui.central_panel.setStretch(0, 3)
+-    ui.central_panel.setStretch(1, 2)
++    ui.central_panel.setStretch(0, 5)
++    ui.central_panel.setStretch(1, 3)
+ 
+     ui.bttm_bar.setMinimumHeight(profile.log_height)
+     ui.bttm_bar.setMaximumHeight(profile.log_height)
+@@ -130,6 +133,20 @@ def apply_config_window_layout(window, ui, profile):
+     ):
+         _unlock(widget, (0, 0))
+ 
++    for button in (
++        ui.btn_add_r,
++        ui.btn_del_r,
++        ui.btn_select_r,
++        ui.btn_add_t,
++        ui.btn_del_t,
++        ui.btn_edit_t,
++        ui.btn_focus_config,
++        ui.btn_save,
++        ui.btn_out,
++    ):
++        _unlock(button, (0, profile.touch_target))
++        button.setMaximumHeight(WIDGET_SIZE_MAX)
++
+     ui.top_bar.setMinimumHeight(profile.top_bar_height)
+     ui.top_bar.setMaximumHeight(profile.top_bar_height)
+     _set_font_points(ui.lbl_tittle, profile.title_points, bold=True)
+diff --git a/ui/system_config_dialog.py b/ui/system_config_dialog.py
+index 7188938..bb60fc2 100644
+--- a/ui/system_config_dialog.py
++++ b/ui/system_config_dialog.py
+@@ -32,6 +32,7 @@ from utils.qt_compat import (
+ from ui.responsive import compact_stylesheet, profile_from_widget
+ from ui.theme import interface_stylesheet
+ from core.camera_runtime import format_camera_runtime
++from core.focus_modes import FOCUS_MODE_LABELS
+ 
+ 
+ class SystemConfigDialog(QDialog):
+@@ -54,7 +55,7 @@ class SystemConfigDialog(QDialog):
+         self.platform = platform
+         self.camera_runtime = dict(camera_runtime or {})
+         self.display_profile = display_profile or profile_from_widget(parent or self)
+-        self.setWindowTitle("Configuracion de instalacion")
++        self.setWindowTitle("Configuracion de la estacion")
+         self.setStyleSheet(
+             interface_stylesheet(self.display_profile)
+             + compact_stylesheet(self.display_profile)
+@@ -68,8 +69,9 @@ class SystemConfigDialog(QDialog):
+         root.setContentsMargins(margin, margin, margin, margin)
+         root.setSpacing(self.display_profile.spacing)
+ 
+-        title = QLabel("INSTALACION DEL MOTOR UNIVERSAL")
++        title = QLabel("CONFIGURACION DE LA ESTACION")
+         title.setAlignment(Qt.AlignCenter)
++        title.setProperty("uiRole", "summary")
+         root.addWidget(title)
+ 
+         self.tabs = QTabWidget()
+@@ -93,6 +95,7 @@ class SystemConfigDialog(QDialog):
+         buttons = QHBoxLayout()
+         self.btn_cancel = QPushButton("CANCELAR")
+         self.btn_save = QPushButton("VALIDAR Y GUARDAR")
++        self.btn_save.setProperty("buttonRole", "primary")
+         buttons.addWidget(self.btn_cancel)
+         buttons.addWidget(self.btn_save)
+         root.addLayout(buttons)
+@@ -161,12 +164,8 @@ class SystemConfigDialog(QDialog):
+         self.spn_capture_fps = self._float_spin(0.1, 240.0, 1)
+         self.spn_preview_fps = self._float_spin(0.1, 120.0, 1)
+         self.cmb_default_focus = QComboBox()
+-        self.cmb_default_focus.addItems([
+-            "calibrated",
+-            "manual_fixed",
+-            "auto_continuous",
+-            "disabled",
+-        ])
++        for value, label in FOCUS_MODE_LABELS.items():
++            self.cmb_default_focus.addItem(label, value)
+ 
+         form.addRow("ID de instalacion", self.txt_installation_id)
+         form.addRow("Nombre", self.txt_installation_name)
+@@ -295,6 +294,7 @@ class SystemConfigDialog(QDialog):
+         row = QHBoxLayout()
+         add = QPushButton("AGREGAR")
+         remove = QPushButton("ELIMINAR")
++        remove.setProperty("buttonRole", "danger")
+         add.clicked.connect(add_callback)
+         remove.clicked.connect(lambda: self._remove_current_row(table))
+         row.addWidget(add)
+@@ -356,7 +356,7 @@ class SystemConfigDialog(QDialog):
+         self.spn_camera_height.setValue(int(camera.get("height", 1080)))
+         self.spn_capture_fps.setValue(float(camera.get("capture_fps", 30)))
+         self.spn_preview_fps.setValue(float(camera.get("preview_fps", 10)))
+-        focus_index = self.cmb_default_focus.findText(
++        focus_index = self.cmb_default_focus.findData(
+             str(camera.get("default_focus_mode", "calibrated"))
+         )
+         self.cmb_default_focus.setCurrentIndex(max(0, focus_index))
+@@ -452,7 +452,9 @@ class SystemConfigDialog(QDialog):
+             "height": self.spn_camera_height.value(),
+             "capture_fps": self.spn_capture_fps.value(),
+             "preview_fps": self.spn_preview_fps.value(),
+-            "default_focus_mode": self.cmb_default_focus.currentText(),
++            "default_focus_mode": str(
++                self.cmb_default_focus.currentData() or "calibrated"
++            ),
+         })
+         candidate["controller"].update({
+             "ports": self._read_ports(),
+diff --git a/ui/theme.py b/ui/theme.py
+index d970116..7fc7966 100644
+--- a/ui/theme.py
++++ b/ui/theme.py
+@@ -1,4 +1,4 @@
+-"""Shared high-contrast Qt stylesheet derived from the active display."""
++"""Shared industrial Qt theme derived from the active display."""
+ 
+ 
+ def interface_stylesheet(profile):
+@@ -12,46 +12,82 @@ def interface_stylesheet(profile):
+ 
+     return f"""
+         QWidget {{
+-            background-color: rgb(11, 19, 43);
+-            color: rgb(234, 234, 234);
++            background-color: rgb(7, 17, 31);
++            color: rgb(235, 241, 248);
++            font-family: "DejaVu Sans";
+             font-size: {getattr(profile, "body_points", 10)}pt;
+         }}
+ 
+         QLabel {{
+-            color: rgb(234, 234, 234);
++            color: rgb(235, 241, 248);
+             background-color: transparent;
+         }}
++        QLabel[uiRole="summary"] {{
++            color: rgb(174, 205, 224);
++            background-color: rgb(13, 27, 44);
++            border: 1px solid rgb(35, 57, 78);
++            border-radius: {field_radius + 3}px;
++            padding: {padding}px;
++            font-weight: 700;
++        }}
++        QFrame#top_bar, QFrame#frame {{
++            background-color: rgb(9, 23, 39);
++            border: 1px solid rgb(35, 57, 78);
++            border-radius: {field_radius + 4}px;
++        }}
++        QFrame#frame QLabel, QFrame#frame QListWidget {{
++            background-color: transparent;
++        }}
++        QFrame#frame QListWidget {{
++            border: none;
++        }}
++        QFrame#line, QFrame#line_2 {{
++            color: rgb(35, 57, 78);
++            background-color: rgb(35, 57, 78);
++            border: none;
++        }}
+ 
+         QPushButton {{
+-            color: rgb(234, 234, 234);
++            color: rgb(235, 241, 248);
+             border-radius: {button_radius}px;
+-            border: 2px solid rgb(91, 192, 190);
+-            background-color: rgb(15, 27, 61);
++            border: 1px solid rgb(58, 82, 108);
++            background-color: rgb(17, 32, 51);
+             min-height: {field_height}px;
+             padding: 2px {padding * 2}px;
+         }}
+         QPushButton:hover {{
+-            background-color: rgb(20, 38, 82);
+-            border-color: rgb(46, 196, 182);
++            background-color: rgb(24, 48, 72);
++            border-color: rgb(57, 198, 200);
+         }}
+         QPushButton:pressed {{
+-            background-color: rgb(46, 196, 182);
+-            color: rgb(11, 19, 43);
++            background-color: rgb(57, 198, 200);
++            color: rgb(5, 19, 28);
+         }}
+         QPushButton:disabled {{
+             color: rgb(130, 142, 162);
+-            border-color: rgb(65, 83, 112);
+-            background-color: rgb(20, 29, 53);
++            border-color: rgb(40, 56, 74);
++            background-color: rgb(14, 26, 41);
++        }}
++        QPushButton[buttonRole="primary"] {{
++            color: rgb(4, 24, 31);
++            border-color: rgb(57, 198, 200);
++            background-color: rgb(57, 198, 200);
++            font-weight: 700;
++        }}
++        QPushButton[buttonRole="danger"] {{
++            color: rgb(255, 226, 229);
++            border-color: rgb(159, 60, 72);
++            background-color: rgb(92, 32, 43);
+         }}
+ 
+         QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox, QPlainTextEdit,
+         QTextEdit, QTableWidget, QListWidget {{
+             color: rgb(245, 247, 250);
+             border-radius: {field_radius}px;
+-            border: 2px solid rgb(91, 192, 190);
+-            background-color: rgb(15, 27, 61);
+-            selection-background-color: rgb(46, 196, 182);
+-            selection-color: rgb(11, 19, 43);
++            border: 1px solid rgb(58, 82, 108);
++            background-color: rgb(13, 27, 44);
++            selection-background-color: rgb(57, 198, 200);
++            selection-color: rgb(5, 19, 28);
+         }}
+         QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox {{
+             min-height: {field_height}px;
+@@ -67,10 +103,10 @@ def interface_stylesheet(profile):
+         }}
+         QComboBox QAbstractItemView {{
+             color: rgb(245, 247, 250);
+-            background-color: rgb(15, 27, 61);
+-            border: 2px solid rgb(91, 192, 190);
+-            selection-background-color: rgb(46, 196, 182);
+-            selection-color: rgb(11, 19, 43);
++            background-color: rgb(13, 27, 44);
++            border: 1px solid rgb(58, 82, 108);
++            selection-background-color: rgb(57, 198, 200);
++            selection-color: rgb(5, 19, 28);
+             outline: 0;
+         }}
+ 
+@@ -78,12 +114,12 @@ def interface_stylesheet(profile):
+         QDoubleSpinBox::down-button, QSpinBox::down-button {{
+             subcontrol-origin: border;
+             width: {field_height - 8}px;
+-            border-left: 1px solid rgb(91, 192, 190);
+-            background-color: rgb(20, 38, 82);
++            border-left: 1px solid rgb(58, 82, 108);
++            background-color: rgb(24, 48, 72);
+         }}
+         QDoubleSpinBox::up-button, QSpinBox::up-button {{
+             subcontrol-position: top right;
+-            border-bottom: 1px solid rgb(91, 192, 190);
++            border-bottom: 1px solid rgb(58, 82, 108);
+         }}
+         QDoubleSpinBox::down-button, QSpinBox::down-button {{
+             subcontrol-position: bottom right;
+@@ -99,12 +135,12 @@ def interface_stylesheet(profile):
+             width: {max(15, round(17 * scale))}px;
+             height: {max(15, round(17 * scale))}px;
+             border-radius: {field_radius}px;
+-            border: 2px solid rgb(91, 192, 190);
+-            background-color: rgb(15, 27, 61);
++            border: 2px solid rgb(57, 198, 200);
++            background-color: rgb(13, 27, 44);
+         }}
+         QCheckBox::indicator:checked {{
+-            background-color: rgb(46, 196, 182);
+-            border-color: rgb(46, 196, 182);
++            background-color: rgb(57, 198, 200);
++            border-color: rgb(57, 198, 200);
+         }}
+ 
+         QTabWidget::pane {{
+@@ -113,55 +149,55 @@ def interface_stylesheet(profile):
+         }}
+         QTabBar::tab {{
+             color: rgb(234, 234, 234);
+-            background-color: rgb(20, 38, 82);
++            background-color: rgb(24, 48, 72);
+             min-height: {max(28, field_height - 4)}px;
+             padding: 2px {padding * 2}px;
+             border: 1px solid rgb(65, 83, 112);
+         }}
+         QTabBar::tab:selected {{
+-            color: rgb(11, 19, 43);
+-            background-color: rgb(91, 192, 190);
++            color: rgb(5, 19, 28);
++            background-color: rgb(57, 198, 200);
+         }}
+ 
+         QHeaderView::section {{
+             color: rgb(234, 234, 234);
+-            background-color: rgb(20, 38, 82);
++            background-color: rgb(24, 48, 72);
+             border: 1px solid rgb(65, 83, 112);
+             padding: {padding}px;
+         }}
+         QTableWidget::item, QListWidget::item {{
+             color: rgb(245, 247, 250);
+-            background-color: rgb(15, 27, 61);
++            background-color: rgb(13, 27, 44);
+             padding: {max(2, padding // 2)}px;
+         }}
+         QTableWidget::item:selected, QListWidget::item:selected {{
+-            color: rgb(11, 19, 43);
+-            background-color: rgb(46, 196, 182);
++            color: rgb(5, 19, 28);
++            background-color: rgb(57, 198, 200);
+         }}
+ 
+         QScrollArea, QScrollArea > QWidget > QWidget {{
+             border: none;
+-            background-color: rgb(11, 19, 43);
++            background-color: rgb(7, 17, 31);
+         }}
+         QScrollBar:vertical {{
+-            background-color: rgb(15, 27, 61);
++            background-color: rgb(13, 27, 44);
+             width: {scroll_width}px;
+             margin: 0;
+             border-radius: {scroll_radius}px;
+         }}
+         QScrollBar::handle:vertical {{
+-            background-color: rgb(91, 192, 190);
++            background-color: rgb(57, 198, 200);
+             min-height: {max(32, field_height)}px;
+             border-radius: {scroll_radius}px;
+         }}
+         QScrollBar:horizontal {{
+-            background-color: rgb(15, 27, 61);
++            background-color: rgb(13, 27, 44);
+             height: {scroll_width}px;
+             margin: 0;
+             border-radius: {scroll_radius}px;
+         }}
+         QScrollBar::handle:horizontal {{
+-            background-color: rgb(91, 192, 190);
++            background-color: rgb(57, 198, 200);
+             min-width: {max(32, field_height)}px;
+             border-radius: {scroll_radius}px;
+         }}
+@@ -177,6 +213,119 @@ def interface_stylesheet(profile):
+ 
+         QMessageBox, QInputDialog, QToolTip {{
+             color: rgb(245, 247, 250);
+-            background-color: rgb(11, 19, 43);
++            background-color: rgb(7, 17, 31);
++        }}
++    """
++
++
++def operator_stylesheet(profile):
++    """Semantic styling for the production dashboard."""
++    indicator_size = int(getattr(profile, "indicator_size", 60))
++    indicator_radius = max(20, indicator_size // 2)
++    detail_points = max(8, int(getattr(profile, "body_points", 10)) - 1)
++    return f"""
++        QFrame#top_bar {{
++            background-color: rgb(9, 23, 39);
++            border: 1px solid rgb(35, 57, 78);
++            border-radius: 10px;
++        }}
++        QLabel#lbl_tittle {{
++            color: rgb(242, 247, 251);
++            font-weight: 700;
++            letter-spacing: 1px;
++        }}
++        QLabel#lbl_cam {{
++            color: rgb(143, 165, 187);
++            font-weight: 700;
++        }}
++        QLabel#lbl_video {{
++            color: rgb(143, 165, 187);
++            background-color: black;
++            border: 1px solid rgb(35, 57, 78);
++            border-radius: 10px;
++        }}
++        QLabel#lbl_model {{
++            color: rgb(143, 165, 187);
++            background-color: rgb(13, 27, 44);
++            border: 1px solid rgb(35, 57, 78);
++            border-radius: 10px;
++            padding: 8px;
++            font-weight: 700;
++        }}
++        QLabel#lbl_indicator_1 {{
++            color: rgb(235, 241, 248);
++            background-color: transparent;
++            font-size: {detail_points}pt;
++            font-weight: 600;
++        }}
++        QLabel[uiRole="logCaption"] {{
++            color: rgb(143, 165, 187);
++            font-size: {detail_points}pt;
++            font-weight: 700;
++            padding: 2px 8px;
++        }}
++        QFrame#bttm_bar {{
++            background-color: rgb(9, 23, 39);
++            border: 1px solid rgb(35, 57, 78);
++            border-radius: 10px;
++        }}
++        QListWidget#list_log {{
++            color: rgb(177, 194, 211);
++            background-color: transparent;
++            border: none;
++            padding: 2px;
++        }}
++        QPushButton#btn_config {{
++            color: rgb(4, 24, 31);
++            background-color: rgb(57, 198, 200);
++            border: 1px solid rgb(57, 198, 200);
++            font-weight: 700;
++        }}
++        QPushButton#btn_minimizar {{
++            background-color: rgb(17, 32, 51);
++            border: 1px solid rgb(58, 82, 108);
++        }}
++        QPushButton#btn_cerrar {{
++            background-color: rgb(92, 32, 43);
++            border: 1px solid rgb(159, 60, 72);
++        }}
++        QPushButton#indicator_1 {{
++            min-width: {indicator_size}px;
++            max-width: {indicator_size}px;
++            min-height: {indicator_size}px;
++            max-height: {indicator_size}px;
++            border-radius: {indicator_radius}px;
++            font-weight: 800;
++            padding: 0;
++        }}
++        QPushButton#indicator_1[statusLevel="ready"] {{
++            color: rgb(57, 198, 200);
++            background-color: rgb(12, 43, 55);
++            border: 2px solid rgb(57, 198, 200);
++        }}
++        QPushButton#indicator_1[statusLevel="working"] {{
++            color: rgb(207, 231, 255);
++            background-color: rgb(25, 67, 108);
++            border: 2px solid rgb(77, 157, 226);
++        }}
++        QPushButton#indicator_1[statusLevel="ok"] {{
++            color: white;
++            background-color: rgb(31, 111, 77);
++            border: 2px solid rgb(77, 201, 139);
++        }}
++        QPushButton#indicator_1[statusLevel="ng"] {{
++            color: white;
++            background-color: rgb(151, 42, 54);
++            border: 2px solid rgb(244, 100, 112);
++        }}
++        QPushButton#indicator_1[statusLevel="warning"] {{
++            color: rgb(255, 243, 204);
++            background-color: rgb(111, 76, 17);
++            border: 2px solid rgb(238, 180, 62);
++        }}
++        QPushButton#indicator_1[statusLevel="critical"] {{
++            color: white;
++            background-color: rgb(116, 30, 40);
++            border: 2px solid rgb(244, 100, 112);
+         }}
+     """
+-- 
+2.51.1
+

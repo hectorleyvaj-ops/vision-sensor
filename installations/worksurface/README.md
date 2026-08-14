@@ -58,9 +58,25 @@ histograma, la decision debe documentarse: se retira o deshabilita ese step y
 se actualiza `recipe_policy.required_tools` en `commissioning.json`. No se debe
 aprobar dejando `threshold: 0`.
 
-## Limite con fase 9
+## Aceptacion fase 10
 
-Los patrones de sensores del manifiesto son referencia del entorno fisico para
-la siguiente fase. El motor de vision no los interpreta. El firmware ESP32
-actual aun debe migrarse a `vision_controller_v1`; por eso esta instalacion no
-autoriza ciclos automaticos ni liberacion PLC durante fase 8.
+`acceptance.json` declara la poblacion minima, los limites estadisticos y la
+matriz de escenarios fisicos de Worksurface. Puede editarse para otra
+instalacion sin cambiar `core/acceptance.py`.
+
+Los codigos DataMatrix, ROI, enfoque y umbrales actuales son preliminares. No
+son una condicion para desarrollar el marco generico; deben corregirse y
+validarse desde la interfaz antes del comisionamiento final.
+
+El flujo se ejecuta con:
+
+```bash
+python scripts/acceptance_session.py init \
+  --session runtime/acceptance/worksurface.json
+python scripts/acceptance_session.py evaluate \
+  --session runtime/acceptance/worksurface.json --details
+```
+
+El resultado inicial correcto es `PENDING`. Solo evidencia fisica real puede
+convertirlo en `READY_FOR_COMMISSIONING`. Aun entonces el script no modifica
+`recipes.json` ni habilita la salida PLC por si mismo.
