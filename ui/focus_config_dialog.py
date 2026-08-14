@@ -4,6 +4,7 @@ from utils.qt_compat import (
 )
 
 from core.camera_runtime import format_camera_runtime, manual_focus_preflight
+from core.focus_modes import FOCUS_MODE_LABELS, focus_mode_label
 from ui.widgets.video_widget import VideoWidget
 from ui.responsive import compact_stylesheet, profile_from_widget
 from ui.theme import interface_stylesheet
@@ -30,7 +31,7 @@ class FocusConfigDialog(QDialog):
 
         self.focus_result = None
 
-        self.setWindowTitle("Calibracion de enfoque")
+        self.setWindowTitle("Calibracion de enfoque de la receta")
         self.setStyleSheet(
             interface_stylesheet(self.display_profile)
             + compact_stylesheet(self.display_profile)
@@ -55,16 +56,8 @@ class FocusConfigDialog(QDialog):
         self.lbl_status = QLabel("Selecciona una ROI de enfoque o usa la existente")
         self.lbl_status.setAlignment(Qt.AlignCenter)
         self.lbl_status.setWordWrap(True)
-        self.lbl_status.setMinimumHeight(38)
-        radius = max(5, round(8 * self.display_profile.scale))
-        self.lbl_status.setStyleSheet(f"""
-            QLabel {{
-                padding: 8px;
-                border-radius: {radius}px;
-                background-color: rgb(15, 27, 61);
-                border: 1px solid rgb(91, 192, 190);
-            }}
-        """)
+        self.lbl_status.setMinimumHeight(self.display_profile.touch_target)
+        self.lbl_status.setProperty("uiRole", "summary")
 
         self.lbl_camera = QLabel(format_camera_runtime(self.camera_runtime))
         self.lbl_camera.setWordWrap(True)
@@ -74,12 +67,8 @@ class FocusConfigDialog(QDialog):
         )
 
         self.cmb_focus_mode = QComboBox()
-        self.cmb_focus_mode.addItems([
-            "calibrated",
-            "manual_fixed",
-            "auto_continuous",
-            "disabled",
-        ])
+        for value, label in FOCUS_MODE_LABELS.items():
+            self.cmb_focus_mode.addItem(label, value)
         self.cmb_focus_mode.setMinimumHeight(34)
 
         self.video = VideoWidget(
@@ -97,6 +86,8 @@ class FocusConfigDialog(QDialog):
         self.btn_calibrate = QPushButton("CALIBRAR")
         self.btn_save = QPushButton("GUARDAR")
         self.btn_cancel = QPushButton("CANCELAR")
+        self.btn_calibrate.setProperty("buttonRole", "primary")
+        self.btn_save.setProperty("buttonRole", "primary")
 
         buttons = [
             self.btn_select_roi,
@@ -108,7 +99,7 @@ class FocusConfigDialog(QDialog):
 
         for btn in buttons:
             btn.setCursor(Qt.PointingHandCursor)
-            btn.setMinimumHeight(36)
+            btn.setMinimumHeight(self.display_profile.touch_target)
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         buttons_top = QHBoxLayout()
@@ -143,13 +134,18 @@ class FocusConfigDialog(QDialog):
         self.btn_calibrate.clicked.connect(self.request_calibration)
         self.btn_save.clicked.connect(self.save_focus_config)
         self.btn_cancel.clicked.connect(self.reject)
-        self.cmb_focus_mode.currentTextChanged.connect(self.on_focus_mode_changed)
+        self.cmb_focus_mode.currentIndexChanged.connect(
+            lambda _index: self.on_focus_mode_changed(self.current_focus_mode())
+        )
+
+    def current_focus_mode(self):
+        return str(self.cmb_focus_mode.currentData() or "disabled")
 
     def load_focus_config(self):
         focus = self.recipe.get("focus", {})
 
         mode = focus.get("mode", "calibrated")
-        mode_index = self.cmb_focus_mode.findText(mode)
+        mode_index = self.cmb_focus_mode.findData(mode)
         self.cmb_focus_mode.setCurrentIndex(max(0, mode_index))
         roi = focus.get("roi")
         value = focus.get("value")
@@ -162,7 +158,8 @@ class FocusConfigDialog(QDialog):
             roi_text = "ROI actual: frame completo"
 
         self.lbl_status.setText(
-            f"Modo: {mode} | {roi_text} | Focus: {value} | Min Score: {min_score}"
+            f"Modo: {focus_mode_label(mode)} | {roi_text} | Enfoque: {value} | "
+            f"Puntuacion minima: {min_score}"
         )
         self.on_focus_mode_changed(mode)
 
@@ -198,7 +195,7 @@ class FocusConfigDialog(QDialog):
         self.lbl_status.setText("ROI eliminada. Se usara el frame completo para enfocar.")
 
     def request_calibration(self):
-        mode = self.cmb_focus_mode.currentText()
+        mode = self.current_focus_mode()
         if mode not in ("calibrated", "manual_fixed"):
             self.lbl_status.setText("Este modo no requiere calibracion manual.")
             return
@@ -251,8 +248,8 @@ class FocusConfigDialog(QDialog):
             self.video.set_rois([tuple(roi)])
 
         self.lbl_status.setText(
-            f"Calibración OK en {device} | Focus: {focus_value} | "
-            f"Score: {median_score} | Min score: {min_score}"
+            f"Calibracion correcta en {device} | Enfoque: {focus_value} | "
+            f"Puntuacion: {median_score} | Minima: {min_score}"
         )
 
     @Slot(str)
@@ -268,7 +265,7 @@ class FocusConfigDialog(QDialog):
             self.recipe["focus"] = {}
 
         roi = self.video.get_roi()
-        mode = self.cmb_focus_mode.currentText()
+        mode = self.current_focus_mode()
 
         if self.focus_result and mode in ("calibrated", "manual_fixed"):
             self.recipe["focus"] = {

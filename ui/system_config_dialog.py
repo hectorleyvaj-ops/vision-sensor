@@ -32,6 +32,7 @@ from utils.qt_compat import (
 from ui.responsive import compact_stylesheet, profile_from_widget
 from ui.theme import interface_stylesheet
 from core.camera_runtime import format_camera_runtime
+from core.focus_modes import FOCUS_MODE_LABELS
 
 
 class SystemConfigDialog(QDialog):
@@ -54,7 +55,7 @@ class SystemConfigDialog(QDialog):
         self.platform = platform
         self.camera_runtime = dict(camera_runtime or {})
         self.display_profile = display_profile or profile_from_widget(parent or self)
-        self.setWindowTitle("Configuracion de instalacion")
+        self.setWindowTitle("Configuracion de la estacion")
         self.setStyleSheet(
             interface_stylesheet(self.display_profile)
             + compact_stylesheet(self.display_profile)
@@ -68,8 +69,9 @@ class SystemConfigDialog(QDialog):
         root.setContentsMargins(margin, margin, margin, margin)
         root.setSpacing(self.display_profile.spacing)
 
-        title = QLabel("INSTALACION DEL MOTOR UNIVERSAL")
+        title = QLabel("CONFIGURACION DE LA ESTACION")
         title.setAlignment(Qt.AlignCenter)
+        title.setProperty("uiRole", "summary")
         root.addWidget(title)
 
         self.tabs = QTabWidget()
@@ -93,6 +95,7 @@ class SystemConfigDialog(QDialog):
         buttons = QHBoxLayout()
         self.btn_cancel = QPushButton("CANCELAR")
         self.btn_save = QPushButton("VALIDAR Y GUARDAR")
+        self.btn_save.setProperty("buttonRole", "primary")
         buttons.addWidget(self.btn_cancel)
         buttons.addWidget(self.btn_save)
         root.addLayout(buttons)
@@ -161,12 +164,8 @@ class SystemConfigDialog(QDialog):
         self.spn_capture_fps = self._float_spin(0.1, 240.0, 1)
         self.spn_preview_fps = self._float_spin(0.1, 120.0, 1)
         self.cmb_default_focus = QComboBox()
-        self.cmb_default_focus.addItems([
-            "calibrated",
-            "manual_fixed",
-            "auto_continuous",
-            "disabled",
-        ])
+        for value, label in FOCUS_MODE_LABELS.items():
+            self.cmb_default_focus.addItem(label, value)
 
         form.addRow("ID de instalacion", self.txt_installation_id)
         form.addRow("Nombre", self.txt_installation_name)
@@ -295,6 +294,7 @@ class SystemConfigDialog(QDialog):
         row = QHBoxLayout()
         add = QPushButton("AGREGAR")
         remove = QPushButton("ELIMINAR")
+        remove.setProperty("buttonRole", "danger")
         add.clicked.connect(add_callback)
         remove.clicked.connect(lambda: self._remove_current_row(table))
         row.addWidget(add)
@@ -356,7 +356,7 @@ class SystemConfigDialog(QDialog):
         self.spn_camera_height.setValue(int(camera.get("height", 1080)))
         self.spn_capture_fps.setValue(float(camera.get("capture_fps", 30)))
         self.spn_preview_fps.setValue(float(camera.get("preview_fps", 10)))
-        focus_index = self.cmb_default_focus.findText(
+        focus_index = self.cmb_default_focus.findData(
             str(camera.get("default_focus_mode", "calibrated"))
         )
         self.cmb_default_focus.setCurrentIndex(max(0, focus_index))
@@ -452,7 +452,9 @@ class SystemConfigDialog(QDialog):
             "height": self.spn_camera_height.value(),
             "capture_fps": self.spn_capture_fps.value(),
             "preview_fps": self.spn_preview_fps.value(),
-            "default_focus_mode": self.cmb_default_focus.currentText(),
+            "default_focus_mode": str(
+                self.cmb_default_focus.currentData() or "calibrated"
+            ),
         })
         candidate["controller"].update({
             "ports": self._read_ports(),

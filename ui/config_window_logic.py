@@ -1,10 +1,11 @@
 import copy
-import os
 from utils.qt_compat import (
     QT_LIB, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-    QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea, QMessageBox
+    QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea, QMessageBox,
+    QLabel,
 )
 from core.editor_models import EditorValueError
+from core.resource_archive import archive_resource_path as archive_path
 from core.resource_paths import recipe_resource_root
 from utils.ui_logger import get_ui_logger
 if QT_LIB == "PySide6":
@@ -23,7 +24,6 @@ from ui.responsive import (
     profile_from_widget,
 )
 from ui.theme import interface_stylesheet
-import shutil
 
 class ConfigWindow(QWidget):
     update_rois = Signal()
@@ -76,8 +76,29 @@ class ConfigWindow(QWidget):
         self.load_recipes()
 
     def _build_universal_controls(self):
-        self.btn_installation_config = QPushButton("SISTEMA")
-        self.btn_recipe_config = QPushButton("RECETA")
+        self.ui.lbl_tittle.setText("CONFIGURACION DEL MOTOR DE VISION")
+        self.ui.lbl_recipes.setText("RECETAS")
+        self.ui.lbl_tools.setText("PASOS DE INSPECCION")
+        self.ui.lbl_focus.setText("CAMARA Y ENFOQUE")
+        self.ui.btn_add_r.setText("NUEVA")
+        self.ui.btn_del_r.setText("BORRAR")
+        self.ui.btn_select_r.setText("ACTIVAR")
+        self.ui.btn_add_t.setText("AGREGAR PASO")
+        self.ui.btn_del_t.setText("BORRAR PASO")
+        self.ui.btn_edit_t.setText("EDITAR PASO")
+        self.ui.btn_focus_config.setText("CONFIGURAR ENFOQUE")
+        self.ui.btn_save.setText("GUARDAR")
+        self.ui.btn_out.setText("VOLVER")
+
+        self.lbl_recipe_state = QLabel("Selecciona una receta")
+        self.lbl_recipe_state.setObjectName("lbl_recipe_state")
+        self.lbl_recipe_state.setProperty("uiRole", "summary")
+        self.lbl_recipe_state.setWordWrap(True)
+        self.lbl_recipe_state.setAlignment(Qt.AlignCenter)
+        self.ui.left_panel.insertWidget(2, self.lbl_recipe_state)
+
+        self.btn_installation_config = QPushButton("ESTACION")
+        self.btn_recipe_config = QPushButton("PROPIEDADES")
         self.ui.bttm_layout.setSpacing(6)
         self.ui.bttm_layout.insertWidget(1, self.btn_installation_config)
         self.ui.bttm_layout.insertWidget(2, self.btn_recipe_config)
@@ -90,7 +111,39 @@ class ConfigWindow(QWidget):
         ):
             button.setMaximumWidth(max_width)
 
+        self.ui.btn_select_r.setProperty("buttonRole", "primary")
+        self.ui.btn_save.setProperty("buttonRole", "primary")
+        self.ui.btn_del_r.setProperty("buttonRole", "danger")
+        self.ui.btn_del_t.setProperty("buttonRole", "danger")
+        self.ui.btn_add_r.setToolTip("Crear una receta configurable")
+        self.ui.btn_select_r.setToolTip("Usar esta receta en nuevos ciclos")
+        self.ui.btn_del_r.setToolTip("Archivar y retirar la receta seleccionada")
+        self.ui.btn_del_t.setToolTip("Archivar y retirar el paso seleccionado")
+
     def apply_config_style(self):
+        for widget in (
+            self.ui.top_bar,
+            self.ui.lbl_tittle,
+            self.ui.lbl_recipes,
+            self.ui.cmb_recipes,
+            self.ui.btn_add_r,
+            self.ui.btn_del_r,
+            self.ui.btn_select_r,
+            self.ui.line,
+            self.ui.lbl_tools,
+            self.ui.cmb_tools,
+            self.ui.btn_add_t,
+            self.ui.btn_del_t,
+            self.ui.btn_edit_t,
+            self.ui.line_2,
+            self.ui.lbl_focus,
+            self.ui.btn_focus_config,
+            self.ui.frame,
+            self.ui.list_log_config,
+            self.ui.btn_save,
+            self.ui.btn_out,
+        ):
+            widget.setStyleSheet("")
         self.setStyleSheet(
             interface_stylesheet(self.display_profile)
             + compact_stylesheet(self.display_profile)
@@ -126,6 +179,39 @@ class ConfigWindow(QWidget):
 
     def safe_name(self, name):
         return name.replace(" ","_").replace("/","_").replace("\\","_")
+
+    def confirm_action(self, title, message):
+        buttons = getattr(QMessageBox, "StandardButton", QMessageBox)
+        yes = getattr(buttons, "Yes")
+        no = getattr(buttons, "No")
+        answer = QMessageBox.question(self, title, message, yes | no, no)
+        return answer == yes
+
+    def archive_resource_path(self, path):
+        target = archive_path(path)
+        if target is not None:
+            print(f"[CONFIG] Recursos archivados en {target}")
+        return target
+
+    def refresh_recipe_summary(self):
+        if not isinstance(self.current_recipe, dict):
+            self.lbl_recipe_state.setText("SIN RECETA SELECCIONADA")
+            return
+        steps = self.current_recipe.get("steps", [])
+        active_steps = [
+            step
+            for step in steps
+            if isinstance(step, dict) and step.get("enabled", True)
+        ]
+        selected = "ACTIVA" if self.current_recipe.get("selected") else "INACTIVA"
+        commissioned = (
+            "COMISIONADA"
+            if self.current_recipe.get("commissioned") is True
+            else "EN CALIBRACION"
+        )
+        self.lbl_recipe_state.setText(
+            f"{selected}  ·  {len(active_steps)} PASOS  ·  {commissioned}"
+        )
     
     def ensure_steps(self):
         if "steps" not in self.current_recipe or not isinstance(self.current_recipe["steps"], list):
@@ -301,6 +387,7 @@ class ConfigWindow(QWidget):
             if not recipes:
                 self.current_recipe = None
                 self.ui.cmb_tools.clear()
+                self.refresh_recipe_summary()
                 return
             
             selected_index = 0
@@ -322,6 +409,7 @@ class ConfigWindow(QWidget):
             if self.ui.cmb_recipes.count() == 0:
                 self.current_recipe = None
                 self.ui.cmb_tools.clear()
+                self.refresh_recipe_summary()
                 return
             
             selected_index = max(0, min(selected_index, self.ui.cmb_recipes.count() - 1))
@@ -341,6 +429,7 @@ class ConfigWindow(QWidget):
         if item < 0:
             self.current_recipe = None
             self.ui.cmb_tools.clear()
+            self.refresh_recipe_summary()
             return
 
         name = self.ui.cmb_recipes.itemText(item).strip()
@@ -348,6 +437,7 @@ class ConfigWindow(QWidget):
         if not name:
             self.current_recipe = None
             self.ui.cmb_tools.clear()
+            self.refresh_recipe_summary()
             return
 
         print(name)
@@ -358,9 +448,11 @@ class ConfigWindow(QWidget):
             print(f"[CONFIG][WARNING] Receta no encontrada al seleccionar: {name}")
             self.current_recipe = None
             self.ui.cmb_tools.clear()
+            self.refresh_recipe_summary()
             return
 
         self.current_recipe = recipe
+        self.refresh_recipe_summary()
 
         print(f"Current Recipe: {self.current_recipe.get('name', 'UNKNOWN')}")
 
@@ -435,6 +527,7 @@ class ConfigWindow(QWidget):
 
         btn_save = QPushButton("GUARDAR CAMBIOS")
         btn_cancel = QPushButton("CANCELAR")
+        btn_save.setProperty("buttonRole", "primary")
 
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_cancel.setCursor(Qt.PointingHandCursor)
@@ -450,7 +543,7 @@ class ConfigWindow(QWidget):
             try:
                 policy = policy_editor.get_values()
             except EditorValueError as exc:
-                QMessageBox.critical(dialog, "Step invalido", str(exc))
+                QMessageBox.critical(dialog, "Paso invalido", str(exc))
                 return
             new_params = editor.get_values()
 
@@ -470,7 +563,7 @@ class ConfigWindow(QWidget):
             try:
                 self.recipe_manager.save(candidate)
             except ValueError as exc:
-                QMessageBox.critical(dialog, "Step invalido", str(exc))
+                QMessageBox.critical(dialog, "Paso invalido", str(exc))
                 return
 
             self.current_recipe.clear()
@@ -507,7 +600,7 @@ class ConfigWindow(QWidget):
 
         # VENTANA Y WIDGETS
         dialog = QDialog(self)
-        dialog.setWindowTitle("Agregando nuevo Step")
+        dialog.setWindowTitle("Agregar paso de inspeccion")
 
         dialog.setStyleSheet(self.styleSheet())
         layout = QVBoxLayout()
@@ -581,7 +674,8 @@ class ConfigWindow(QWidget):
         self.apply_scrollbar_style(scroll)
 
         btn_cancel = QPushButton("CANCELAR")
-        btn_save = QPushButton("GUARDAR STEP")
+        btn_save = QPushButton("GUARDAR PASO")
+        btn_save.setProperty("buttonRole", "primary")
 
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_cancel.setCursor(Qt.PointingHandCursor)
@@ -599,7 +693,7 @@ class ConfigWindow(QWidget):
             try:
                 policy = policy_editor.get_values()
             except EditorValueError as exc:
-                QMessageBox.critical(dialog, "Step invalido", str(exc))
+                QMessageBox.critical(dialog, "Paso invalido", str(exc))
                 return
             new_params = editor.get_values()
             new_step = {
@@ -612,7 +706,7 @@ class ConfigWindow(QWidget):
                 self.recipe_manager.save(self.current_recipe)
             except ValueError as exc:
                 self.current_recipe["steps"].pop()
-                QMessageBox.critical(dialog, "Step invalido", str(exc))
+                QMessageBox.critical(dialog, "Paso invalido", str(exc))
                 return
 
             self.load_tools()  # RECARGA LA LISTA DE HERRAMIENTAS PARA MOSTRAR LA NUEVA AGREGADA
@@ -654,18 +748,26 @@ class ConfigWindow(QWidget):
         
         step = self.current_recipe["steps"][selected]
         tool_name = step["tool"]
+        step_name = step.get("id", tool_name)
+
+        if not self.confirm_action(
+            "Borrar paso",
+            f"Se retirara el paso '{step_name}' de la receta. "
+            "Sus recursos se archivaran para recuperacion. ¿Continuar?",
+        ):
+            return
 
         path = self.build_base_path(tool_name, selected)
-        
-        del self.current_recipe["steps"][selected]
 
-        # ELIMINAR LA CARPETA DE IMAGENES ASOCIADA A LA HERRAMIENTA ELIMINADA
-        if os.path.exists(path):
-            shutil.rmtree(path)
-
-        self.recipe_manager.save(self.current_recipe)
+        candidate = copy.deepcopy(self.current_recipe)
+        del candidate["steps"][selected]
+        self.recipe_manager.save(candidate)
+        self.current_recipe.clear()
+        self.current_recipe.update(candidate)
+        self.archive_resource_path(path)
 
         self.load_tools()
+        self.refresh_recipe_summary()
           
 
     def load_tools(self):
@@ -745,18 +847,22 @@ class ConfigWindow(QWidget):
             print("Receta no encontrada")
             return
 
-        # ELIMINAR CARPETA DE IMAGENES ASOCIADA A LA RECETA
+        if not self.confirm_action(
+            "Borrar receta",
+            f"Se retirara la receta '{name}' y sus recursos se archivaran. "
+            "Esta accion no puede realizarse durante produccion. ¿Continuar?",
+        ):
+            return
+
         safe = self.safe_name(name)
         path = str(self.recipe_resource_root() / safe)
-
-        if os.path.exists(path):
-            shutil.rmtree(path)
 
         was_active = False
         if self.state_manager and getattr(self.state_manager, "active_recipe_name", None) == name:
             was_active = True
 
         self.recipe_manager.delete(name)
+        self.archive_resource_path(path)
 
         recipes = self.recipe_manager.get_all()
 
@@ -769,6 +875,7 @@ class ConfigWindow(QWidget):
                 self.state_manager.set_active_recipe(None)
 
             print("[CONFIG] No quedan recetas disponibles")
+            self.refresh_recipe_summary()
             return
 
         # Seleccionar la primera receta restante.
@@ -792,6 +899,7 @@ class ConfigWindow(QWidget):
             return
 
         self.recipe_manager.save(self.current_recipe)
+        self.refresh_recipe_summary()
 
         if self.state_manager:
             self.state_manager.set_active_recipe(self.current_recipe["name"])
@@ -807,10 +915,13 @@ class ConfigWindow(QWidget):
             return
         
         self.recipe_manager.set_selected(name)
+        self.current_recipe = self.recipe_manager.get(name)
+        self.refresh_recipe_summary()
         
         if self.state_manager:
             self.state_manager.set_active_recipe(name)
 
+        self.update_rois.emit()
         print(f"Receta seleccionada: {name}")
 
     def closeEvent(self, event):

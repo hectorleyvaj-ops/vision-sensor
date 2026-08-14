@@ -273,12 +273,12 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
-        self.lbl_tittle.setText(_translate("MainWindow", "SISTEMA DE VISIÓN - SUMMIT USB"))
+        self.lbl_tittle.setText(_translate("MainWindow", "SISTEMA DE VISIÓN"))
         self.btn_minimizar.setText(_translate("MainWindow", "-"))
         self.btn_cerrar.setText(_translate("MainWindow", "X"))
-        self.lbl_cam.setText(_translate("MainWindow", "CAMARA"))
-        self.lbl_model.setText(_translate("MainWindow", "MODELO DE PIEZA: A"))
-        self.btn_config.setText(_translate("MainWindow", "CONFIGURACIÓN"))
+        self.lbl_cam.setText(_translate("MainWindow", "VISTA DE INSPECCIÓN"))
+        self.lbl_model.setText(_translate("MainWindow", "RECETA ACTIVA"))
+        self.btn_config.setText(_translate("MainWindow", "CONFIGURAR ESTACIÓN"))
         self.indicator_1.setText(_translate("MainWindow", "✔"))
-        self.lbl_indicator_1.setText(_translate("MainWindow", "INSPECCION"))
+        self.lbl_indicator_1.setText(_translate("MainWindow", "SISTEMA INICIANDO"))
 from ui.widgets.video_widget import VideoWidget

@@ -12,7 +12,7 @@ class DisplayProfileTests(unittest.TestCase):
         profile = build_display_profile(480, 320)
         self.assertEqual(profile.mode, "compact")
         self.assertEqual(preferred_window_size(profile), (480, 320))
-        self.assertGreaterEqual(profile.touch_target, 34)
+        self.assertGreaterEqual(profile.touch_target, 38)
         self.assertLessEqual(profile.dialog_video_height, 140)
 
     def test_small_dimensions_are_clamped_to_safe_minimum(self):
@@ -23,6 +23,8 @@ class DisplayProfileTests(unittest.TestCase):
         profile = build_display_profile(800, 480)
         self.assertEqual(profile.mode, "standard")
         self.assertEqual(preferred_window_size(profile), (800, 480))
+        self.assertGreaterEqual(profile.touch_target, 42)
+        self.assertGreaterEqual(profile.indicator_size, 70)
 
     def test_large_monitor_uses_wide_layout_without_unbounded_window(self):
         profile = build_display_profile(1920, 1080)

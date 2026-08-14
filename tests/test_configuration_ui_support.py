@@ -8,7 +8,7 @@ from core.camera_runtime import (
 )
 from core.display_profile import build_display_profile
 from core.resource_paths import recipe_resource_root
-from ui.theme import interface_stylesheet
+from ui.theme import interface_stylesheet, operator_stylesheet
 
 
 class ConfigurationUiSupportTests(unittest.TestCase):
@@ -70,6 +70,13 @@ class ConfigurationUiSupportTests(unittest.TestCase):
             "QMessageBox",
         ):
             self.assertIn(selector, stylesheet)
+
+    def test_operator_theme_has_semantic_ready_warning_and_result_states(self):
+        stylesheet = operator_stylesheet(build_display_profile(800, 480))
+        for state in ("ready", "working", "ok", "ng", "warning", "critical"):
+            self.assertIn(f'statusLevel="{state}"', stylesheet)
+        self.assertIn("QPushButton#btn_config", stylesheet)
+        self.assertIn("QLabel#lbl_model", stylesheet)
 
     def test_rpi_instructions_install_v4l2_tools(self):
         requirements = Path("requirements-rpi32.txt").read_text(encoding="utf-8")

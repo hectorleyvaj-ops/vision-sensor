@@ -75,6 +75,8 @@ def apply_main_window_layout(window, ui, profile):
     ui.btn_config.setMinimumHeight(profile.touch_target)
     ui.btn_config.setMaximumHeight(profile.touch_target + 6)
     ui.indicator_1.setFixedSize(profile.indicator_size, profile.indicator_size)
+    ui.lbl_model.setMinimumHeight(profile.touch_target + 10)
+    ui.lbl_indicator_1.setMinimumHeight(profile.indicator_size)
 
     ui.left_panel.setSpacing(profile.spacing)
     ui.left_panel.setContentsMargins(0, 0, 0, 0)
@@ -83,9 +85,10 @@ def apply_main_window_layout(window, ui, profile):
         profile.spacing, 0, 0, 0
     )
     ui.status_1.setContentsMargins(0, 0, 0, 0)
+    ui.status_1.setSpacing(profile.spacing)
     ui.central_panel.setSpacing(profile.spacing)
-    ui.central_panel.setStretch(0, 3)
-    ui.central_panel.setStretch(1, 2)
+    ui.central_panel.setStretch(0, 5)
+    ui.central_panel.setStretch(1, 3)
 
     ui.bttm_bar.setMinimumHeight(profile.log_height)
     ui.bttm_bar.setMaximumHeight(profile.log_height)
@@ -129,6 +132,20 @@ def apply_config_window_layout(window, ui, profile):
         ui.list_log_config,
     ):
         _unlock(widget, (0, 0))
+
+    for button in (
+        ui.btn_add_r,
+        ui.btn_del_r,
+        ui.btn_select_r,
+        ui.btn_add_t,
+        ui.btn_del_t,
+        ui.btn_edit_t,
+        ui.btn_focus_config,
+        ui.btn_save,
+        ui.btn_out,
+    ):
+        _unlock(button, (0, profile.touch_target))
+        button.setMaximumHeight(WIDGET_SIZE_MAX)
 
     ui.top_bar.setMinimumHeight(profile.top_bar_height)
     ui.top_bar.setMaximumHeight(profile.top_bar_height)

@@ -21,6 +21,7 @@ from utils.qt_compat import (
     Signal,
 )
 from ui.responsive import compact_stylesheet, profile_from_widget
+from core.focus_modes import focus_mode_label
 
 
 class StepPolicyEditor(QWidget):
@@ -47,7 +48,7 @@ class StepPolicyEditor(QWidget):
         self.txt_condition.setPlaceholderText(
             '{"type": "always"} o una condicion del esquema v2'
         )
-        form.addRow("ID unico del step", self.txt_step_id)
+        form.addRow("ID unico del paso", self.txt_step_id)
         form.addRow("Habilitado", self.chk_enabled)
         form.addRow("Requerido", self.chk_required)
         form.addRow("Condicion (JSON)", self.txt_condition)
@@ -65,7 +66,7 @@ class StepPolicyEditor(QWidget):
     def get_values(self):
         step_id = self.txt_step_id.text().strip()
         if not step_id:
-            raise EditorValueError("El ID del step es obligatorio")
+            raise EditorValueError("El ID del paso es obligatorio")
         condition = parse_condition_text(
             self.txt_condition.toPlainText(),
             available_step_ids=self.available_step_ids,
@@ -121,6 +122,7 @@ class RecipeSettingsDialog(QDialog):
         buttons = QHBoxLayout()
         cancel = QPushButton("CANCELAR")
         save = QPushButton("VALIDAR Y GUARDAR")
+        save.setProperty("buttonRole", "primary")
         buttons.addWidget(cancel)
         buttons.addWidget(save)
         layout.addLayout(buttons)
@@ -137,7 +139,8 @@ class RecipeSettingsDialog(QDialog):
         enabled = sum(1 for step in steps if step.get("enabled", True))
         focus_mode = self.recipe.get("focus", {}).get("mode", "calibrated")
         self.lbl_summary.setText(
-            f"{enabled}/{len(steps)} steps habilitados | enfoque: {focus_mode}"
+            f"{enabled}/{len(steps)} pasos habilitados | "
+            f"enfoque: {focus_mode_label(focus_mode)}"
         )
 
     def _save(self):

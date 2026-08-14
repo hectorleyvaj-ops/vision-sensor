@@ -129,7 +129,7 @@
 background-color: transparent;</string>
          </property>
          <property name="text">
-          <string>SISTEMA DE VISIÓN - SUMMIT USB</string>
+          <string>SISTEMA DE VISIÓN</string>
          </property>
          <property name="alignment">
           <set>Qt::AlignCenter</set>
@@ -264,7 +264,7 @@ border-radius: 8px;</string>
 background-color: transparent;</string>
           </property>
           <property name="text">
-           <string>CAMARA</string>
+          <string>VISTA DE INSPECCIÓN</string>
           </property>
           <property name="alignment">
            <set>Qt::AlignCenter</set>
@@ -380,7 +380,7 @@ border-color: rgb(94, 192, 190);
 background-color: transparent;</string>
             </property>
             <property name="text">
-             <string>MODELO DE PIEZA: A</string>
+             <string>RECETA ACTIVA</string>
             </property>
             <property name="alignment">
              <set>Qt::AlignCenter</set>
@@ -426,7 +426,7 @@ border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
             </property>
             <property name="text">
-             <string>CONFIGURACIÓN</string>
+             <string>CONFIGURAR ESTACIÓN</string>
             </property>
            </widget>
           </item>
@@ -522,7 +522,7 @@ background-color: rgb(15, 27, 61);
 background-color: transparent;</string>
             </property>
             <property name="text">
-             <string>INSPECCION</string>
+             <string>SISTEMA INICIANDO</string>
             </property>
            </widget>
           </item>

@@ -117,7 +117,7 @@
 background-color: transparent;</string>
         </property>
         <property name="text">
-         <string>SISTEMA DE VISIÓN - CONFIGURACIÓN</string>
+         <string>CONFIGURACIÓN DEL MOTOR DE VISIÓN</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignCenter</set>
@@ -231,7 +231,7 @@ border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
            </property>
            <property name="text">
-            <string>AGREGAR</string>
+            <string>NUEVA</string>
            </property>
           </widget>
          </item>
@@ -263,7 +263,7 @@ border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
            </property>
            <property name="text">
-            <string>ELIMINAR</string>
+            <string>BORRAR</string>
            </property>
           </widget>
          </item>
@@ -299,7 +299,7 @@ border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
            </property>
            <property name="text">
-            <string>SELECCIONAR</string>
+            <string>ACTIVAR</string>
            </property>
           </widget>
          </item>
@@ -384,7 +384,7 @@ background-color: rgb(15, 27, 61);</string>
 background-color: transparent;</string>
            </property>
            <property name="text">
-            <string>HERRAMIENTAS</string>
+          <string>PASOS DE INSPECCIÓN</string>
            </property>
            <property name="alignment">
             <set>Qt::AlignCenter</set>
@@ -456,7 +456,7 @@ border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
            </property>
            <property name="text">
-            <string>EDITAR</string>
+            <string>EDITAR PASO</string>
            </property>
           </widget>
          </item>
@@ -492,7 +492,7 @@ border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
            </property>
            <property name="text">
-            <string>AGREGAR</string>
+            <string>AGREGAR PASO</string>
            </property>
           </widget>
          </item>
@@ -524,7 +524,7 @@ border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
            </property>
            <property name="text">
-            <string>ELIMINAR</string>
+            <string>BORRAR PASO</string>
            </property>
           </widget>
          </item>
@@ -586,7 +586,7 @@ background-color: rgb(15, 27, 61);</string>
 background-color: transparent;</string>
            </property>
            <property name="text">
-            <string>ENFOQUE DE CAMARA</string>
+          <string>CÁMARA Y ENFOQUE</string>
            </property>
            <property name="alignment">
             <set>Qt::AlignCenter</set>
@@ -625,7 +625,7 @@ border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
            </property>
            <property name="text">
-            <string>FOCUS CONFIG</string>
+          <string>CONFIGURAR ENFOQUE</string>
            </property>
           </widget>
          </item>
@@ -719,7 +719,7 @@ border-color: rgb(91, 192, 190);
 background-color: rgb(15, 27, 61);</string>
        </property>
        <property name="text">
-        <string>SALIR</string>
+        <string>VOLVER</string>
        </property>
        <property name="checkable">
         <bool>false</bool>

@@ -10,7 +10,7 @@ Se calcula desde la pantalla activa mediante los modos `compact`, `standard` y
 
 ## Sistema
 
-`SISTEMA` abre un editor por pestanas para:
+`ESTACION` abre un editor por pestanas para:
 
 - identificador y nombre de la instalacion;
 - archivo de recetas y migracion automatica;
@@ -32,7 +32,8 @@ sesion activa sigue usando los valores anteriores.
 
 ## Receta
 
-`RECETA` permite revisar el ID interno y cambiar el estado de comisionamiento.
+`PROPIEDADES` permite revisar el ID interno y cambiar el estado de
+comisionamiento.
 Una receta solo puede marcarse como comisionada cuando:
 
 - tiene al menos un step habilitado;
@@ -46,11 +47,11 @@ Una receta solo puede marcarse como comisionada cuando:
 Desmarcar el comisionamiento siempre es posible y bloquea inmediatamente la
 produccion con esa receta.
 
-## Steps y condiciones
+## Pasos y condiciones
 
 Al agregar o editar una herramienta se separan dos grupos:
 
-- politica del step: `id`, `enabled`, `required` y `condition`;
+- politica del paso: `id`, `enabled`, `required` y `condition`;
 - parametros propios de la herramienta, definidos en su clase y publicados por
   `ToolRegistry`.
 
@@ -89,10 +90,19 @@ Ejemplos:
 - comparacion DataMatrix `exact` o `prefix` y votos por intento;
 - cancelacion cooperativa y timeout global de inspeccion.
 
-## Fuera del alcance actual
+## Interfaz final
+
+La pantalla principal obtiene el nombre de la instalacion desde `system.json`,
+muestra receta activa, estado, causa y resultado con texto, y mantiene el
+trigger bajo autoridad del controlador. La configuracion usa objetivos tactiles
+y archiva recursos retirados en `runtime/deleted_resources/`.
+
+Consulte `docs/final_operator_interface.md` para el contrato visual completo.
+
+## Fuera del alcance de la interfaz
 
 - no se agregan recetas, numeros de parte ni sensores de Worksurface;
 - no se crea ni modifica firmware ESP32 o PLC;
 - no se recargan en caliente camara, serial o runtime;
-- no se adapta todavia toda la interfaz de forma responsiva a cualquier
-  resolucion de pantalla.
+- no se corrige desde Qt la calibracion del dispositivo touch de Linux;
+- no se instala todavia el servicio de autoarranque o rollback.

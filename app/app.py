@@ -2,7 +2,18 @@ import sys
 import cv2
 import os
 # IMPORTS DE QT
-from utils.qt_compat import load_ui, QT_LIB, QThread, QImage, QPixmap, QMainWindow, QMetaObject, Qt, QTimer
+from utils.qt_compat import (
+    load_ui,
+    QT_LIB,
+    QThread,
+    QImage,
+    QPixmap,
+    QMainWindow,
+    QMetaObject,
+    Qt,
+    QTimer,
+    QLabel,
+)
 from utils.ui_logger import get_ui_logger
 # IMPORTS DE UI
 if QT_LIB == "PySide6":
@@ -22,11 +33,14 @@ from core.recipe_manager import RecipeManager
 from core.system_config import SystemConfig
 from core.diagnostics import DiagnosticsManager, run_static_diagnostics
 from core.traceability import CycleTraceWriter
+from core.operator_status import build_operator_status
 from ui.responsive import (
     apply_main_window_layout,
+    compact_stylesheet,
     profile_from_screen,
     profile_from_widget,
 )
+from ui.theme import interface_stylesheet, operator_stylesheet
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -36,6 +50,8 @@ class MainWindow(QMainWindow):
         self.ui.setupUi(self)
         self.display_profile = profile_from_widget(self)
         apply_main_window_layout(self, self.ui, self.display_profile)
+        self.installation_name = "Motor de vision"
+        self._configure_operator_interface()
         QTimer.singleShot(0, self._bind_display_screen)
 
         self.setup_ui_logger()
@@ -50,6 +66,13 @@ class MainWindow(QMainWindow):
         self.controller_config = self.system_config.section("controller")
         self.runtime_config = self.system_config.section("runtime")
         installation = self.system_config.section("installation")
+        self.installation_name = installation.get(
+            "name",
+            installation.get("id", "Motor de vision"),
+        )
+        self.ui.lbl_tittle.setText(
+            f"SISTEMA DE VISIÓN  ·  {self.installation_name}"
+        )
         print(
             f"[CONFIG] Instalacion activa: "
             f"{installation.get('name', installation.get('id'))}"
@@ -64,7 +87,6 @@ class MainWindow(QMainWindow):
         self.btn_config = self.ui.btn_config
 
         # CONECTAR WIDGETS
-        self.btn_trigger.clicked.connect(self.run_fsm)
         self.btn_config.clicked.connect(self.open_config)
         self.ui.btn_cerrar.clicked.connect(self.close)
         self.ui.btn_minimizar.clicked.connect(self.minimize)
@@ -108,6 +130,7 @@ class MainWindow(QMainWindow):
         # WARNING/CRITICAL tienen prioridad sobre cualquier resultado.
         self.current_system_visual_state = "WARNING"
         self.current_system_ready_error = "Sistema iniciando"
+        self.refresh_operator_dashboard()
 
         # EVALUAR SISTEMA LISTO PARA TRIGGER
         self.last_ready_sent = None
@@ -116,59 +139,6 @@ class MainWindow(QMainWindow):
         self.ready_timer = QTimer(self)
         self.ready_timer.timeout.connect(self.publish_rpi_ready_status)
         self.ready_timer.start(self.ready_notify_interval)
-
-        self.BASE_STYLE = """
-        border: 2px solid;
-        font-size: 16px;
-        border-radius: 30px;
-        border-color: rgb(46, 196, 182);
-        color: rgb(46, 196, 182);
-        background-color: rgb(15, 27, 61);
-        """
-
-        self.OK_STYLE = """
-        border: 2px solid;
-        font-size: 16px;
-        border-radius: 30px;
-        border-color: rgb(82, 183, 136);
-        color: white;
-        background-color: rgb(46, 125, 50);
-        """
-
-        self.NG_STYLE = """
-        border: 2px solid;
-        font-size: 16px;
-        border-radius: 30px;
-        border-color: rgb(230, 57, 70);
-        color: white;
-        background-color: rgb(183, 28, 28);
-        """
-
-        self.NOT_READY_STYLE = """
-        border: 2px solid;
-        font-size: 16px;
-        border-radius: 30px;
-        border-color: rgb(255, 183, 3);
-        color: white;
-        background-color: rgb(180, 120, 0);
-        """
-
-        self.CRITICAL_STYLE = """
-        border: 2px solid;
-        font-size: 16px;
-        border-radius: 30px;
-        border-color: rgb(255, 76, 76);
-        color: white;
-        background-color: rgb(120, 0, 0);
-        """
-
-        self.lbl_video.setStyleSheet("""
-            QLabel {
-                background-color: black;
-                border-radius: 0px;
-                border: 2px solid rgb(91, 192, 190);
-            }
-        """)
 
         self.tool_registry = discover_tool_registry()
         self.recipe_manager = RecipeManager(
@@ -218,6 +188,98 @@ class MainWindow(QMainWindow):
 
         print("[LOGGER] Loger de interfaz iniciao")
 
+    def _configure_operator_interface(self):
+        """Remove legacy per-widget styling and expose one semantic dashboard."""
+        for widget in (
+            self.ui.centralwidget,
+            self.ui.top_bar,
+            self.ui.lbl_tittle,
+            self.ui.btn_minimizar,
+            self.ui.btn_cerrar,
+            self.ui.lbl_cam,
+            self.ui.lbl_video,
+            self.ui.lbl_model,
+            self.ui.btn_config,
+            self.ui.indicator_1,
+            self.ui.lbl_indicator_1,
+            self.ui.bttm_bar,
+            self.ui.list_log,
+        ):
+            widget.setStyleSheet("")
+
+        self.ui.lbl_cam.setText("VISTA DE INSPECCIÓN")
+        self.ui.btn_config.setText("CONFIGURAR ESTACIÓN")
+        self.ui.btn_minimizar.setText("—")
+        self.ui.btn_cerrar.setText("×")
+        self.ui.btn_config.setProperty("buttonRole", "primary")
+        self.ui.btn_cerrar.setProperty("buttonRole", "danger")
+        self.ui.indicator_1.setProperty("statusLevel", "warning")
+        self.ui.indicator_1.setToolTip(
+            "Indicador de estado. Los ciclos son iniciados por el controlador."
+        )
+        self.ui.indicator_1.setFocusPolicy(Qt.NoFocus)
+        self.ui.indicator_1.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.ui.lbl_model.setWordWrap(True)
+        self.ui.lbl_indicator_1.setWordWrap(True)
+        self.ui.lbl_model.setAlignment(Qt.AlignCenter)
+        self.ui.lbl_indicator_1.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        self.ui.lbl_tittle.setAccessibleName("Instalacion activa")
+        self.ui.lbl_video.setAccessibleName("Vista de la camara")
+        self.ui.lbl_model.setAccessibleName("Receta activa")
+        self.ui.indicator_1.setAccessibleName("Estado de inspeccion")
+        self.ui.lbl_indicator_1.setAccessibleName("Detalle del estado")
+        self.ui.btn_config.setAccessibleName("Abrir configuracion")
+        self.ui.btn_minimizar.setAccessibleName("Minimizar")
+        self.ui.btn_cerrar.setAccessibleName("Cerrar aplicacion")
+        self.lbl_recent_events = QLabel("EVENTOS\nRECIENTES")
+        self.lbl_recent_events.setObjectName("lbl_recent_events")
+        self.lbl_recent_events.setProperty("uiRole", "logCaption")
+        self.lbl_recent_events.setAlignment(Qt.AlignCenter)
+        self.lbl_recent_events.setAccessibleName("Eventos recientes")
+        self.ui.horizontalLayout_3.insertWidget(0, self.lbl_recent_events)
+        self.ui.list_log.setToolTip(
+            "Ultimos eventos del motor. Consulte la trazabilidad para el detalle."
+        )
+        self._apply_interface_theme()
+
+    def _apply_interface_theme(self):
+        self.setStyleSheet(
+            interface_stylesheet(self.display_profile)
+            + operator_stylesheet(self.display_profile)
+            + compact_stylesheet(self.display_profile)
+        )
+
+    @staticmethod
+    def _refresh_widget_style(widget):
+        style = widget.style()
+        style.unpolish(widget)
+        style.polish(widget)
+        widget.update()
+
+    def refresh_operator_dashboard(self):
+        recipe = getattr(self, "selected_recipe", None)
+        recipe_name = recipe.get("name") if isinstance(recipe, dict) else None
+        view = build_operator_status(
+            getattr(self, "current_system_visual_state", "WARNING"),
+            getattr(self, "current_system_ready_error", "Sistema iniciando"),
+            final_result=getattr(self, "indicator_latched_result", None),
+            cycle_busy=bool(getattr(self, "fsm_busy", False)),
+            recipe_name=recipe_name,
+        )
+        self.ui.lbl_model.setText(f"RECETA ACTIVA\n{view.recipe_caption}")
+        self.ui.lbl_indicator_1.setText(
+            f"{view.headline}\n{view.detail}"
+        )
+        self.ui.lbl_indicator_1.setToolTip(view.detail)
+        self.ui.indicator_1.setText(view.indicator_text)
+        self.ui.indicator_1.setProperty("statusLevel", view.level)
+        self.ui.btn_config.setEnabled(
+            not bool(getattr(self, "fsm_busy", False))
+            and not bool(getattr(self, "focus_check_busy", False))
+        )
+        self._refresh_widget_style(self.ui.indicator_1)
+
     def detect_platform(self):
         if sys.platform.startswith("win"):
             return "windows"
@@ -240,6 +302,8 @@ class MainWindow(QMainWindow):
     def on_display_screen_changed(self, screen):
         self.display_profile = profile_from_screen(screen)
         apply_main_window_layout(self, self.ui, self.display_profile)
+        self._apply_interface_theme()
+        self.refresh_operator_dashboard()
         print(
             f"[UI] Pantalla activa: {self.display_profile.width}x"
             f"{self.display_profile.height} ({self.display_profile.mode})"
@@ -254,53 +318,7 @@ class MainWindow(QMainWindow):
             self.add_button_feedback(btn)
 
     def add_button_feedback(self, button):
-        base_style = button.styleSheet().strip()
-
-        feedback_style = """
-        QPushButton:hover {
-            background-color: rgb(20, 38, 82);
-            border-color: rgb(46, 196, 182);
-        }
-
-        QPushButton:pressed {
-            background-color: rgb(46, 196, 182);
-            color: rgb(11, 19, 43);
-        }
-        """
-
-        if base_style:
-            if "{" in base_style and "}" in base_style:
-                final_style = base_style + "\n" + feedback_style
-            else:
-                final_style = f"""
-                QPushButton {{
-                    {base_style}
-                }}
-                {feedback_style}
-                """
-        else:
-            final_style = """
-            QPushButton {
-                color: rgb(234, 234, 234);
-                border-radius: 10px;
-                border: 2px solid rgb(91, 192, 190);
-                background-color: rgb(15, 27, 61);
-                min-height: 28px;
-                padding: 4px 12px;
-            }
-
-            QPushButton:hover {
-                background-color: rgb(20, 38, 82);
-                border-color: rgb(46, 196, 182);
-            }
-
-            QPushButton:pressed {
-                background-color: rgb(46, 196, 182);
-                color: rgb(11, 19, 43);
-            }
-            """
-
-        button.setStyleSheet(final_style)
+        button.setStyleSheet("")
         button.setCursor(Qt.PointingHandCursor)
 
     def setup_camera(self):
@@ -348,6 +366,8 @@ class MainWindow(QMainWindow):
             self.lbl_video.set_rois(self.rois_to_apply)
 
         self.apply_focus_from_recipe(self.selected_recipe)
+        if hasattr(self, "current_system_visual_state"):
+            self.refresh_operator_dashboard()
 
     def apply_focus_from_recipe(self, recipe):
         self.focus_ready_for_active_recipe = False
@@ -458,6 +478,7 @@ class MainWindow(QMainWindow):
         self.state_manager.load_selected_recipe()
         self.selected_recipe = self.recipe_manager.get_selected()
         self.apply_rois_from_recipe()
+        self.refresh_operator_dashboard()
 
         # LOG
         self.state_worker.log.connect(print)
@@ -495,18 +516,34 @@ class MainWindow(QMainWindow):
         )
 
     def set_indicator_result_style(self, result):
-        if result == "OK":
-            self.ui.indicator_1.setStyleSheet(self.OK_STYLE)
-        elif result == "NG":
-            self.ui.indicator_1.setStyleSheet(self.NG_STYLE)
-        elif result == "ERROR":
-            self.ui.indicator_1.setStyleSheet(self.CRITICAL_STYLE)
-        elif result == "NOT_READY":
-            self.ui.indicator_1.setStyleSheet(self.NOT_READY_STYLE)
+        synthetic_state = "READY"
+        synthetic_result = result
+        synthetic_reason = None
+        if result == "NOT_READY":
+            synthetic_state = "WARNING"
+            synthetic_result = None
+            synthetic_reason = self.current_system_ready_error
         elif result == "CRITICAL":
-            self.ui.indicator_1.setStyleSheet(self.CRITICAL_STYLE)
-        else:
-            self.ui.indicator_1.setStyleSheet(self.BASE_STYLE)
+            synthetic_state = "CRITICAL"
+            synthetic_result = None
+            synthetic_reason = self.current_system_ready_error
+        elif result == "BASE":
+            synthetic_result = None
+
+        recipe = self.selected_recipe if isinstance(self.selected_recipe, dict) else {}
+        view = build_operator_status(
+            synthetic_state,
+            synthetic_reason,
+            final_result=synthetic_result,
+            cycle_busy=False,
+            recipe_name=recipe.get("name"),
+        )
+        self.ui.lbl_model.setText(f"RECETA ACTIVA\n{view.recipe_caption}")
+        self.ui.lbl_indicator_1.setText(f"{view.headline}\n{view.detail}")
+        self.ui.lbl_indicator_1.setToolTip(view.detail)
+        self.ui.indicator_1.setText(view.indicator_text)
+        self.ui.indicator_1.setProperty("statusLevel", view.level)
+        self._refresh_widget_style(self.ui.indicator_1)
 
     def refresh_indicator_visual(self):
         """
@@ -518,23 +555,7 @@ class MainWindow(QMainWindow):
         3. Resultado final OK/NG de ESP si el sistema está READY
         4. BASE si el sistema está READY y no hay resultado
         """
-        if self.current_system_visual_state == "CRITICAL":
-            self.set_indicator_result_style("CRITICAL")
-            return
-
-        if self.current_system_visual_state == "WARNING":
-            self.set_indicator_result_style("NOT_READY")
-            return
-
-        if self.current_system_visual_state == "READY":
-            if self.indicator_latched_result is not None:
-                self.set_indicator_result_style(self.indicator_latched_result)
-            else:
-                self.set_indicator_result_style("BASE")
-            return
-
-        # Fallback seguro
-        self.set_indicator_result_style("NOT_READY")
+        self.refresh_operator_dashboard()
 
     # MEJORAR PARA ACTUALIZAR LA PALETA DE COLORES DE TODA LA INTERFAZ SEGUN EL ESTADO O RESULTADO
     def set_system_status_visual(self, state, reason=None, log=True):
@@ -980,6 +1001,7 @@ class MainWindow(QMainWindow):
 
         self.focus_check_busy = True
         self.pending_trigger_after_focus = True
+        self.refresh_operator_dashboard()
         self.camera_worker.request_focus_check_before_trigger(focus_config)
 
     def start_fsm_cycle(self, reset_indicator=True):
@@ -997,6 +1019,7 @@ class MainWindow(QMainWindow):
             self.clear_indicator_for_new_cycle()
 
         self.fsm_busy = True
+        self.refresh_operator_dashboard()
 
         if self.state_thread.isRunning():
             QMetaObject.invokeMethod(
@@ -1007,10 +1030,12 @@ class MainWindow(QMainWindow):
             return True
 
         self.fsm_busy = False
+        self.refresh_operator_dashboard()
         return False
 
     def on_fsm_finished(self):
         self.fsm_busy = False
+        self.refresh_operator_dashboard()
 
     def get_current_frame(self):
         return self.current_frame
@@ -1030,7 +1055,7 @@ class MainWindow(QMainWindow):
         self.apply_rois_from_recipe()
         self.apply_focus_from_recipe(self.selected_recipe)
 
-        self.ui.lbl_model.setText(model_name)
+        self.refresh_operator_dashboard()
 
     def open_config(self):
         if self.fsm_busy or self.focus_check_busy or (hasattr(self, "state_manager") and self.state_manager.state != "IDLE"):
@@ -1090,6 +1115,7 @@ class MainWindow(QMainWindow):
         print(f"[APP] Resultado verificación enfoque: {result}")
 
         self.focus_check_busy = False
+        self.refresh_operator_dashboard()
 
         if not isinstance(result, dict) or not result.get("ok"):
             print("[APP][ERROR] Verificación de enfoque no válida")

@@ -299,14 +299,13 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         MainWindow.setWindowTitle(QCoreApplication.translate("MainWindow", u"MainWindow", None))
-        self.lbl_tittle.setText(QCoreApplication.translate("MainWindow", u"SISTEMA DE VISI\u00d3N - SUMMIT USB", None))
+        self.lbl_tittle.setText(QCoreApplication.translate("MainWindow", u"SISTEMA DE VISI\u00d3N", None))
         self.btn_minimizar.setText(QCoreApplication.translate("MainWindow", u"-", None))
         self.btn_cerrar.setText(QCoreApplication.translate("MainWindow", u"X", None))
-        self.lbl_cam.setText(QCoreApplication.translate("MainWindow", u"CAMARA", None))
+        self.lbl_cam.setText(QCoreApplication.translate("MainWindow", u"VISTA DE INSPECCI\u00d3N", None))
         self.lbl_video.setText("")
-        self.lbl_model.setText(QCoreApplication.translate("MainWindow", u"MODELO DE PIEZA: A", None))
-        self.btn_config.setText(QCoreApplication.translate("MainWindow", u"CONFIGURACI\u00d3N", None))
+        self.lbl_model.setText(QCoreApplication.translate("MainWindow", u"RECETA ACTIVA", None))
+        self.btn_config.setText(QCoreApplication.translate("MainWindow", u"CONFIGURAR ESTACI\u00d3N", None))
         self.indicator_1.setText(QCoreApplication.translate("MainWindow", u"\u2714", None))
-        self.lbl_indicator_1.setText(QCoreApplication.translate("MainWindow", u"INSPECCION", None))
+        self.lbl_indicator_1.setText(QCoreApplication.translate("MainWindow", u"SISTEMA INICIANDO", None))
     # retranslateUi
-
