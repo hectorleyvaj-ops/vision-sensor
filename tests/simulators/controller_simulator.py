@@ -16,6 +16,8 @@ class ControllerSimulator:
         self.active_cycle = None
         self.model = None
         self.vision_result = None
+        self.final_value = None
+        self.focus_busy = False
 
     def receive(self, payload):
         message = decode_message(payload)
@@ -39,6 +41,20 @@ class ControllerSimulator:
             status = "OK" if self.vision_ready == requested else "REJECTED"
             return [encode_message("ACK", type="READY", status=status)]
 
+        if message.kind == "PING":
+            return [encode_message("PONG", seq=fields.get("SEQ", ""))]
+
+        if message.kind == "FOCUS":
+            self.focus_busy = fields.get("STATE") == "BUSY"
+            return [
+                encode_message(
+                    "ACK",
+                    type="FOCUS",
+                    cycle=self.active_cycle,
+                    status="OK",
+                )
+            ]
+
         if message.kind == "VISION_RESULT":
             cycle = fields.get("CYCLE")
             if cycle != self.active_cycle:
@@ -51,11 +67,34 @@ class ControllerSimulator:
                         error="STALE_CYCLE",
                     )
                 ]
-            self.vision_result = fields.get("RESULT")
+            result = fields.get("RESULT")
+            if self.vision_result is not None and self.vision_result != result:
+                return [
+                    encode_message(
+                        "ACK",
+                        type="VISION_RESULT",
+                        cycle=cycle,
+                        status="REJECTED",
+                        error="CONFLICTING_RESULT",
+                    )
+                ]
+            self.vision_result = result
             return [
                 encode_message(
                     "ACK",
                     type="VISION_RESULT",
+                    cycle=cycle,
+                    status="OK",
+                )
+            ]
+
+        if message.kind == "RESET":
+            cycle = self.active_cycle
+            self.release_cycle()
+            return [
+                encode_message(
+                    "ACK",
+                    type="RESET",
                     cycle=cycle,
                     status="OK",
                 )
@@ -82,6 +121,7 @@ class ControllerSimulator:
     def final_result(self, result):
         if self.active_cycle is None:
             return encode_message("ERROR", code="NO_ACTIVE_CYCLE")
+        self.final_value = result
         return encode_message(
             "FINAL_RESULT",
             cycle=self.active_cycle,
@@ -91,8 +131,19 @@ class ControllerSimulator:
     def release_cycle(self):
         self.active_cycle = None
         self.vision_result = None
+        self.final_value = None
+        self.focus_busy = False
 
     def cancel(self, reason="EXTERNAL_CANCEL"):
         cycle = self.active_cycle
         self.release_cycle()
         return encode_message("CANCEL", cycle=cycle, reason=reason)
+
+    def repeat_trigger(self):
+        if self.active_cycle is None:
+            return encode_message("ERROR", code="NO_ACTIVE_CYCLE")
+        return encode_message(
+            "TRIGGER",
+            cycle=self.active_cycle,
+            model=self.model,
+        )

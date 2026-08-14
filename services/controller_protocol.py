@@ -102,10 +102,19 @@ class CycleGuard:
             raise ProtocolError("TRIGGER sin CYCLE")
         selected_model = validate_external_model(model)
 
+        if self.active_cycle_id == cycle:
+            if self.active_model != selected_model:
+                raise ProtocolError(
+                    f"Trigger repetido con otro modelo: {cycle}; "
+                    f"activo={self.active_model}, recibido={selected_model}"
+                )
+            return {
+                "cycle_id": cycle,
+                "model": selected_model,
+                "duplicate": True,
+            }
         if cycle == self.last_closed_cycle_id:
             raise ProtocolError(f"Ciclo ya cerrado: {cycle}")
-        if self.active_cycle_id == cycle:
-            raise ProtocolError(f"Trigger duplicado: {cycle}")
         if self.active_cycle_id is not None:
             raise ProtocolError(
                 f"Ya existe un ciclo activo: {self.active_cycle_id}"
@@ -113,7 +122,11 @@ class CycleGuard:
 
         self.active_cycle_id = cycle
         self.active_model = selected_model
-        return {"cycle_id": cycle, "model": selected_model}
+        return {
+            "cycle_id": cycle,
+            "model": selected_model,
+            "duplicate": False,
+        }
 
     def require_active(self, cycle_id: str) -> str:
         cycle = str(cycle_id or "").strip()

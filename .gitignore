@@ -18,6 +18,7 @@ runtime/
 
 # Archivos temporales
 *.tmp
+*.bak
 
 # Sistema
 .DS_Store

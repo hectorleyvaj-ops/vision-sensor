@@ -39,6 +39,22 @@ class ControllerProtocolTests(unittest.TestCase):
         with self.assertRaises(ProtocolError):
             guard.begin("boot1-2", "PART-2")
 
+    def test_cycle_guard_accepts_identical_trigger_retry(self):
+        guard = CycleGuard()
+        first = guard.begin("boot1-1", "PART-1")
+        retry = guard.begin("boot1-1", "PART-1")
+
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(retry["duplicate"])
+        self.assertEqual(guard.active_cycle_id, "boot1-1")
+
+    def test_cycle_guard_rejects_retry_with_different_model(self):
+        guard = CycleGuard()
+        guard.begin("boot1-1", "PART-1")
+
+        with self.assertRaises(ProtocolError):
+            guard.begin("boot1-1", "PART-2")
+
     def test_cycle_guard_rejects_late_result(self):
         guard = CycleGuard()
         guard.begin("boot1-1", "PART-1")

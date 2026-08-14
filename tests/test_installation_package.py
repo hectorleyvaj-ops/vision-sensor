@@ -15,16 +15,16 @@ class InstallationPackageTests(unittest.TestCase):
         self.package = self.project_root / "installations" / "worksurface"
         self.manifest = self.package / "commissioning.json"
 
-    def test_worksurface_package_is_structurally_ready_but_not_commissioned(self):
+    def test_preliminary_calibration_is_valid_but_not_commissioned(self):
         report = validate_installation(self.manifest)
 
         self.assertEqual(report["errors"], [])
         self.assertTrue(report["ready_for_commissioning"])
         self.assertFalse(report["ready_for_production"])
         pending_codes = {item["code"] for item in report["pending"]}
-        self.assertIn("TOOL_COMMISSIONING", pending_codes)
         self.assertIn("FOCUS_COMMISSIONING", pending_codes)
         self.assertIn("RECIPE_NOT_COMMISSIONED", pending_codes)
+        self.assertNotIn("TOOL_COMMISSIONING", pending_codes)
         self.assertEqual(
             Path(report["manifest"]),
             self.manifest.resolve(),
@@ -55,6 +55,13 @@ class InstallationPackageTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(recipe["commissioned"] is False for recipe in recipes))
+        self.assertTrue(
+            all(
+                recipe["steps"][0]["params"].get("roi")
+                and recipe["steps"][1]["params"].get("template_paths")
+                for recipe in recipes
+            )
+        )
 
     def test_invalid_model_mapping_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp_dir:

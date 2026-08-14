@@ -69,6 +69,8 @@ class SerialComm(QObject):
 
         self.last_result_rx = None
         self.last_result_rx_time = 0
+        self.last_final_cycle_id = None
+        self.last_pong_sequence = None
 
 
         self._serial_lock = threading.RLock()
@@ -159,6 +161,7 @@ class SerialComm(QObject):
             print(f"[SERIAL][DESCONECTADO] {reason}")
 
         self.synced = False
+        self.remote_not_ready_reason = reason or "Controlador desconectado"
         self.emit_diagnostic(
             "ERROR",
             f"Conexion con controlador perdida: {reason or 'sin detalle'}",
@@ -185,6 +188,35 @@ class SerialComm(QObject):
                         pass
             finally:
                 self.ser = None
+
+    def mark_link_stale(self, reason):
+        """Invalidate protocol state without closing an otherwise open port."""
+        if not self.synced and self.cycle_guard.active_cycle_id is None:
+            return
+
+        print(f"[SERIAL][WATCHDOG] {reason}")
+        self.synced = False
+        self.remote_not_ready_reason = reason
+        cancelled_cycle = self.cycle_guard.cancel()
+        if cancelled_cycle:
+            self.cycle_cancelled.emit(
+                {
+                    "cycle_id": cancelled_cycle,
+                    "reason": "CONTROLLER_LINK_TIMEOUT",
+                }
+            )
+        self.emit_diagnostic(
+            "ERROR",
+            reason,
+            "Verifica el firmware, cable USB y heartbeat PING/PONG",
+            details={
+                "port": self.port,
+                "connected": self.is_connected(),
+                "synced": False,
+            },
+            blocking=True,
+        )
+        self.connection_lost.emit(reason)
 
     def reconnect(self):
         print("[SERIAL] Intentando reconectar...")
@@ -330,7 +362,6 @@ class SerialComm(QObject):
         return normalize_model(model, self.model_map)
 
     def process_message(self, msg: str):
-        self.last_rx_time = time.time()
         self.process_controller_message((msg or "").strip())
 
     def process_controller_message(self, payload: str):
@@ -339,6 +370,8 @@ class SerialComm(QObject):
         except ProtocolError as exc:
             print(f"[SERIAL][PROTOCOL][WARNING] Mensaje invalido: {exc}")
             return
+
+        self.last_rx_time = time.time()
 
         kind = message.kind
         fields = message.fields
@@ -432,9 +465,15 @@ class SerialComm(QObject):
                     raise ProtocolError(
                         f"Modelo no configurado: {event['model']}"
                     )
-                event["recipe_name"] = normalized_model
-
                 self.send_protocol_ack("TRIGGER", cycle_id)
+                if event.get("duplicate"):
+                    print(
+                        f"[SERIAL][PROTOCOL] TRIGGER {cycle_id} repetido; "
+                        "ACK reenviado sin ejecutar otro ciclo"
+                    )
+                    return
+
+                event["recipe_name"] = normalized_model
                 if normalized_model != self.current_model:
                     self.current_model = normalized_model
                     self.model_received.emit(normalized_model)
@@ -456,9 +495,24 @@ class SerialComm(QObject):
             try:
                 message.require("CYCLE", "RESULT")
                 result = validate_result(fields["RESULT"])
+
+                if cycle_id == self.last_final_cycle_id:
+                    if result != self.last_result_rx:
+                        raise ProtocolError(
+                            f"Resultado final contradictorio para {cycle_id}: "
+                            f"anterior={self.last_result_rx}, recibido={result}"
+                        )
+                    self.send_protocol_ack("FINAL_RESULT", cycle_id)
+                    print(
+                        f"[SERIAL][PROTOCOL] FINAL_RESULT {cycle_id} repetido; "
+                        "ACK reenviado"
+                    )
+                    return
+
                 self.cycle_guard.close(cycle_id)
                 self.send_protocol_ack("FINAL_RESULT", cycle_id)
                 self.last_result_rx = result
+                self.last_final_cycle_id = cycle_id
                 self.last_result_rx_time = time.time()
                 self.esp_result_received.emit(result)
             except ProtocolError as exc:
@@ -492,7 +546,30 @@ class SerialComm(QObject):
                 print(f"[SERIAL][PROTOCOL][WARNING] CANCEL rechazado: {exc}")
             return
 
+        if kind == "RESET":
+            cycle_id = fields.get("CYCLE")
+            try:
+                if cycle_id:
+                    cancelled = self.cycle_guard.cancel(cycle_id)
+                else:
+                    cancelled = self.cycle_guard.cancel()
+                self.send_protocol_ack("RESET", cancelled or cycle_id)
+                if cancelled:
+                    self.cycle_cancelled.emit(
+                        {
+                            "cycle_id": cancelled,
+                            "reason": fields.get("REASON", "REMOTE_RESET"),
+                        }
+                    )
+                self.reset_received.emit()
+            except ProtocolError as exc:
+                self.send_protocol_ack(
+                    "RESET", cycle_id, status="REJECTED", error=str(exc)
+                )
+            return
+
         if kind == "PONG":
+            self.last_pong_sequence = fields.get("SEQ")
             return
 
         if kind == "ACK":
@@ -660,8 +737,9 @@ class SerialComm(QObject):
                     and self.synced
                     and now - self.last_rx_time >= self.connection_timeout
                 ):
-                    print("[SERIAL][WATCHDOG] ESP32 sin respuesta, sincronizacion perdida")
-                    self.synced = False
+                    self.mark_link_stale(
+                        "ESP32 sin respuesta al heartbeat; sincronizacion perdida"
+                    )
 
                 if self.is_connected() and not self.synced and now - last_try_handshake > 5.0:
                     last_try_handshake = now

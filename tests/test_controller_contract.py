@@ -79,6 +79,58 @@ class ControllerContractTests(unittest.TestCase):
             {"CYCLE", "RESULT"},
         )
 
+    def test_heartbeat_echoes_sequence(self):
+        pong = decode_message(
+            self.controller.receive(encode_message("PING", seq="42"))[0]
+        )
+        self.assertEqual(pong.kind, "PONG")
+        self.assertEqual(pong.fields["SEQ"], "42")
+
+    def test_identical_vision_result_retry_is_idempotent(self):
+        trigger = decode_message(self.controller.trigger("PART-1"))
+        first = decode_message(
+            self.controller.receive(
+                encode_message(
+                    "VISION_RESULT",
+                    cycle=trigger.fields["CYCLE"],
+                    result="OK",
+                )
+            )[0]
+        )
+        retry = decode_message(
+            self.controller.receive(
+                encode_message(
+                    "VISION_RESULT",
+                    cycle=trigger.fields["CYCLE"],
+                    result="OK",
+                )
+            )[0]
+        )
+        self.assertEqual(first.fields["STATUS"], "OK")
+        self.assertEqual(retry.fields["STATUS"], "OK")
+        self.assertEqual(self.controller.vision_result, "OK")
+
+    def test_conflicting_vision_result_retry_is_rejected(self):
+        trigger = decode_message(self.controller.trigger("PART-1"))
+        self.controller.receive(
+            encode_message(
+                "VISION_RESULT",
+                cycle=trigger.fields["CYCLE"],
+                result="OK",
+            )
+        )
+        conflict = decode_message(
+            self.controller.receive(
+                encode_message(
+                    "VISION_RESULT",
+                    cycle=trigger.fields["CYCLE"],
+                    result="NG",
+                )
+            )[0]
+        )
+        self.assertEqual(conflict.fields["STATUS"], "REJECTED")
+        self.assertEqual(conflict.fields["ERROR"], "CONFLICTING_RESULT")
+
 
 if __name__ == "__main__":
     unittest.main()
