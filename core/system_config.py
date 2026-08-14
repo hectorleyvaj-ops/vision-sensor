@@ -86,6 +86,11 @@ class SystemConfig:
         installation = cls._section_from(data, "installation")
         if not str(installation.get("id", "")).strip():
             raise SystemConfigError("installation.id es obligatorio")
+        commissioning_mode = installation.get("commissioning_mode", False)
+        if not isinstance(commissioning_mode, bool):
+            raise SystemConfigError(
+                "installation.commissioning_mode debe ser booleano"
+            )
 
         recipes = cls._section_from(data, "recipes")
         recipe_file = recipes.get("file")
@@ -96,14 +101,16 @@ class SystemConfig:
 
         camera = cls._section_from(data, "camera")
         device = camera.get("device")
-        valid_device = (
+        valid_device = device is None and commissioning_mode
+        valid_device = valid_device or (
             isinstance(device, int)
             and not isinstance(device, bool)
             and device >= 0
         ) or (isinstance(device, str) and bool(device.strip()))
         if not valid_device:
             raise SystemConfigError(
-                "camera.device debe ser un indice no negativo o una ruta"
+                "camera.device debe ser un indice/ruta o quedar sin asignar "
+                "solamente en modo configuracion"
             )
         for key in ("width", "height", "capture_fps", "preview_fps"):
             value = camera.get(key)
@@ -125,8 +132,13 @@ class SystemConfig:
                 f"{cls.CONTROLLER_PROTOCOL}"
             )
         ports = controller.get("ports")
-        if not isinstance(ports, dict) or not ports:
-            raise SystemConfigError("controller.ports debe contener al menos un puerto")
+        if not isinstance(ports, dict):
+            raise SystemConfigError("controller.ports debe ser un objeto")
+        if not ports and not commissioning_mode:
+            raise SystemConfigError(
+                "controller.ports debe contener al menos un puerto fuera del "
+                "modo configuracion"
+            )
         for platform, port in ports.items():
             if not str(platform).strip() or not str(port).strip():
                 raise SystemConfigError("controller.ports contiene una entrada vacia")
@@ -274,6 +286,9 @@ class SystemConfig:
 
         port = ports.get(platform) or ports.get("default")
         if port is None:
+            installation = self.section("installation")
+            if installation.get("commissioning_mode", False):
+                return None
             raise SystemConfigError(
                 f"No hay puerto del controlador para plataforma '{platform}'"
             )

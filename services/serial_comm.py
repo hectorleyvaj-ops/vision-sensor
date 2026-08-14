@@ -57,6 +57,7 @@ class SerialComm(QObject):
         self.retry_delay = 0.5
 
         self.synced = False
+        self.remote_firmware = None
         self.current_model = None
         self.remote_not_ready_reason = None
         self.cycle_guard = CycleGuard()
@@ -89,6 +90,22 @@ class SerialComm(QObject):
         })
 
     def connect(self):
+        if not str(self.port or "").strip():
+            self.ser = None
+            self.synced = False
+            self.emit_diagnostic(
+                "ERROR",
+                "Controlador sin puerto asignado",
+                "Abre Configuracion > Estacion y selecciona un controlador detectado",
+                details={
+                    "port": None,
+                    "baudrate": self.baudrate,
+                    "connected": False,
+                    "synced": False,
+                },
+                blocking=True,
+            )
+            return
         try:
             with self._serial_lock:
                 self.ser = serial.Serial(
@@ -149,6 +166,18 @@ class SerialComm(QObject):
 
     def is_connected(self):
         return self.ser is not None and self.ser.is_open
+
+    def runtime_controller_info(self):
+        """Return a read-only snapshot for the commissioning interface."""
+        return {
+            "port": self.port,
+            "baudrate": self.baudrate,
+            "connected": self.is_connected(),
+            "synced": bool(self.synced),
+            "protocol": PROTOCOL_VERSION if self.synced else None,
+            "firmware": self.remote_firmware,
+            "error": self.remote_not_ready_reason,
+        }
 
     def mark_disconnected(self, reason=""):
         """
@@ -389,6 +418,7 @@ class SerialComm(QObject):
 
                 was_synced = self.synced
                 self.synced = True
+                self.remote_firmware = fields.get("FW", "desconocido")
                 raw_model = fields.get("MODEL")
                 normalized_model = self.normalize_model(raw_model) if raw_model else None
                 if raw_model and normalized_model is None:
@@ -746,6 +776,10 @@ class SerialComm(QObject):
                     self.start_handshake()
 
                 if not self.is_connected():
+
+                    if not str(self.port or "").strip():
+                        time.sleep(0.25)
+                        continue
 
                     if now - last_reconnect_attempt > 2.0:
                         last_reconnect_attempt = now

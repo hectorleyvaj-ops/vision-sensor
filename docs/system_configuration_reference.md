@@ -6,6 +6,7 @@ ni cambia el codigo del motor.
 | Grupo | Parametro | Para que sirve |
 |---|---|---|
 | Instalacion | ID / nombre | Identifica la estacion en logs y despliegues. |
+| Instalacion | Modo de configuracion | Permite endpoints sin asignar y fuerza `READY=0`. |
 | Recetas | Catalogo | Ruta al JSON con modelos, steps y herramientas. |
 | Recetas | Migracion | Permite convertir catalogos anteriores con respaldo. |
 | Camara | Dispositivo | Indice o ruta del dispositivo de captura. |
@@ -39,6 +40,10 @@ amplio; no existe un parametro de monitor en `system.json`.
 Todos los cambios de este panel se validan antes de escribirse, conservan un
 respaldo `system.json.bak` y requieren reiniciar la aplicacion para reconstruir
 camara, enlace serial y politicas de ejecucion.
+
+La busqueda de hardware propone endpoints, pero no los aplica por si sola. En
+Linux se prefieren rutas persistentes `by-id`. El protocolo permanece fijo y
+la ESP32 conserva toda configuracion de I/O fisico.
 
 ## Salidas operativas
 

@@ -254,6 +254,13 @@ class ConfigWindow(QWidget):
             and hasattr(self.camera_worker, "runtime_camera_info")
             else {}
         )
+        controller_runtime = (
+            self.state_manager.comm.runtime_controller_info()
+            if self.state_manager is not None
+            and getattr(self.state_manager, "comm", None) is not None
+            and hasattr(self.state_manager.comm, "runtime_controller_info")
+            else {}
+        )
         dialog = SystemConfigDialog(
             system_config=self.system_config,
             recipe_manager=self.recipe_manager,
@@ -261,6 +268,7 @@ class ConfigWindow(QWidget):
             parent=self,
             display_profile=self.display_profile,
             camera_runtime=camera_runtime,
+            controller_runtime=controller_runtime,
         )
         dialog.configuration_saved.connect(self.restart_required.emit)
         configure_dialog(

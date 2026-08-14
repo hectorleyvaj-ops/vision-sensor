@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import threading
 
 from core.editor_models import (
     EditorValueError,
@@ -24,6 +25,7 @@ from utils.qt_compat import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTimer,
     QVBoxLayout,
     QWidget,
     Signal,
@@ -33,12 +35,19 @@ from ui.responsive import compact_stylesheet, profile_from_widget
 from ui.theme import interface_stylesheet
 from core.camera_runtime import format_camera_runtime
 from core.focus_modes import FOCUS_MODE_LABELS
+from services.hardware_discovery import (
+    discover_cameras,
+    discover_serial_controllers,
+    format_camera_candidate,
+    format_serial_candidate,
+)
 
 
 class SystemConfigDialog(QDialog):
     """Edit one complete installation without creating product profiles."""
 
     configuration_saved = Signal(object)
+    hardware_discovery_finished = Signal(object)
 
     def __init__(
         self,
@@ -48,12 +57,15 @@ class SystemConfigDialog(QDialog):
         parent=None,
         display_profile=None,
         camera_runtime=None,
+        controller_runtime=None,
     ):
         super().__init__(parent)
         self.system_config = system_config
         self.recipe_manager = recipe_manager
         self.platform = platform
         self.camera_runtime = dict(camera_runtime or {})
+        self.controller_runtime = dict(controller_runtime or {})
+        self._discovery_running = False
         self.display_profile = display_profile or profile_from_widget(parent or self)
         self.setWindowTitle("Configuracion de la estacion")
         self.setStyleSheet(
@@ -62,6 +74,10 @@ class SystemConfigDialog(QDialog):
         )
         self._build_ui()
         self._load_values()
+        self.hardware_discovery_finished.connect(
+            self._on_hardware_discovery_finished
+        )
+        QTimer.singleShot(100, self.refresh_hardware)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -102,6 +118,14 @@ class SystemConfigDialog(QDialog):
 
         self.btn_cancel.clicked.connect(self.reject)
         self.btn_save.clicked.connect(self._save)
+        self.btn_refresh_cameras.clicked.connect(self.refresh_hardware)
+        self.btn_refresh_controllers.clicked.connect(self.refresh_hardware)
+        self.cmb_camera_candidates.currentIndexChanged.connect(
+            self._apply_camera_candidate
+        )
+        self.cmb_controller_candidates.currentIndexChanged.connect(
+            self._apply_controller_candidate
+        )
 
     def _form_tab(self, title):
         page = QWidget()
@@ -154,9 +178,23 @@ class SystemConfigDialog(QDialog):
         form = self._form_tab("Estacion")
         self.txt_installation_id = QLineEdit()
         self.txt_installation_name = QLineEdit()
+        self.chk_commissioning_mode = QCheckBox(
+            "Permitir configuracion y bloquear produccion"
+        )
         self.txt_recipe_file = QLineEdit()
         self.chk_auto_migrate = QCheckBox("Crear respaldo y migrar recetas heredadas")
         self.txt_camera_device = QLineEdit()
+        self.cmb_camera_candidates = QComboBox()
+        self.btn_refresh_cameras = QPushButton("BUSCAR HARDWARE")
+        camera_picker = QWidget()
+        camera_picker_layout = QHBoxLayout(camera_picker)
+        camera_picker_layout.setContentsMargins(0, 0, 0, 0)
+        camera_picker_layout.addWidget(self.cmb_camera_candidates, 1)
+        camera_picker_layout.addWidget(self.btn_refresh_cameras)
+        self.lbl_camera_discovery = QLabel(
+            "La busqueda conserva el dispositivo actual hasta que elijas otro."
+        )
+        self.lbl_camera_discovery.setWordWrap(True)
         self.lbl_active_camera = QLabel(format_camera_runtime(self.camera_runtime))
         self.lbl_active_camera.setWordWrap(True)
         self.spn_camera_width = self._int_spin(1, 16384)
@@ -169,9 +207,12 @@ class SystemConfigDialog(QDialog):
 
         form.addRow("ID de instalacion", self.txt_installation_id)
         form.addRow("Nombre", self.txt_installation_name)
+        form.addRow("Modo de configuracion", self.chk_commissioning_mode)
         form.addRow("Catalogo de recetas", self.txt_recipe_file)
         form.addRow("Migracion", self.chk_auto_migrate)
         form.addRow("Dispositivo de camara", self.txt_camera_device)
+        form.addRow("Camaras detectadas", camera_picker)
+        form.addRow("Busqueda", self.lbl_camera_discovery)
         form.addRow("Camara activa ahora", self.lbl_active_camera)
         form.addRow("Ancho de captura", self.spn_camera_width)
         form.addRow("Alto de captura", self.spn_camera_height)
@@ -184,6 +225,21 @@ class SystemConfigDialog(QDialog):
         protocol = QLabel("serial / vision_controller_v1 (contrato fijo)")
         protocol.setWordWrap(True)
         layout.addWidget(protocol)
+
+        controller_picker = QWidget()
+        controller_picker_layout = QHBoxLayout(controller_picker)
+        controller_picker_layout.setContentsMargins(0, 0, 0, 0)
+        self.cmb_controller_candidates = QComboBox()
+        self.btn_refresh_controllers = QPushButton("BUSCAR HARDWARE")
+        controller_picker_layout.addWidget(self.cmb_controller_candidates, 1)
+        controller_picker_layout.addWidget(self.btn_refresh_controllers)
+        layout.addWidget(QLabel("Controladores y puertos detectados"))
+        layout.addWidget(controller_picker)
+        self.lbl_controller_discovery = QLabel(
+            "Solo se identifica el controlador; GPIO y logica permanecen en la ESP32."
+        )
+        self.lbl_controller_discovery.setWordWrap(True)
+        layout.addWidget(self.lbl_controller_discovery)
 
         form = QFormLayout()
         self.spn_baudrate = self._int_spin(1, 4000000)
@@ -252,9 +308,11 @@ class SystemConfigDialog(QDialog):
         help_texts = {
             self.txt_installation_id: "ID tecnico estable de esta estacion.",
             self.txt_installation_name: "Nombre legible mostrado en registros.",
+            self.chk_commissioning_mode: "Mantiene READY=0 mientras se instala hardware y se crean recetas.",
             self.txt_recipe_file: "Ruta al catalogo JSON de recetas de esta instalacion.",
             self.chk_auto_migrate: "Convierte esquemas heredados y conserva un archivo .bak.",
             self.txt_camera_device: "Indice 0, 1, etc. o ruta persistente del dispositivo.",
+            self.cmb_camera_candidates: "Inventario detectado; la seleccion se copia al campo de dispositivo.",
             self.lbl_active_camera: "Dispositivo y formato que usa la sesion actual; los cambios requieren reinicio.",
             self.spn_camera_width: "Ancho solicitado a la camara; no es el ancho del monitor.",
             self.spn_camera_height: "Alto solicitado a la camara; no es el alto del monitor.",
@@ -262,6 +320,7 @@ class SystemConfigDialog(QDialog):
             self.spn_preview_fps: "Frecuencia visual; puede reducirse para ahorrar CPU.",
             self.cmb_default_focus: "Modo inicial de enfoque para recetas nuevas.",
             self.spn_baudrate: "Velocidad serial; debe coincidir con el controlador.",
+            self.cmb_controller_candidates: "Puertos enumerados y controladores compatibles identificados por handshake.",
             self.spn_timeout: "Espera maxima de lectura/escritura serial.",
             self.chk_reset_on_connect: "Permite reiniciar el controlador al abrir el puerto.",
             self.chk_heartbeat: "Supervisa que el enlace con el controlador siga vivo.",
@@ -349,9 +408,15 @@ class SystemConfigDialog(QDialog):
 
         self.txt_installation_id.setText(str(installation.get("id", "")))
         self.txt_installation_name.setText(str(installation.get("name", "")))
+        self.chk_commissioning_mode.setChecked(
+            bool(installation.get("commissioning_mode", False))
+        )
         self.txt_recipe_file.setText(str(recipes.get("file", "")))
         self.chk_auto_migrate.setChecked(bool(recipes.get("auto_migrate", True)))
-        self.txt_camera_device.setText(str(camera.get("device", 0)))
+        camera_device = camera.get("device")
+        self.txt_camera_device.setText(
+            "" if camera_device is None else str(camera_device)
+        )
         self.spn_camera_width.setValue(int(camera.get("width", 1920)))
         self.spn_camera_height.setValue(int(camera.get("height", 1080)))
         self.spn_capture_fps.setValue(float(camera.get("capture_fps", 30)))
@@ -411,6 +476,146 @@ class SystemConfigDialog(QDialog):
             int(traceability.get("retention_days", 30))
         )
 
+    def refresh_hardware(self):
+        """Discover endpoints in the background without changing selection."""
+        if self._discovery_running:
+            return
+        self._discovery_running = True
+        self.btn_refresh_cameras.setEnabled(False)
+        self.btn_refresh_controllers.setEnabled(False)
+        self.lbl_camera_discovery.setText("Buscando camaras disponibles...")
+        self.lbl_controller_discovery.setText(
+            "Enumerando puertos y verificando vision_controller_v1..."
+        )
+        configured_camera_text = self.txt_camera_device.text().strip()
+        configured_camera = parse_camera_device(
+            configured_camera_text,
+            allow_unassigned=True,
+        )
+        baudrate = self.spn_baudrate.value()
+        platform = self.platform
+        camera_runtime = dict(self.camera_runtime)
+        controller_runtime = dict(self.controller_runtime)
+
+        def run_discovery():
+            payload = {"cameras": [], "controllers": [], "errors": []}
+            try:
+                payload["cameras"] = discover_cameras(
+                    platform,
+                    configured_device=configured_camera,
+                    active_info=camera_runtime,
+                )
+            except Exception as exc:
+                payload["errors"].append(f"Camaras: {exc}")
+            try:
+                payload["controllers"] = discover_serial_controllers(
+                    baudrate=baudrate,
+                    active_info=controller_runtime,
+                )
+            except Exception as exc:
+                payload["errors"].append(f"Controladores: {exc}")
+            self.hardware_discovery_finished.emit(payload)
+
+        threading.Thread(
+            target=run_discovery,
+            name="hardware-discovery",
+            daemon=True,
+        ).start()
+
+    def _on_hardware_discovery_finished(self, payload):
+        self._discovery_running = False
+        self.btn_refresh_cameras.setEnabled(True)
+        self.btn_refresh_controllers.setEnabled(True)
+        payload = dict(payload or {})
+        cameras = list(payload.get("cameras") or [])
+        controllers = list(payload.get("controllers") or [])
+
+        self.cmb_camera_candidates.blockSignals(True)
+        self.cmb_camera_candidates.clear()
+        self.cmb_camera_candidates.addItem("Selecciona una camara detectada", None)
+        for record in cameras:
+            self.cmb_camera_candidates.addItem(
+                format_camera_candidate(record),
+                record,
+            )
+        self.cmb_camera_candidates.setCurrentIndex(0)
+        self.cmb_camera_candidates.blockSignals(False)
+
+        available_cameras = sum(
+            1 for record in cameras if record.get("available")
+        )
+        self.lbl_camera_discovery.setText(
+            f"{available_cameras} camara(s) disponible(s) de "
+            f"{len(cameras)} candidato(s)."
+        )
+
+        self.cmb_controller_candidates.blockSignals(True)
+        self.cmb_controller_candidates.clear()
+        self.cmb_controller_candidates.addItem(
+            "Selecciona un puerto o controlador detectado",
+            None,
+        )
+        for record in controllers:
+            self.cmb_controller_candidates.addItem(
+                format_serial_candidate(record),
+                record,
+            )
+        self.cmb_controller_candidates.setCurrentIndex(0)
+        self.cmb_controller_candidates.blockSignals(False)
+
+        verified = sum(
+            1 for record in controllers if record.get("verified_controller")
+        )
+        self.lbl_controller_discovery.setText(
+            f"{len(controllers)} puerto(s) detectado(s); "
+            f"{verified} controlador(es) compatible(s) verificado(s). "
+            "La seleccion no modifica GPIO ni logica de la ESP32."
+        )
+        errors = list(payload.get("errors") or [])
+        if errors:
+            self.lbl_controller_discovery.setText(
+                self.lbl_controller_discovery.text()
+                + " Errores: "
+                + "; ".join(errors)
+            )
+
+    def _apply_camera_candidate(self, index):
+        if index <= 0:
+            return
+        record = self.cmb_camera_candidates.currentData()
+        if not isinstance(record, dict):
+            return
+        if not record.get("available"):
+            self.lbl_camera_discovery.setText(
+                f"No se selecciono {record.get('device')}: "
+                f"{record.get('status', 'no disponible')}"
+            )
+            return
+        self.txt_camera_device.setText(str(record.get("device")))
+        self.lbl_camera_discovery.setText(
+            f"Camara propuesta: {record.get('device')}. "
+            "Guarda y reinicia para aplicarla."
+        )
+
+    def _apply_controller_candidate(self, index):
+        if index <= 0:
+            return
+        record = self.cmb_controller_candidates.currentData()
+        if not isinstance(record, dict) or not record.get("device"):
+            return
+        self._set_platform_port(self.platform, record["device"])
+        self.lbl_controller_discovery.setText(
+            f"Puerto propuesto para {self.platform}: {record['device']}. "
+            f"{record.get('status', '')} Guarda y reinicia para aplicarlo."
+        )
+
+    def _set_platform_port(self, platform, port):
+        for row in range(self.tbl_ports.rowCount()):
+            if self._item_text(self.tbl_ports, row, 0) == platform:
+                self.tbl_ports.setItem(row, 1, QTableWidgetItem(str(port)))
+                return
+        self._add_port_row(platform, port)
+
     def _read_ports(self):
         ports = {}
         for row in range(self.tbl_ports.rowCount()):
@@ -438,16 +643,21 @@ class SystemConfigDialog(QDialog):
 
     def _candidate(self):
         candidate = copy.deepcopy(self.system_config.data)
+        commissioning_mode = self.chk_commissioning_mode.isChecked()
         candidate["installation"].update({
             "id": self.txt_installation_id.text().strip(),
             "name": self.txt_installation_name.text().strip(),
+            "commissioning_mode": commissioning_mode,
         })
         candidate["recipes"].update({
             "file": self.txt_recipe_file.text().strip(),
             "auto_migrate": self.chk_auto_migrate.isChecked(),
         })
         candidate["camera"].update({
-            "device": parse_camera_device(self.txt_camera_device.text()),
+            "device": parse_camera_device(
+                self.txt_camera_device.text(),
+                allow_unassigned=commissioning_mode,
+            ),
             "width": self.spn_camera_width.value(),
             "height": self.spn_camera_height.value(),
             "capture_fps": self.spn_capture_fps.value(),

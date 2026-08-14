@@ -66,6 +66,9 @@ class MainWindow(QMainWindow):
         self.controller_config = self.system_config.section("controller")
         self.runtime_config = self.system_config.section("runtime")
         installation = self.system_config.section("installation")
+        self.commissioning_mode = bool(
+            installation.get("commissioning_mode", False)
+        )
         self.installation_name = installation.get(
             "name",
             installation.get("id", "Motor de vision"),
@@ -145,6 +148,10 @@ class MainWindow(QMainWindow):
             self.system_config.recipe_file,
             auto_migrate=self.system_config.auto_migrate_recipes,
             tool_registry=self.tool_registry,
+            default_focus_mode=self.camera_config.get(
+                "default_focus_mode",
+                "calibrated",
+            ),
         )
         traceability_config = self.system_config.section("traceability")
         self.cycle_trace = CycleTraceWriter.from_config(
@@ -182,6 +189,8 @@ class MainWindow(QMainWindow):
             self.setup_serial()
             self.setup_state_manager()
             self.start_runtime_workers()
+            if self.commissioning_mode:
+                QTimer.singleShot(250, self.open_commissioning_configuration)
         except Exception:
             self.shutdown_runtime_components()
             raise
@@ -797,6 +806,9 @@ class MainWindow(QMainWindow):
         return None
 
     def get_system_ready_error(self):
+        if self.commissioning_mode:
+            return "Estacion en modo configuracion; produccion bloqueada"
+
         if self.configuration_restart_required:
             return "Reinicio requerido para aplicar la configuracion"
 
@@ -901,6 +913,7 @@ class MainWindow(QMainWindow):
             "step",
             "expected_code",
             "sensores esp32",
+            "modo configuracion",
             "reinicio requerido",
         )
 
@@ -1111,6 +1124,14 @@ class MainWindow(QMainWindow):
             self.config_window.showFullScreen()
         else:
             self.config_window.show()
+
+    def open_commissioning_configuration(self):
+        """Guide a neutral first boot directly to station discovery."""
+        if not self.commissioning_mode:
+            return
+        self.open_config()
+        if hasattr(self, "config_window"):
+            QTimer.singleShot(50, self.config_window.open_system_config)
 
     def on_system_configuration_saved(self, _saved_config):
         self.configuration_restart_required = True

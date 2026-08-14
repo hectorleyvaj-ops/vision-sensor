@@ -18,9 +18,11 @@ class RecipeManager:
         path="recipes.json",
         auto_migrate=True,
         tool_registry=None,
+        default_focus_mode="calibrated",
     ):
         self.path = os.fspath(path)
         self.auto_migrate = bool(auto_migrate)
+        self.default_focus_mode = self.normalize_focus_mode(default_focus_mode)
         self.tool_registry = (
             tool_registry
             if tool_registry is not None
@@ -251,28 +253,27 @@ class RecipeManager:
         data["recipes"] = new_recipes
         self._save_file(data)
 
-    def create_recipe(self, name, expected_code="", roi=None, selected=False):
+    @staticmethod
+    def normalize_focus_mode(mode):
+        mode = str(mode or "calibrated").strip().lower()
+        supported = {
+            "calibrated",
+            "manual_fixed",
+            "auto_continuous",
+            "disabled",
+        }
+        return mode if mode in supported else "calibrated"
+
+    def create_recipe(self, name, selected=False):
 
         new_recipe = {
             "id": self.slugify(name),
             "name": name,
             "selected": selected,
             "commissioned": False,
-            "steps": [
-                {
-                    "id": "dmtx_1",
-                    "tool": "dmtx",
-                    "enabled": True,
-                    "required": True,
-                    "condition": {"type": "always"},
-                    "params": self.default_tool_params("dmtx")
-                }
-            ],
+            "steps": [],
             "focus": self.default_focus_config()
         }
-
-        new_recipe["steps"][0]["params"]["expected_code"] = expected_code
-        new_recipe["steps"][0]["params"]["roi"] = roi
 
         self.save(new_recipe)
 
@@ -318,21 +319,13 @@ class RecipeManager:
             )
             return recipes[0]
 
-        print("[RECIPES_MANAGER] No hay recetas disponibles, creando DEFAULT...")
-        default_recipe = {
-            "id": "default",
-            "name": "DEFAULT",
-            "selected": True,
-            "commissioned": False,
-            "steps": []
-        }
-        self.save(default_recipe)
-        return default_recipe
+        print("[RECIPES_MANAGER] No hay recetas disponibles")
+        return None
 
     def default_focus_config(self):
         return{
-            "mode": "calibrated",
-            "enabled": False,
+            "mode": self.default_focus_mode,
+            "enabled": self.default_focus_mode == "auto_continuous",
             "roi": None,
             "value": None,
             "min_score": None,

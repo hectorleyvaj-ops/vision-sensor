@@ -175,6 +175,9 @@ class CameraWorker(QObject):
         }
 
     def find_camera_device(self):
+        if self.camera_index in (None, ""):
+            return None
+
         # SOLO BSUCAMOS EL DEVICE PARA LA RASPBERRY, SI SE TRABAJA EN WIDOWS SE USA CAMERA INDEX
         if not self.is_linux():
             return self.camera_index
@@ -185,13 +188,10 @@ class CameraWorker(QObject):
         else:
             configured_device = f"/dev/video{configured_device}"
 
-        candidates = [
-            configured_device,
-            "/dev/video0",
-            "/dev/video1",
-            "/dev/video2",
-            "/dev/video3",
-        ]
+        # Produccion abre unicamente el endpoint guardado. El inventario y la
+        # eleccion de otra camara pertenecen al modo de configuracion; usar un
+        # /dev/video* diferente silenciosamente podria inspeccionar otra vista.
+        candidates = [configured_device]
 
         seen = set()
 

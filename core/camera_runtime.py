@@ -28,7 +28,9 @@ def manual_focus_preflight(info):
 
 def format_camera_runtime(info):
     info = dict(info or {})
-    requested = info.get("requested_device", "?")
+    requested = info.get("requested_device")
+    if requested in (None, ""):
+        requested = "sin asignar"
     resolved = info.get("resolved_device") or "sin resolver"
     width = info.get("actual_width") or "?"
     height = info.get("actual_height") or "?"

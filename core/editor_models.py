@@ -7,9 +7,11 @@ class EditorValueError(ValueError):
     """Raised when a UI value cannot be converted to universal config data."""
 
 
-def parse_camera_device(value):
+def parse_camera_device(value, allow_unassigned=False):
     text = str(value or "").strip()
     if not text:
+        if allow_unassigned:
+            return None
         raise EditorValueError("El dispositivo de camara es obligatorio")
     if text.isdigit():
         return int(text)

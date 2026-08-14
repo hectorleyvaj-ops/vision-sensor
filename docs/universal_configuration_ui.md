@@ -26,9 +26,18 @@ valida la estructura completa y que cada valor de `model_map` corresponda a una
 receta del catalogo indicado. El guardado es atomico y conserva
 `system.json.bak`.
 
+En `commissioning_mode`, camara y puerto pueden quedar sin asignar. La pantalla
+enumera camaras y puertos en segundo plano, verifica controladores compatibles
+mediante `HELLO_ACK` y solo copia una opcion cuando el operador la selecciona.
+Este inventario no configura GPIO ni logica de maquina.
+
 Cambiar esta configuracion deja el motor en `NOT_READY` hasta reiniciar. Esto
 evita que el archivo en disco describa una camara o controlador mientras la
 sesion activa sigue usando los valores anteriores.
+
+El molde generico inicia en modo de configuracion y abre este editor
+automaticamente. Worksurface conserva su configuracion externa y no entra a
+este modo salvo que se active explicitamente.
 
 ## Receta
 
@@ -102,6 +111,7 @@ Consulte `docs/final_operator_interface.md` para el contrato visual completo.
 ## Fuera del alcance de la interfaz
 
 - no se agregan recetas, numeros de parte ni sensores de Worksurface;
+- no se configuran GPIO, polaridades ni patrones fisicos de la ESP32;
 - no se crea ni modifica firmware ESP32 o PLC;
 - no se recargan en caliente camara, serial o runtime;
 - no se corrige desde Qt la calibracion del dispositivo touch de Linux;

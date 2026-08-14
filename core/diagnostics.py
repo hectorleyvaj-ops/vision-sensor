@@ -317,17 +317,31 @@ def run_static_diagnostics(
     controller = system_config.section("controller")
     try:
         port = system_config.controller_port(platform)
-        manager.update(
-            "controller.configuration",
-            "WARNING",
-            "controller",
-            f"Controlador configurado en {port}; conexion pendiente",
-            details={
-                "port": port,
-                "baudrate": controller.get("baudrate"),
-                "protocol": controller.get("protocol"),
-            },
-        )
+        if port is None:
+            manager.update(
+                "controller.configuration",
+                "WARNING",
+                "controller",
+                "Controlador sin puerto asignado",
+                action="Selecciona un controlador desde Configuracion > Estacion",
+                details={
+                    "port": None,
+                    "baudrate": controller.get("baudrate"),
+                    "protocol": controller.get("protocol"),
+                },
+            )
+        else:
+            manager.update(
+                "controller.configuration",
+                "WARNING",
+                "controller",
+                f"Controlador configurado en {port}; conexion pendiente",
+                details={
+                    "port": port,
+                    "baudrate": controller.get("baudrate"),
+                    "protocol": controller.get("protocol"),
+                },
+            )
     except Exception as exc:
         manager.update(
             "controller.configuration",
@@ -339,13 +353,23 @@ def run_static_diagnostics(
         )
 
     camera = system_config.section("camera")
+    camera_device = camera.get("device")
     manager.update(
         "camera.runtime",
         "WARNING",
         "camera",
-        "Camara configurada; apertura y formato real pendientes",
+        (
+            "Camara sin dispositivo asignado"
+            if camera_device is None
+            else "Camara configurada; apertura y formato real pendientes"
+        ),
+        action=(
+            "Selecciona una camara desde Configuracion > Estacion"
+            if camera_device is None
+            else ""
+        ),
         details={
-            "requested_device": camera.get("device"),
+            "requested_device": camera_device,
             "requested_width": camera.get("width"),
             "requested_height": camera.get("height"),
             "requested_fps": camera.get("capture_fps"),
