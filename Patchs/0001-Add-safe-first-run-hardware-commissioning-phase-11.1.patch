@@ -1,0 +1,1904 @@
+From 790dd454c0e2f6242431430312ba11ab3538dc4b Mon Sep 17 00:00:00 2001
+From: OpenAI Codex <noreply@openai.com>
+Date: Fri, 14 Aug 2026 12:13:41 -0600
+Subject: [PATCH] Add safe first-run hardware commissioning phase 11.1
+
+---
+ .../CONTEXTO_PROYECTO_WORKSURFACE_V18.md      | 116 +++++
+ .../GUIA_FASE11_1_COMISIONAMIENTO_HARDWARE.md | 157 +++++++
+ app/app.py                                    |  21 +
+ config/system.json                            |  14 +-
+ core/camera_runtime.py                        |   4 +-
+ core/diagnostics.py                           |  50 ++-
+ core/editor_models.py                         |   4 +-
+ core/models/recipes.json                      |  59 +--
+ core/recipe_manager.py                        |  45 +-
+ core/system_config.py                         |  23 +-
+ docs/system_configuration_reference.md        |   5 +
+ docs/universal_configuration_ui.md            |  10 +
+ services/hardware_discovery.py                | 409 ++++++++++++++++++
+ services/serial_comm.py                       |  34 ++
+ tests/test_hardware_commissioning.py          | 203 +++++++++
+ ui/config_window_logic.py                     |   8 +
+ ui/system_config_dialog.py                    | 214 ++++++++-
+ vision/camera_worker.py                       |  14 +-
+ 18 files changed, 1270 insertions(+), 120 deletions(-)
+ create mode 100644 Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V18.md
+ create mode 100644 Guias/GUIA_FASE11_1_COMISIONAMIENTO_HARDWARE.md
+ create mode 100644 services/hardware_discovery.py
+ create mode 100644 tests/test_hardware_commissioning.py
+
+diff --git a/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V18.md b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V18.md
+new file mode 100644
+index 0000000..5b3cbb7
+--- /dev/null
++++ b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V18.md
+@@ -0,0 +1,116 @@
++# Contexto Worksurface V18 - Fase 11.1 comisionamiento seguro
++
++**Fecha:** 2026-08-14
++
++**Base:** fase 11 y hotfix de camara (`193e072`)
++
++## 1. Contrato de producto
++
++El software Python es un sensor de vision configurable. Su salida funcional es
++una decision determinante `OK`, `NG` o `ERROR` asociada a un ciclo. No contiene
++la secuencia general de prensa o maquina.
++
++La ESP32 mantiene de forma separada:
++
++- entradas y salidas fisicas;
++- GPIO y polaridades;
++- patrones de sensores;
++- validacion fisica final;
++- salida PLC;
++- timeouts y recuperacion segura del controlador.
++
++La fase 11.1 no agrega configuracion de I/O al motor Python ni modifica el
++firmware Worksurface.
++
++## 2. Primer arranque
++
++El molde generico queda intencionalmente incompleto pero utilizable:
++
++| Elemento | Estado inicial |
++|---|---|
++| Camara | Sin asignar |
++| Puerto | Sin asignar |
++| Recetas | Catalogo vacio |
++| Modo | Configuracion |
++| Produccion | Bloqueada |
++| READY | `0` |
++
++`installation.commissioning_mode=true` permite estos valores sin convertirlos
++en configuracion productiva. Al iniciar se abre el editor de estacion.
++
++## 3. Descubrimiento
++
++`services/hardware_discovery.py` crea un inventario de endpoints:
++
++- camaras Windows por indice y backend;
++- camaras Linux con preferencia por `/dev/v4l/by-id`;
++- puertos seriales con identidad USB disponible;
++- verificacion de controladores por `HELLO_ACK` compatible;
++- reconocimiento de la camara y controlador activos sin reabrirlos.
++
++La busqueda corre en un hilo Python y entrega resultados a Qt mediante una
++senal. No cambia campos hasta que el operador selecciona una opcion.
++
++## 4. Neutralidad del motor
++
++El catalogo generico ya no incluye MODELO_A ni un codigo DataMatrix concreto.
++Las recetas nuevas comienzan vacias y no comisionadas. Tampoco se crea una
++receta `DEFAULT` al consultar un catalogo vacio.
++
++`camera.default_focus_mode` ahora alimenta realmente la configuracion inicial
++de recetas nuevas.
++
++Todo dato A/B/C y todo recurso fisico Worksurface permanece en
++`installations/worksurface/` y `ESP32/FSM/`.
++
++## 5. Seguridad
++
++El modo de configuracion se comprueba antes de cualquier otra condicion de
++READY. Mientras permanezca activo:
++
++- `READY=1` es imposible;
++- no se acepta trigger;
++- no se ejecuta la FSM;
++- no se emite una aprobacion de vision utilizable;
++- la interfaz y la configuracion siguen disponibles.
++
++Adicionalmente, produccion abre exactamente la camara guardada. En Linux se
++retiro el fallback silencioso hacia `/dev/video0` a `/dev/video3`.
++
++## 6. Persistencia
++
++La seleccion actualiza solamente el formulario. **VALIDAR Y GUARDAR** conserva
++el guardado atomico y el respaldo `.bak`. La sesion pasa a reinicio requerido.
++
++El modo de configuracion debe retirarse explicitamente y solo puede guardarse
++sin camara o puerto mientras permanece activado.
++
++## 7. Pruebas
++
++La suite contiene 133 pruebas. Las diez nuevas verifican:
++
++- configuracion generica sin endpoints;
++- rechazo de endpoints vacios fuera de comisionamiento;
++- salida valida del modo al asignar hardware;
++- inventario y apertura de camara simulada;
++- metadatos seriales;
++- handshake de identidad;
++- no reabrir el controlador activo;
++- receta neutral y enfoque predeterminado;
++- ausencia de datos de producto en el molde;
++- conexion del flujo visual y bloqueo de primer arranque.
++
++La instalacion Worksurface conserva el resultado `LISTA PARA CALIBRAR`.
++
++## 8. Puerta hacia fase 12
++
++Antes de aprobar fase 12 se requiere feedback fisico de:
++
++- presentacion de listas en Windows;
++- seleccion y reinicio;
++- inventario en Raspberry;
++- legibilidad en 800x480;
++- comportamiento con camara/ESP32 desconectadas;
++- posibles ajustes esteticos y de vocabulario.
++
++Fase 12 no debe comenzar hasta cerrar esos hallazgos de interfaz.
+diff --git a/Guias/GUIA_FASE11_1_COMISIONAMIENTO_HARDWARE.md b/Guias/GUIA_FASE11_1_COMISIONAMIENTO_HARDWARE.md
+new file mode 100644
+index 0000000..269707a
+--- /dev/null
++++ b/Guias/GUIA_FASE11_1_COMISIONAMIENTO_HARDWARE.md
+@@ -0,0 +1,157 @@
++# Guia fase 11.1 - Primer arranque y descubrimiento de hardware
++
++## 1. Objetivo
++
++La fase 11.1 convierte el molde generico en un sensor de vision instalable que
++puede abrirse sin camara, controlador o recetas. En ese estado permite
++configurar el motor, pero no puede producir ni aceptar triggers.
++
++La separacion de responsabilidades permanece fija:
++
++- el motor de vision ejecuta recetas y entrega `OK`, `NG` o `ERROR`;
++- la ESP32 conserva GPIO, polaridades, sensores, actuadores y secuencia de la
++  maquina;
++- `vision_controller_v1` es el contrato entre ambos;
++- la busqueda solo identifica endpoints y nunca modifica firmware o I/O.
++
++## 2. Aplicar el parche
++
++El parche es incremental y requiere fase 11 mas el hotfix de camara, cuyo
++ultimo commit base es `193e072`.
++
++```bash
++git status --short
++git am /ruta/0001-Add-safe-first-run-and-hardware-discovery-phase-11.1.patch
++```
++
++No se modifican `installations/worksurface/recipes.json`, imagenes maestras,
++firmware ESP32 ni configuracion Worksurface. Solo se neutraliza el molde
++generico `config/system.json` y su catalogo base.
++
++## 3. Primer arranque generico
++
++Ejecutar sin seleccionar una instalacion existente:
++
++```bash
++python main.py
++```
++
++El molde generico inicia con:
++
++```text
++camera.device = sin asignar
++controller.ports = vacio
++recipes = vacio
++commissioning_mode = true
++READY = 0
++```
++
++La aplicacion abre automaticamente la configuracion de la estacion. La busqueda
++se ejecuta en segundo plano y no bloquea la interfaz.
++
++## 4. Camaras
++
++La lista muestra dispositivo, disponibilidad, backend y formato observado.
++
++- Windows prueba indices `0` a `5` con DSHOW, MSMF y AUTO.
++- Linux prioriza rutas persistentes `/dev/v4l/by-id/*`.
++- Si no existen rutas persistentes, muestra `/dev/video*`.
++- La camara activa no se vuelve a abrir durante el inventario.
++- Seleccionar una opcion copia el endpoint al campo editable.
++- Guardar no cambia la sesion activa; se aplica al reiniciar.
++
++En produccion solo se abre el endpoint guardado. El runtime no sustituye una
++camara ausente por otro indice silenciosamente.
++
++## 5. Controladores seriales
++
++La lista usa `pyserial` para mostrar los puertos del sistema. Cuando el puerto
++no pertenece a la sesion activa, intenta un `HELLO/HELLO_ACK` de identidad con
++el baudrate visible en la pantalla.
++
++Estados posibles:
++
++- controlador compatible verificado;
++- puerto detectado sin respuesta compatible;
++- puerto ocupado o no disponible;
++- controlador activo y sincronizado;
++- puerto configurado que ya no esta presente.
++
++El puerto activo no se abre por segunda vez. En Linux se prefiere
++`/dev/serial/by-id/*` cuando existe una ruta persistente equivalente.
++
++La verificacion no envia configuraciones, resultados ni comandos de I/O. Un
++adaptador serial desconocido puede abrirse brevemente durante la busqueda; por
++eso el inventario se ejecuta desde configuracion y no durante produccion.
++
++## 6. Recetas neutrales
++
++El catalogo generico comienza vacio. Ya no se crea `DEFAULT` ni se agrega
++DataMatrix automaticamente.
++
++Una receta nueva:
++
++- recibe ID estable;
++- comienza sin comisionar;
++- no contiene pasos;
++- usa `camera.default_focus_mode`;
++- permanece bloqueada hasta agregar y validar herramientas.
++
++Worksurface conserva MODELO_A, MODELO_B, MODELO_C y sus recursos dentro de su
++paquete de instalacion.
++
++## 7. Flujo recomendado
++
++1. Iniciar en modo de configuracion.
++2. Elegir camara y controlador detectados.
++3. Ajustar baudrate, resolucion, FPS, timeouts y politicas.
++4. Guardar y reiniciar para activar el hardware.
++5. Crear recetas, pasos, ROI, recursos y enfoque.
++6. Mapear IDs externos del controlador a las recetas.
++7. Validar y comisionar cada receta.
++8. Desmarcar **Modo de configuracion**.
++9. Guardar y reiniciar.
++10. Confirmar handshake, frame fresco, receta valida y `READY=1`.
++
++Para recetas que necesitan capturar ROI o imagenes maestras son necesarios dos
++reinicios: uno para activar la camara elegida y otro para salir del modo de
++configuracion. Esto evita recargar drivers o hilos a mitad de una edicion.
++
++## 8. Prueba sobre Worksurface
++
++Ejecutar con su configuracion habitual:
++
++```cmd
++set VISION_SYSTEM_CONFIG=installations\worksurface\system.json
++python main.py
++```
++
++Abrir **CONFIGURAR ESTACION > ESTACION** y revisar:
++
++1. La camara activa aparece como activa o disponible.
++2. COM7 aparece como controlador activo si ya existe handshake.
++3. **BUSCAR HARDWARE** no cambia los valores guardados por si solo.
++4. Elegir otra opcion solo la propone y solicita reiniciar.
++5. Cancelar no modifica `system.json`.
++6. Guardar crea `system.json.bak` y mantiene `READY=0` hasta reiniciar.
++7. Desconectar camara o ESP32 mantiene acceso a configuracion.
++8. Ningun clic en la interfaz inicia un ciclo productivo.
++
++## 9. Validacion automatica
++
++```bash
++python -m unittest discover -s tests -p "test_*.py" -v
++python -m compileall -q app core processing services tools ui vision tests
++python scripts/validate_installation.py
++```
++
++Resultado esperado:
++
++```text
++Ran 133 tests
++OK
++Resultado: LISTA PARA CALIBRAR
++```
++
++La revision visual y el inventario real de dispositivos deben probarse en
++Windows y Raspberry. La suite automatizada usa hardware simulado.
+diff --git a/app/app.py b/app/app.py
+index 8810e65..59b60fc 100644
+--- a/app/app.py
++++ b/app/app.py
+@@ -66,6 +66,9 @@ class MainWindow(QMainWindow):
+         self.controller_config = self.system_config.section("controller")
+         self.runtime_config = self.system_config.section("runtime")
+         installation = self.system_config.section("installation")
++        self.commissioning_mode = bool(
++            installation.get("commissioning_mode", False)
++        )
+         self.installation_name = installation.get(
+             "name",
+             installation.get("id", "Motor de vision"),
+@@ -145,6 +148,10 @@ class MainWindow(QMainWindow):
+             self.system_config.recipe_file,
+             auto_migrate=self.system_config.auto_migrate_recipes,
+             tool_registry=self.tool_registry,
++            default_focus_mode=self.camera_config.get(
++                "default_focus_mode",
++                "calibrated",
++            ),
+         )
+         traceability_config = self.system_config.section("traceability")
+         self.cycle_trace = CycleTraceWriter.from_config(
+@@ -182,6 +189,8 @@ class MainWindow(QMainWindow):
+             self.setup_serial()
+             self.setup_state_manager()
+             self.start_runtime_workers()
++            if self.commissioning_mode:
++                QTimer.singleShot(250, self.open_commissioning_configuration)
+         except Exception:
+             self.shutdown_runtime_components()
+             raise
+@@ -797,6 +806,9 @@ class MainWindow(QMainWindow):
+         return None
+ 
+     def get_system_ready_error(self):
++        if self.commissioning_mode:
++            return "Estacion en modo configuracion; produccion bloqueada"
++
+         if self.configuration_restart_required:
+             return "Reinicio requerido para aplicar la configuracion"
+ 
+@@ -901,6 +913,7 @@ class MainWindow(QMainWindow):
+             "step",
+             "expected_code",
+             "sensores esp32",
++            "modo configuracion",
+             "reinicio requerido",
+         )
+ 
+@@ -1112,6 +1125,14 @@ class MainWindow(QMainWindow):
+         else:
+             self.config_window.show()
+ 
++    def open_commissioning_configuration(self):
++        """Guide a neutral first boot directly to station discovery."""
++        if not self.commissioning_mode:
++            return
++        self.open_config()
++        if hasattr(self, "config_window"):
++            QTimer.singleShot(50, self.config_window.open_system_config)
++
+     def on_system_configuration_saved(self, _saved_config):
+         self.configuration_restart_required = True
+         self.last_ready_sent = None
+diff --git a/config/system.json b/config/system.json
+index 42f11d0..8b4cd84 100644
+--- a/config/system.json
++++ b/config/system.json
+@@ -2,14 +2,15 @@
+     "schema_version": 2,
+     "installation": {
+         "id": "vision-station",
+-        "name": "Sistema de vision"
++        "name": "Sistema de vision",
++        "commissioning_mode": true
+     },
+     "recipes": {
+         "file": "core/models/recipes.json",
+         "auto_migrate": true
+     },
+     "camera": {
+-        "device": 0,
++        "device": null,
+         "width": 1920,
+         "height": 1080,
+         "capture_fps": 30,
+@@ -19,18 +20,13 @@
+     "controller": {
+         "transport": "serial",
+         "protocol": "vision_controller_v1",
+-        "ports": {
+-            "linux": "/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0",
+-            "windows": "COM7"
+-        },
++        "ports": {},
+         "baudrate": 115200,
+         "timeout": 1.0,
+         "reset_on_connect": true,
+         "heartbeat_enabled": true,
+         "ready_notifications_enabled": true,
+-        "model_map": {
+-            "A": "MODELO_A"
+-        }
++        "model_map": {}
+     },
+     "runtime": {
+         "require_controller_ready": true,
+diff --git a/core/camera_runtime.py b/core/camera_runtime.py
+index 9f8664e..d0e0b97 100644
+--- a/core/camera_runtime.py
++++ b/core/camera_runtime.py
+@@ -28,7 +28,9 @@ def manual_focus_preflight(info):
+ 
+ def format_camera_runtime(info):
+     info = dict(info or {})
+-    requested = info.get("requested_device", "?")
++    requested = info.get("requested_device")
++    if requested in (None, ""):
++        requested = "sin asignar"
+     resolved = info.get("resolved_device") or "sin resolver"
+     width = info.get("actual_width") or "?"
+     height = info.get("actual_height") or "?"
+diff --git a/core/diagnostics.py b/core/diagnostics.py
+index 1c85343..983d0bb 100644
+--- a/core/diagnostics.py
++++ b/core/diagnostics.py
+@@ -317,17 +317,31 @@ def run_static_diagnostics(
+     controller = system_config.section("controller")
+     try:
+         port = system_config.controller_port(platform)
+-        manager.update(
+-            "controller.configuration",
+-            "WARNING",
+-            "controller",
+-            f"Controlador configurado en {port}; conexion pendiente",
+-            details={
+-                "port": port,
+-                "baudrate": controller.get("baudrate"),
+-                "protocol": controller.get("protocol"),
+-            },
+-        )
++        if port is None:
++            manager.update(
++                "controller.configuration",
++                "WARNING",
++                "controller",
++                "Controlador sin puerto asignado",
++                action="Selecciona un controlador desde Configuracion > Estacion",
++                details={
++                    "port": None,
++                    "baudrate": controller.get("baudrate"),
++                    "protocol": controller.get("protocol"),
++                },
++            )
++        else:
++            manager.update(
++                "controller.configuration",
++                "WARNING",
++                "controller",
++                f"Controlador configurado en {port}; conexion pendiente",
++                details={
++                    "port": port,
++                    "baudrate": controller.get("baudrate"),
++                    "protocol": controller.get("protocol"),
++                },
++            )
+     except Exception as exc:
+         manager.update(
+             "controller.configuration",
+@@ -339,13 +353,23 @@ def run_static_diagnostics(
+         )
+ 
+     camera = system_config.section("camera")
++    camera_device = camera.get("device")
+     manager.update(
+         "camera.runtime",
+         "WARNING",
+         "camera",
+-        "Camara configurada; apertura y formato real pendientes",
++        (
++            "Camara sin dispositivo asignado"
++            if camera_device is None
++            else "Camara configurada; apertura y formato real pendientes"
++        ),
++        action=(
++            "Selecciona una camara desde Configuracion > Estacion"
++            if camera_device is None
++            else ""
++        ),
+         details={
+-            "requested_device": camera.get("device"),
++            "requested_device": camera_device,
+             "requested_width": camera.get("width"),
+             "requested_height": camera.get("height"),
+             "requested_fps": camera.get("capture_fps"),
+diff --git a/core/editor_models.py b/core/editor_models.py
+index 9068f50..61fd441 100644
+--- a/core/editor_models.py
++++ b/core/editor_models.py
+@@ -7,9 +7,11 @@ class EditorValueError(ValueError):
+     """Raised when a UI value cannot be converted to universal config data."""
+ 
+ 
+-def parse_camera_device(value):
++def parse_camera_device(value, allow_unassigned=False):
+     text = str(value or "").strip()
+     if not text:
++        if allow_unassigned:
++            return None
+         raise EditorValueError("El dispositivo de camara es obligatorio")
+     if text.isdigit():
+         return int(text)
+diff --git a/core/models/recipes.json b/core/models/recipes.json
+index cf7e99a..4c22ff8 100644
+--- a/core/models/recipes.json
++++ b/core/models/recipes.json
+@@ -1,59 +1,4 @@
+ {
+     "schema_version": 3,
+-    "recipes": [
+-        {
+-            "name": "MODELO_A",
+-            "selected": true,
+-            "steps": [
+-                {
+-                    "tool": "dmtx",
+-                    "params": {
+-                        "roi": [
+-                            824,
+-                            172,
+-                            1200,
+-                            556
+-                        ],
+-                        "expected_code": "ML3B 15044F46 AC3JA6-25307",
+-                        "retries": 5,
+-                        "delay": 0.1,
+-                        "show_roi": true,
+-                        "min_expected_reads": 2,
+-                        "max_wrong_reads": 0,
+-                        "roi_padding": 12,
+-                        "preprocess": true,
+-                        "upscale": 2.0,
+-                        "decode_timeout_ms": 250,
+-                        "max_total_time": 20.0,
+-                        "match_mode": "exact"
+-                    },
+-                    "id": "dmtx_1",
+-                    "enabled": true,
+-                    "required": true,
+-                    "condition": {
+-                        "type": "always"
+-                    }
+-                }
+-            ],
+-            "focus": {
+-                "enabled": true,
+-                "roi": [
+-                    807,
+-                    138,
+-                    1270,
+-                    627
+-                ],
+-                "value": 427,
+-                "min_score": 1641,
+-                "median_score": 2525,
+-                "peak_score": 2563,
+-                "verify_on_first_trigger": true,
+-                "auto_refocus_if_failed": true,
+-                "mode": "calibrated"
+-            },
+-            "id": "modelo_a",
+-            "commissioned": true,
+-            "machine": {}
+-        }
+-    ]
+-}
+\ No newline at end of file
++    "recipes": []
++}
+diff --git a/core/recipe_manager.py b/core/recipe_manager.py
+index 93c3bf8..f7cf0ea 100644
+--- a/core/recipe_manager.py
++++ b/core/recipe_manager.py
+@@ -18,9 +18,11 @@ class RecipeManager:
+         path="recipes.json",
+         auto_migrate=True,
+         tool_registry=None,
++        default_focus_mode="calibrated",
+     ):
+         self.path = os.fspath(path)
+         self.auto_migrate = bool(auto_migrate)
++        self.default_focus_mode = self.normalize_focus_mode(default_focus_mode)
+         self.tool_registry = (
+             tool_registry
+             if tool_registry is not None
+@@ -251,29 +253,28 @@ class RecipeManager:
+         data["recipes"] = new_recipes
+         self._save_file(data)
+ 
+-    def create_recipe(self, name, expected_code="", roi=None, selected=False):
++    @staticmethod
++    def normalize_focus_mode(mode):
++        mode = str(mode or "calibrated").strip().lower()
++        supported = {
++            "calibrated",
++            "manual_fixed",
++            "auto_continuous",
++            "disabled",
++        }
++        return mode if mode in supported else "calibrated"
++
++    def create_recipe(self, name, selected=False):
+ 
+         new_recipe = {
+             "id": self.slugify(name),
+             "name": name,
+             "selected": selected,
+             "commissioned": False,
+-            "steps": [
+-                {
+-                    "id": "dmtx_1",
+-                    "tool": "dmtx",
+-                    "enabled": True,
+-                    "required": True,
+-                    "condition": {"type": "always"},
+-                    "params": self.default_tool_params("dmtx")
+-                }
+-            ],
++            "steps": [],
+             "focus": self.default_focus_config()
+         }
+ 
+-        new_recipe["steps"][0]["params"]["expected_code"] = expected_code
+-        new_recipe["steps"][0]["params"]["roi"] = roi
+-
+         self.save(new_recipe)
+ 
+ 
+@@ -318,21 +319,13 @@ class RecipeManager:
+             )
+             return recipes[0]
+ 
+-        print("[RECIPES_MANAGER] No hay recetas disponibles, creando DEFAULT...")
+-        default_recipe = {
+-            "id": "default",
+-            "name": "DEFAULT",
+-            "selected": True,
+-            "commissioned": False,
+-            "steps": []
+-        }
+-        self.save(default_recipe)
+-        return default_recipe
++        print("[RECIPES_MANAGER] No hay recetas disponibles")
++        return None
+ 
+     def default_focus_config(self):
+         return{
+-            "mode": "calibrated",
+-            "enabled": False,
++            "mode": self.default_focus_mode,
++            "enabled": self.default_focus_mode == "auto_continuous",
+             "roi": None,
+             "value": None,
+             "min_score": None,
+diff --git a/core/system_config.py b/core/system_config.py
+index 916f836..d817889 100644
+--- a/core/system_config.py
++++ b/core/system_config.py
+@@ -86,6 +86,11 @@ class SystemConfig:
+         installation = cls._section_from(data, "installation")
+         if not str(installation.get("id", "")).strip():
+             raise SystemConfigError("installation.id es obligatorio")
++        commissioning_mode = installation.get("commissioning_mode", False)
++        if not isinstance(commissioning_mode, bool):
++            raise SystemConfigError(
++                "installation.commissioning_mode debe ser booleano"
++            )
+ 
+         recipes = cls._section_from(data, "recipes")
+         recipe_file = recipes.get("file")
+@@ -96,14 +101,16 @@ class SystemConfig:
+ 
+         camera = cls._section_from(data, "camera")
+         device = camera.get("device")
+-        valid_device = (
++        valid_device = device is None and commissioning_mode
++        valid_device = valid_device or (
+             isinstance(device, int)
+             and not isinstance(device, bool)
+             and device >= 0
+         ) or (isinstance(device, str) and bool(device.strip()))
+         if not valid_device:
+             raise SystemConfigError(
+-                "camera.device debe ser un indice no negativo o una ruta"
++                "camera.device debe ser un indice/ruta o quedar sin asignar "
++                "solamente en modo configuracion"
+             )
+         for key in ("width", "height", "capture_fps", "preview_fps"):
+             value = camera.get(key)
+@@ -125,8 +132,13 @@ class SystemConfig:
+                 f"{cls.CONTROLLER_PROTOCOL}"
+             )
+         ports = controller.get("ports")
+-        if not isinstance(ports, dict) or not ports:
+-            raise SystemConfigError("controller.ports debe contener al menos un puerto")
++        if not isinstance(ports, dict):
++            raise SystemConfigError("controller.ports debe ser un objeto")
++        if not ports and not commissioning_mode:
++            raise SystemConfigError(
++                "controller.ports debe contener al menos un puerto fuera del "
++                "modo configuracion"
++            )
+         for platform, port in ports.items():
+             if not str(platform).strip() or not str(port).strip():
+                 raise SystemConfigError("controller.ports contiene una entrada vacia")
+@@ -274,6 +286,9 @@ class SystemConfig:
+ 
+         port = ports.get(platform) or ports.get("default")
+         if port is None:
++            installation = self.section("installation")
++            if installation.get("commissioning_mode", False):
++                return None
+             raise SystemConfigError(
+                 f"No hay puerto del controlador para plataforma '{platform}'"
+             )
+diff --git a/docs/system_configuration_reference.md b/docs/system_configuration_reference.md
+index 756b03e..6e3b001 100644
+--- a/docs/system_configuration_reference.md
++++ b/docs/system_configuration_reference.md
+@@ -6,6 +6,7 @@ ni cambia el codigo del motor.
+ | Grupo | Parametro | Para que sirve |
+ |---|---|---|
+ | Instalacion | ID / nombre | Identifica la estacion en logs y despliegues. |
++| Instalacion | Modo de configuracion | Permite endpoints sin asignar y fuerza `READY=0`. |
+ | Recetas | Catalogo | Ruta al JSON con modelos, steps y herramientas. |
+ | Recetas | Migracion | Permite convertir catalogos anteriores con respaldo. |
+ | Camara | Dispositivo | Indice o ruta del dispositivo de captura. |
+@@ -40,6 +41,10 @@ Todos los cambios de este panel se validan antes de escribirse, conservan un
+ respaldo `system.json.bak` y requieren reiniciar la aplicacion para reconstruir
+ camara, enlace serial y politicas de ejecucion.
+ 
++La busqueda de hardware propone endpoints, pero no los aplica por si sola. En
++Linux se prefieren rutas persistentes `by-id`. El protocolo permanece fijo y
++la ESP32 conserva toda configuracion de I/O fisico.
++
+ ## Salidas operativas
+ 
+ Con los valores predeterminados se generan, fuera de Git:
+diff --git a/docs/universal_configuration_ui.md b/docs/universal_configuration_ui.md
+index e84d9d2..217f2eb 100644
+--- a/docs/universal_configuration_ui.md
++++ b/docs/universal_configuration_ui.md
+@@ -26,10 +26,19 @@ valida la estructura completa y que cada valor de `model_map` corresponda a una
+ receta del catalogo indicado. El guardado es atomico y conserva
+ `system.json.bak`.
+ 
++En `commissioning_mode`, camara y puerto pueden quedar sin asignar. La pantalla
++enumera camaras y puertos en segundo plano, verifica controladores compatibles
++mediante `HELLO_ACK` y solo copia una opcion cuando el operador la selecciona.
++Este inventario no configura GPIO ni logica de maquina.
++
+ Cambiar esta configuracion deja el motor en `NOT_READY` hasta reiniciar. Esto
+ evita que el archivo en disco describa una camara o controlador mientras la
+ sesion activa sigue usando los valores anteriores.
+ 
++El molde generico inicia en modo de configuracion y abre este editor
++automaticamente. Worksurface conserva su configuracion externa y no entra a
++este modo salvo que se active explicitamente.
++
+ ## Receta
+ 
+ `PROPIEDADES` permite revisar el ID interno y cambiar el estado de
+@@ -102,6 +111,7 @@ Consulte `docs/final_operator_interface.md` para el contrato visual completo.
+ ## Fuera del alcance de la interfaz
+ 
+ - no se agregan recetas, numeros de parte ni sensores de Worksurface;
++- no se configuran GPIO, polaridades ni patrones fisicos de la ESP32;
+ - no se crea ni modifica firmware ESP32 o PLC;
+ - no se recargan en caliente camara, serial o runtime;
+ - no se corrige desde Qt la calibracion del dispositivo touch de Linux;
+diff --git a/services/hardware_discovery.py b/services/hardware_discovery.py
+new file mode 100644
+index 0000000..97116c8
+--- /dev/null
++++ b/services/hardware_discovery.py
+@@ -0,0 +1,409 @@
++"""Hardware inventory for commissioning without owning machine I/O.
++
++Discovery only proposes camera and serial endpoints. Selecting and persisting
++one remains an explicit operator action, and the controller keeps ownership of
++GPIO, polarities, sensors and machine sequencing.
++"""
++
++from pathlib import Path
++import glob
++import os
++import time
++
++from services.controller_protocol import PROTOCOL_VERSION, decode_message, encode_message
++
++
++STX = b"\x02"
++ETX = b"\x03"
++
++
++def _unique(values):
++    result = []
++    seen = set()
++    for value in values:
++        key = str(value)
++        if key in seen:
++            continue
++        seen.add(key)
++        result.append(value)
++    return result
++
++
++def camera_candidate_devices(platform, configured_device=None, max_index=5):
++    """Return deterministic endpoints to inspect, without opening them."""
++    platform = str(platform or "other").lower()
++    if platform == "linux":
++        stable = sorted(glob.glob("/dev/v4l/by-id/*"))
++        devices = stable or sorted(glob.glob("/dev/video*"))
++        if configured_device not in (None, ""):
++            devices.insert(0, configured_device)
++        return _unique(devices)
++
++    devices = list(range(max(0, int(max_index)) + 1))
++    if configured_device not in (None, ""):
++        devices.insert(0, configured_device)
++    return _unique(devices)
++
++
++def _camera_backends(platform, cv_module):
++    platform = str(platform or "other").lower()
++    if platform == "linux":
++        return [("V4L2", getattr(cv_module, "CAP_V4L2", 200))]
++    if platform == "windows":
++        return [
++            ("DSHOW", getattr(cv_module, "CAP_DSHOW", 700)),
++            ("MSMF", getattr(cv_module, "CAP_MSMF", 1400)),
++            ("AUTO", getattr(cv_module, "CAP_ANY", 0)),
++        ]
++    return [("AUTO", getattr(cv_module, "CAP_ANY", 0))]
++
++
++def _same_camera(left, right):
++    if left in (None, "") or right in (None, ""):
++        return False
++    if str(left) == str(right):
++        return True
++    try:
++        return os.path.realpath(os.fspath(left)) == os.path.realpath(os.fspath(right))
++    except TypeError:
++        return False
++
++
++def discover_cameras(
++    platform,
++    configured_device=None,
++    active_info=None,
++    max_index=5,
++    capture_factory=None,
++    cv_module=None,
++):
++    """Inspect camera candidates and return serializable status records."""
++    if cv_module is None:
++        try:
++            import cv2 as cv_module  # type: ignore
++        except ImportError:
++            if capture_factory is None:
++                raise
++
++            class CameraConstants:
++                CAP_ANY = 0
++                CAP_V4L2 = 200
++                CAP_DSHOW = 700
++                CAP_MSMF = 1400
++                CAP_PROP_FRAME_WIDTH = 3
++                CAP_PROP_FRAME_HEIGHT = 4
++                CAP_PROP_FPS = 5
++
++            cv_module = CameraConstants()
++    active_info = dict(active_info or {})
++    capture_factory = capture_factory or cv_module.VideoCapture
++    candidates = camera_candidate_devices(
++        platform,
++        configured_device=configured_device,
++        max_index=max_index,
++    )
++    active_device = active_info.get("resolved_device")
++    requested_active = active_info.get("requested_device")
++    records = []
++
++    for device in candidates:
++        if active_info.get("camera_open") and (
++            _same_camera(device, active_device)
++            or _same_camera(device, requested_active)
++        ):
++            records.append({
++                "device": device,
++                "available": True,
++                "verified": True,
++                "active": True,
++                "backend": active_info.get("capture_backend") or "ACTIVO",
++                "width": active_info.get("actual_width"),
++                "height": active_info.get("actual_height"),
++                "fps": active_info.get("actual_fps"),
++                "status": "Camara activa en esta sesion",
++            })
++            continue
++
++        attempted = []
++        record = None
++        seen_backends = set()
++        for backend_name, backend_id in _camera_backends(platform, cv_module):
++            if backend_id in seen_backends:
++                continue
++            seen_backends.add(backend_id)
++            attempted.append(backend_name)
++            capture = None
++            try:
++                capture = capture_factory(device, backend_id)
++                if capture is None or not capture.isOpened():
++                    continue
++                ok, frame = capture.read()
++                if not ok or frame is None:
++                    continue
++                record = {
++                    "device": device,
++                    "available": True,
++                    "verified": True,
++                    "active": False,
++                    "backend": backend_name,
++                    "width": int(capture.get(cv_module.CAP_PROP_FRAME_WIDTH) or 0),
++                    "height": int(capture.get(cv_module.CAP_PROP_FRAME_HEIGHT) or 0),
++                    "fps": float(capture.get(cv_module.CAP_PROP_FPS) or 0),
++                    "status": "Entrega frames validos",
++                }
++                break
++            except Exception as exc:
++                record = {
++                    "device": device,
++                    "available": False,
++                    "verified": False,
++                    "active": False,
++                    "backend": None,
++                    "status": f"Error al probar: {exc}",
++                }
++            finally:
++                if capture is not None:
++                    try:
++                        capture.release()
++                    except Exception:
++                        pass
++
++        if record is None:
++            record = {
++                "device": device,
++                "available": False,
++                "verified": False,
++                "active": False,
++                "backend": None,
++                "status": "No entrego frames validos",
++            }
++        record["attempted_backends"] = attempted
++        records.append(record)
++
++    return records
++
++
++def serial_port_records(port_infos=None):
++    """Normalize pyserial ListPortInfo objects for presentation and tests."""
++    if port_infos is None:
++        from serial.tools import list_ports  # type: ignore
++
++        port_infos = list_ports.comports()
++    port_infos = list(port_infos)
++    records = []
++    for info in port_infos:
++        system_device = str(getattr(info, "device", "") or "").strip()
++        if not system_device:
++            continue
++        device = system_device
++        if system_device.startswith("/dev/"):
++            for stable_path in sorted(glob.glob("/dev/serial/by-id/*")):
++                try:
++                    if os.path.realpath(stable_path) == os.path.realpath(system_device):
++                        device = stable_path
++                        break
++                except OSError:
++                    pass
++        records.append({
++            "device": device,
++            "system_device": system_device,
++            "description": str(getattr(info, "description", "") or "").strip(),
++            "manufacturer": str(getattr(info, "manufacturer", "") or "").strip(),
++            "vid": getattr(info, "vid", None),
++            "pid": getattr(info, "pid", None),
++            "serial_number": str(getattr(info, "serial_number", "") or "").strip(),
++            "hwid": str(getattr(info, "hwid", "") or "").strip(),
++            "available": True,
++            "verified_controller": False,
++            "active": False,
++            "status": "Puerto detectado; controlador sin verificar",
++        })
++    return sorted(records, key=lambda item: item["device"])
++
++
++def _read_framed_message(port, timeout):
++    deadline = time.monotonic() + max(0.05, float(timeout))
++    receiving = False
++    payload = bytearray()
++    while time.monotonic() < deadline:
++        waiting = int(getattr(port, "in_waiting", 0) or 0)
++        if waiting <= 0:
++            time.sleep(0.005)
++            continue
++        value = port.read(1)
++        if value == STX:
++            receiving = True
++            payload.clear()
++        elif value == ETX and receiving:
++            return payload.decode("utf-8", errors="replace").strip()
++        elif receiving:
++            payload.extend(value)
++    return None
++
++
++def probe_controller_port(
++    device,
++    baudrate=115200,
++    timeout=0.55,
++    serial_factory=None,
++):
++    """Perform an identity-only handshake without an explicit DTR reset."""
++    if serial_factory is None:
++        import serial  # type: ignore
++
++        serial_factory = serial.Serial
++    port = None
++    try:
++        port = serial_factory(
++            port=device,
++            baudrate=int(baudrate),
++            timeout=0.05,
++            write_timeout=max(0.1, float(timeout)),
++        )
++        hello = encode_message(
++            "HELLO",
++            proto=PROTOCOL_VERSION,
++            role="VISION_ENGINE_DISCOVERY",
++        )
++        # Algunos adaptadores reinician la ESP32 al abrirse aunque discovery
++        # no cambie DTR de forma explicita. Repetir HELLO permite que el
++        # firmware termine de arrancar sin aumentar el timeout del runtime.
++        raw = None
++        for attempt in range(3):
++            if attempt:
++                time.sleep(0.20)
++            try:
++                port.reset_input_buffer()
++            except Exception:
++                pass
++            port.write(STX + hello.encode("utf-8") + ETX)
++            port.flush()
++            raw = _read_framed_message(port, timeout)
++            if raw:
++                break
++        if not raw:
++            return {
++                "verified_controller": False,
++                "status": "Puerto accesible; sin HELLO_ACK compatible",
++            }
++        message = decode_message(raw)
++        if message.kind != "HELLO_ACK":
++            return {
++                "verified_controller": False,
++                "status": f"Respondio {message.kind}, no HELLO_ACK",
++            }
++        protocol = message.fields.get("PROTO")
++        compatible = protocol == PROTOCOL_VERSION
++        return {
++            "verified_controller": compatible,
++            "protocol": protocol,
++            "firmware": message.fields.get("FW", "desconocido"),
++            "status": (
++                "Controlador vision_controller_v1 verificado"
++                if compatible
++                else f"Controlador con protocolo incompatible: {protocol}"
++            ),
++        }
++    except Exception as exc:
++        return {
++            "available": False,
++            "verified_controller": False,
++            "status": f"No se pudo verificar: {exc}",
++        }
++    finally:
++        if port is not None:
++            try:
++                port.close()
++            except Exception:
++                pass
++
++
++def discover_serial_controllers(
++    baudrate=115200,
++    active_info=None,
++    port_infos=None,
++    serial_factory=None,
++    probe=True,
++):
++    """Enumerate serial ports and identify compatible idle controllers."""
++    active_info = dict(active_info or {})
++    records = serial_port_records(port_infos=port_infos)
++    active_port = str(active_info.get("port") or "")
++
++    def matches_active(record):
++        if not active_port:
++            return False
++        candidates = {str(record.get("device") or ""), str(record.get("system_device") or "")}
++        if active_port in candidates:
++            return True
++        if active_port.startswith("/dev/"):
++            return any(
++                candidate.startswith("/dev/")
++                and os.path.realpath(candidate) == os.path.realpath(active_port)
++                for candidate in candidates
++            )
++        return False
++
++    if active_port and not any(matches_active(item) for item in records):
++        records.append({
++            "device": active_port,
++            "system_device": active_port,
++            "description": "Puerto configurado (no enumerado)",
++            "manufacturer": "",
++            "vid": None,
++            "pid": None,
++            "serial_number": "",
++            "hwid": "",
++            "available": False,
++            "verified_controller": False,
++            "active": False,
++            "status": "El puerto configurado no esta presente",
++        })
++
++    for record in records:
++        if matches_active(record):
++            record.update({
++                "active": bool(active_info.get("connected")),
++                "available": bool(active_info.get("connected", True)),
++                "verified_controller": bool(active_info.get("synced")),
++                "protocol": active_info.get("protocol"),
++                "firmware": active_info.get("firmware"),
++                "status": (
++                    "Controlador activo y sincronizado"
++                    if active_info.get("synced")
++                    else "Puerto activo; handshake pendiente"
++                ),
++            })
++            continue
++        if probe:
++            record.update(probe_controller_port(
++                record["device"],
++                baudrate=baudrate,
++                serial_factory=serial_factory,
++            ))
++    return records
++
++
++def format_camera_candidate(record):
++    record = dict(record or {})
++    device = record.get("device", "?")
++    state = "ACTIVA" if record.get("active") else (
++        "DISPONIBLE" if record.get("available") else "NO DISPONIBLE"
++    )
++    backend = record.get("backend") or "?"
++    width = record.get("width") or "?"
++    height = record.get("height") or "?"
++    return f"{device} · {state} · {backend} · {width}x{height}"
++
++
++def format_serial_candidate(record):
++    record = dict(record or {})
++    device = record.get("device", "?")
++    description = record.get("description") or "Puerto serial"
++    if record.get("verified_controller"):
++        state = "CONTROLADOR VERIFICADO"
++    elif record.get("available"):
++        state = "DETECTADO"
++    else:
++        state = "NO DISPONIBLE"
++    return f"{device} · {state} · {description}"
+diff --git a/services/serial_comm.py b/services/serial_comm.py
+index 39727c9..253f9cd 100644
+--- a/services/serial_comm.py
++++ b/services/serial_comm.py
+@@ -57,6 +57,7 @@ class SerialComm(QObject):
+         self.retry_delay = 0.5
+ 
+         self.synced = False
++        self.remote_firmware = None
+         self.current_model = None
+         self.remote_not_ready_reason = None
+         self.cycle_guard = CycleGuard()
+@@ -89,6 +90,22 @@ class SerialComm(QObject):
+         })
+ 
+     def connect(self):
++        if not str(self.port or "").strip():
++            self.ser = None
++            self.synced = False
++            self.emit_diagnostic(
++                "ERROR",
++                "Controlador sin puerto asignado",
++                "Abre Configuracion > Estacion y selecciona un controlador detectado",
++                details={
++                    "port": None,
++                    "baudrate": self.baudrate,
++                    "connected": False,
++                    "synced": False,
++                },
++                blocking=True,
++            )
++            return
+         try:
+             with self._serial_lock:
+                 self.ser = serial.Serial(
+@@ -150,6 +167,18 @@ class SerialComm(QObject):
+     def is_connected(self):
+         return self.ser is not None and self.ser.is_open
+ 
++    def runtime_controller_info(self):
++        """Return a read-only snapshot for the commissioning interface."""
++        return {
++            "port": self.port,
++            "baudrate": self.baudrate,
++            "connected": self.is_connected(),
++            "synced": bool(self.synced),
++            "protocol": PROTOCOL_VERSION if self.synced else None,
++            "firmware": self.remote_firmware,
++            "error": self.remote_not_ready_reason,
++        }
++
+     def mark_disconnected(self, reason=""):
+         """
+         Marca el puerto como desconectado aunque pyserial todavía crea que está abierto.
+@@ -389,6 +418,7 @@ class SerialComm(QObject):
+ 
+                 was_synced = self.synced
+                 self.synced = True
++                self.remote_firmware = fields.get("FW", "desconocido")
+                 raw_model = fields.get("MODEL")
+                 normalized_model = self.normalize_model(raw_model) if raw_model else None
+                 if raw_model and normalized_model is None:
+@@ -747,6 +777,10 @@ class SerialComm(QObject):
+ 
+                 if not self.is_connected():
+ 
++                    if not str(self.port or "").strip():
++                        time.sleep(0.25)
++                        continue
++
+                     if now - last_reconnect_attempt > 2.0:
+                         last_reconnect_attempt = now
+                         self.reconnect()
+diff --git a/tests/test_hardware_commissioning.py b/tests/test_hardware_commissioning.py
+new file mode 100644
+index 0000000..cf4f0e3
+--- /dev/null
++++ b/tests/test_hardware_commissioning.py
+@@ -0,0 +1,203 @@
++import copy
++import json
++import tempfile
++import unittest
++from pathlib import Path
++from types import SimpleNamespace
++
++from core.recipe_manager import RecipeManager
++from core.system_config import SystemConfig, SystemConfigError
++from services.hardware_discovery import (
++    camera_candidate_devices,
++    discover_cameras,
++    discover_serial_controllers,
++    format_camera_candidate,
++    format_serial_candidate,
++    probe_controller_port,
++    serial_port_records,
++)
++
++
++class FakeCapture:
++    def __init__(self, device, backend):
++        self.device = device
++        self.backend = backend
++        self.released = False
++
++    def isOpened(self):
++        return self.device == 2
++
++    def read(self):
++        return (True, object()) if self.isOpened() else (False, None)
++
++    def get(self, prop):
++        values = {3: 1280, 4: 720, 5: 30.0}
++        return values.get(prop, 0)
++
++    def release(self):
++        self.released = True
++
++
++class FakeSerial:
++    def __init__(self, **_kwargs):
++        self.response = bytearray(
++            b"\x02HELLO_ACK|PROTO=1|FW=test-controller|READY=1\x03"
++        )
++        self.closed = False
++
++    @property
++    def in_waiting(self):
++        return len(self.response)
++
++    def reset_input_buffer(self):
++        pass
++
++    def write(self, payload):
++        self.written = payload
++
++    def flush(self):
++        pass
++
++    def read(self, size):
++        data = bytes(self.response[:size])
++        del self.response[:size]
++        return data
++
++    def close(self):
++        self.closed = True
++
++
++class HardwareCommissioningTests(unittest.TestCase):
++    def setUp(self):
++        self.base = json.loads(
++            Path("config/system.json").read_text(encoding="utf-8")
++        )
++
++    def test_generic_configuration_starts_unassigned_and_safe(self):
++        config = SystemConfig("config/system.json")
++        self.assertTrue(config.section("installation")["commissioning_mode"])
++        self.assertIsNone(config.section("camera")["device"])
++        self.assertEqual(config.section("controller")["ports"], {})
++        self.assertIsNone(config.controller_port("linux"))
++
++    def test_unassigned_hardware_is_rejected_outside_commissioning(self):
++        candidate = copy.deepcopy(self.base)
++        candidate["installation"]["commissioning_mode"] = False
++        with self.assertRaisesRegex(SystemConfigError, "camera.device"):
++            SystemConfig.validate_data(candidate)
++
++    def test_assigned_hardware_can_leave_commissioning(self):
++        candidate = copy.deepcopy(self.base)
++        candidate["installation"]["commissioning_mode"] = False
++        candidate["camera"]["device"] = 1
++        candidate["controller"]["ports"] = {"windows": "COM8"}
++        validated = SystemConfig.validate_data(candidate, recipe_names=[])
++        self.assertFalse(validated["installation"]["commissioning_mode"])
++
++    def test_camera_inventory_keeps_configured_index_and_finds_frames(self):
++        self.assertEqual(
++            camera_candidate_devices("windows", configured_device=2, max_index=3),
++            [2, 0, 1, 3],
++        )
++        records = discover_cameras(
++            "windows",
++            configured_device=2,
++            max_index=3,
++            capture_factory=FakeCapture,
++        )
++        found = next(item for item in records if item["device"] == 2)
++        self.assertTrue(found["available"])
++        self.assertTrue(found["verified"])
++        self.assertIn("DISPONIBLE", format_camera_candidate(found))
++
++    def test_serial_inventory_exposes_identity_fields(self):
++        records = serial_port_records([
++            SimpleNamespace(
++                device="COM8",
++                description="USB UART",
++                manufacturer="Silicon Labs",
++                vid=0x10C4,
++                pid=0xEA60,
++                serial_number="ABC",
++                hwid="USB VID:PID=10C4:EA60",
++            )
++        ])
++        self.assertEqual(records[0]["device"], "COM8")
++        self.assertEqual(records[0]["serial_number"], "ABC")
++        self.assertIn("COM8", format_serial_candidate(records[0]))
++
++    def test_controller_probe_accepts_only_protocol_handshake(self):
++        result = probe_controller_port("COM8", serial_factory=FakeSerial)
++        self.assertTrue(result["verified_controller"])
++        self.assertEqual(result["protocol"], "1")
++        self.assertEqual(result["firmware"], "test-controller")
++
++    def test_active_controller_is_not_reopened_during_discovery(self):
++        def forbidden_factory(**_kwargs):
++            raise AssertionError("El puerto activo no debe abrirse otra vez")
++
++        info = SimpleNamespace(
++            device="COM7",
++            description="Active UART",
++            manufacturer="",
++            vid=None,
++            pid=None,
++            serial_number="",
++            hwid="",
++        )
++        records = discover_serial_controllers(
++            active_info={
++                "port": "COM7",
++                "connected": True,
++                "synced": True,
++                "protocol": "1",
++                "firmware": "active-controller",
++            },
++            port_infos=[info],
++            serial_factory=forbidden_factory,
++        )
++        self.assertTrue(records[0]["active"])
++        self.assertTrue(records[0]["verified_controller"])
++
++    def test_new_recipe_is_neutral_and_uses_configured_focus_mode(self):
++        with tempfile.TemporaryDirectory() as temp_dir:
++            path = Path(temp_dir) / "recipes.json"
++            manager = RecipeManager(
++                path,
++                default_focus_mode="auto_continuous",
++            )
++            self.assertIsNone(manager.get_selected())
++            manager.create_recipe("PRODUCTO NUEVO")
++            recipe = manager.get("PRODUCTO NUEVO")
++
++        self.assertEqual(recipe["steps"], [])
++        self.assertFalse(recipe["commissioned"])
++        self.assertEqual(recipe["focus"]["mode"], "auto_continuous")
++        self.assertTrue(recipe["focus"]["enabled"])
++
++    def test_generic_catalog_contains_no_product_data(self):
++        recipes = json.loads(
++            Path("core/models/recipes.json").read_text(encoding="utf-8")
++        )
++        self.assertEqual(recipes, {"schema_version": 3, "recipes": []})
++        serialized = json.dumps(self.base)
++        self.assertNotIn("MODELO_A", serialized)
++        self.assertNotIn("expected_code", serialized)
++
++    def test_commissioning_ui_and_safe_start_are_wired(self):
++        app_source = Path("app/app.py").read_text(encoding="utf-8")
++        dialog_source = Path("ui/system_config_dialog.py").read_text(
++            encoding="utf-8"
++        )
++        camera_source = Path("vision/camera_worker.py").read_text(
++            encoding="utf-8"
++        )
++        self.assertIn("self.open_commissioning_configuration", app_source)
++        self.assertIn("Estacion en modo configuracion", app_source)
++        self.assertIn("discover_cameras", dialog_source)
++        self.assertIn("discover_serial_controllers", dialog_source)
++        self.assertIn("Produccion abre unicamente el endpoint guardado", camera_source)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/ui/config_window_logic.py b/ui/config_window_logic.py
+index 122294f..fa56960 100644
+--- a/ui/config_window_logic.py
++++ b/ui/config_window_logic.py
+@@ -254,6 +254,13 @@ class ConfigWindow(QWidget):
+             and hasattr(self.camera_worker, "runtime_camera_info")
+             else {}
+         )
++        controller_runtime = (
++            self.state_manager.comm.runtime_controller_info()
++            if self.state_manager is not None
++            and getattr(self.state_manager, "comm", None) is not None
++            and hasattr(self.state_manager.comm, "runtime_controller_info")
++            else {}
++        )
+         dialog = SystemConfigDialog(
+             system_config=self.system_config,
+             recipe_manager=self.recipe_manager,
+@@ -261,6 +268,7 @@ class ConfigWindow(QWidget):
+             parent=self,
+             display_profile=self.display_profile,
+             camera_runtime=camera_runtime,
++            controller_runtime=controller_runtime,
+         )
+         dialog.configuration_saved.connect(self.restart_required.emit)
+         configure_dialog(
+diff --git a/ui/system_config_dialog.py b/ui/system_config_dialog.py
+index bb60fc2..690478d 100644
+--- a/ui/system_config_dialog.py
++++ b/ui/system_config_dialog.py
+@@ -1,6 +1,7 @@
+ import copy
+ import json
+ import os
++import threading
+ 
+ from core.editor_models import (
+     EditorValueError,
+@@ -24,6 +25,7 @@ from utils.qt_compat import (
+     QTabWidget,
+     QTableWidget,
+     QTableWidgetItem,
++    QTimer,
+     QVBoxLayout,
+     QWidget,
+     Signal,
+@@ -33,12 +35,19 @@ from ui.responsive import compact_stylesheet, profile_from_widget
+ from ui.theme import interface_stylesheet
+ from core.camera_runtime import format_camera_runtime
+ from core.focus_modes import FOCUS_MODE_LABELS
++from services.hardware_discovery import (
++    discover_cameras,
++    discover_serial_controllers,
++    format_camera_candidate,
++    format_serial_candidate,
++)
+ 
+ 
+ class SystemConfigDialog(QDialog):
+     """Edit one complete installation without creating product profiles."""
+ 
+     configuration_saved = Signal(object)
++    hardware_discovery_finished = Signal(object)
+ 
+     def __init__(
+         self,
+@@ -48,12 +57,15 @@ class SystemConfigDialog(QDialog):
+         parent=None,
+         display_profile=None,
+         camera_runtime=None,
++        controller_runtime=None,
+     ):
+         super().__init__(parent)
+         self.system_config = system_config
+         self.recipe_manager = recipe_manager
+         self.platform = platform
+         self.camera_runtime = dict(camera_runtime or {})
++        self.controller_runtime = dict(controller_runtime or {})
++        self._discovery_running = False
+         self.display_profile = display_profile or profile_from_widget(parent or self)
+         self.setWindowTitle("Configuracion de la estacion")
+         self.setStyleSheet(
+@@ -62,6 +74,10 @@ class SystemConfigDialog(QDialog):
+         )
+         self._build_ui()
+         self._load_values()
++        self.hardware_discovery_finished.connect(
++            self._on_hardware_discovery_finished
++        )
++        QTimer.singleShot(100, self.refresh_hardware)
+ 
+     def _build_ui(self):
+         root = QVBoxLayout(self)
+@@ -102,6 +118,14 @@ class SystemConfigDialog(QDialog):
+ 
+         self.btn_cancel.clicked.connect(self.reject)
+         self.btn_save.clicked.connect(self._save)
++        self.btn_refresh_cameras.clicked.connect(self.refresh_hardware)
++        self.btn_refresh_controllers.clicked.connect(self.refresh_hardware)
++        self.cmb_camera_candidates.currentIndexChanged.connect(
++            self._apply_camera_candidate
++        )
++        self.cmb_controller_candidates.currentIndexChanged.connect(
++            self._apply_controller_candidate
++        )
+ 
+     def _form_tab(self, title):
+         page = QWidget()
+@@ -154,9 +178,23 @@ class SystemConfigDialog(QDialog):
+         form = self._form_tab("Estacion")
+         self.txt_installation_id = QLineEdit()
+         self.txt_installation_name = QLineEdit()
++        self.chk_commissioning_mode = QCheckBox(
++            "Permitir configuracion y bloquear produccion"
++        )
+         self.txt_recipe_file = QLineEdit()
+         self.chk_auto_migrate = QCheckBox("Crear respaldo y migrar recetas heredadas")
+         self.txt_camera_device = QLineEdit()
++        self.cmb_camera_candidates = QComboBox()
++        self.btn_refresh_cameras = QPushButton("BUSCAR HARDWARE")
++        camera_picker = QWidget()
++        camera_picker_layout = QHBoxLayout(camera_picker)
++        camera_picker_layout.setContentsMargins(0, 0, 0, 0)
++        camera_picker_layout.addWidget(self.cmb_camera_candidates, 1)
++        camera_picker_layout.addWidget(self.btn_refresh_cameras)
++        self.lbl_camera_discovery = QLabel(
++            "La busqueda conserva el dispositivo actual hasta que elijas otro."
++        )
++        self.lbl_camera_discovery.setWordWrap(True)
+         self.lbl_active_camera = QLabel(format_camera_runtime(self.camera_runtime))
+         self.lbl_active_camera.setWordWrap(True)
+         self.spn_camera_width = self._int_spin(1, 16384)
+@@ -169,9 +207,12 @@ class SystemConfigDialog(QDialog):
+ 
+         form.addRow("ID de instalacion", self.txt_installation_id)
+         form.addRow("Nombre", self.txt_installation_name)
++        form.addRow("Modo de configuracion", self.chk_commissioning_mode)
+         form.addRow("Catalogo de recetas", self.txt_recipe_file)
+         form.addRow("Migracion", self.chk_auto_migrate)
+         form.addRow("Dispositivo de camara", self.txt_camera_device)
++        form.addRow("Camaras detectadas", camera_picker)
++        form.addRow("Busqueda", self.lbl_camera_discovery)
+         form.addRow("Camara activa ahora", self.lbl_active_camera)
+         form.addRow("Ancho de captura", self.spn_camera_width)
+         form.addRow("Alto de captura", self.spn_camera_height)
+@@ -185,6 +226,21 @@ class SystemConfigDialog(QDialog):
+         protocol.setWordWrap(True)
+         layout.addWidget(protocol)
+ 
++        controller_picker = QWidget()
++        controller_picker_layout = QHBoxLayout(controller_picker)
++        controller_picker_layout.setContentsMargins(0, 0, 0, 0)
++        self.cmb_controller_candidates = QComboBox()
++        self.btn_refresh_controllers = QPushButton("BUSCAR HARDWARE")
++        controller_picker_layout.addWidget(self.cmb_controller_candidates, 1)
++        controller_picker_layout.addWidget(self.btn_refresh_controllers)
++        layout.addWidget(QLabel("Controladores y puertos detectados"))
++        layout.addWidget(controller_picker)
++        self.lbl_controller_discovery = QLabel(
++            "Solo se identifica el controlador; GPIO y logica permanecen en la ESP32."
++        )
++        self.lbl_controller_discovery.setWordWrap(True)
++        layout.addWidget(self.lbl_controller_discovery)
++
+         form = QFormLayout()
+         self.spn_baudrate = self._int_spin(1, 4000000)
+         self.spn_timeout = self._float_spin(0.01, 120.0, 2)
+@@ -252,9 +308,11 @@ class SystemConfigDialog(QDialog):
+         help_texts = {
+             self.txt_installation_id: "ID tecnico estable de esta estacion.",
+             self.txt_installation_name: "Nombre legible mostrado en registros.",
++            self.chk_commissioning_mode: "Mantiene READY=0 mientras se instala hardware y se crean recetas.",
+             self.txt_recipe_file: "Ruta al catalogo JSON de recetas de esta instalacion.",
+             self.chk_auto_migrate: "Convierte esquemas heredados y conserva un archivo .bak.",
+             self.txt_camera_device: "Indice 0, 1, etc. o ruta persistente del dispositivo.",
++            self.cmb_camera_candidates: "Inventario detectado; la seleccion se copia al campo de dispositivo.",
+             self.lbl_active_camera: "Dispositivo y formato que usa la sesion actual; los cambios requieren reinicio.",
+             self.spn_camera_width: "Ancho solicitado a la camara; no es el ancho del monitor.",
+             self.spn_camera_height: "Alto solicitado a la camara; no es el alto del monitor.",
+@@ -262,6 +320,7 @@ class SystemConfigDialog(QDialog):
+             self.spn_preview_fps: "Frecuencia visual; puede reducirse para ahorrar CPU.",
+             self.cmb_default_focus: "Modo inicial de enfoque para recetas nuevas.",
+             self.spn_baudrate: "Velocidad serial; debe coincidir con el controlador.",
++            self.cmb_controller_candidates: "Puertos enumerados y controladores compatibles identificados por handshake.",
+             self.spn_timeout: "Espera maxima de lectura/escritura serial.",
+             self.chk_reset_on_connect: "Permite reiniciar el controlador al abrir el puerto.",
+             self.chk_heartbeat: "Supervisa que el enlace con el controlador siga vivo.",
+@@ -349,9 +408,15 @@ class SystemConfigDialog(QDialog):
+ 
+         self.txt_installation_id.setText(str(installation.get("id", "")))
+         self.txt_installation_name.setText(str(installation.get("name", "")))
++        self.chk_commissioning_mode.setChecked(
++            bool(installation.get("commissioning_mode", False))
++        )
+         self.txt_recipe_file.setText(str(recipes.get("file", "")))
+         self.chk_auto_migrate.setChecked(bool(recipes.get("auto_migrate", True)))
+-        self.txt_camera_device.setText(str(camera.get("device", 0)))
++        camera_device = camera.get("device")
++        self.txt_camera_device.setText(
++            "" if camera_device is None else str(camera_device)
++        )
+         self.spn_camera_width.setValue(int(camera.get("width", 1920)))
+         self.spn_camera_height.setValue(int(camera.get("height", 1080)))
+         self.spn_capture_fps.setValue(float(camera.get("capture_fps", 30)))
+@@ -411,6 +476,146 @@ class SystemConfigDialog(QDialog):
+             int(traceability.get("retention_days", 30))
+         )
+ 
++    def refresh_hardware(self):
++        """Discover endpoints in the background without changing selection."""
++        if self._discovery_running:
++            return
++        self._discovery_running = True
++        self.btn_refresh_cameras.setEnabled(False)
++        self.btn_refresh_controllers.setEnabled(False)
++        self.lbl_camera_discovery.setText("Buscando camaras disponibles...")
++        self.lbl_controller_discovery.setText(
++            "Enumerando puertos y verificando vision_controller_v1..."
++        )
++        configured_camera_text = self.txt_camera_device.text().strip()
++        configured_camera = parse_camera_device(
++            configured_camera_text,
++            allow_unassigned=True,
++        )
++        baudrate = self.spn_baudrate.value()
++        platform = self.platform
++        camera_runtime = dict(self.camera_runtime)
++        controller_runtime = dict(self.controller_runtime)
++
++        def run_discovery():
++            payload = {"cameras": [], "controllers": [], "errors": []}
++            try:
++                payload["cameras"] = discover_cameras(
++                    platform,
++                    configured_device=configured_camera,
++                    active_info=camera_runtime,
++                )
++            except Exception as exc:
++                payload["errors"].append(f"Camaras: {exc}")
++            try:
++                payload["controllers"] = discover_serial_controllers(
++                    baudrate=baudrate,
++                    active_info=controller_runtime,
++                )
++            except Exception as exc:
++                payload["errors"].append(f"Controladores: {exc}")
++            self.hardware_discovery_finished.emit(payload)
++
++        threading.Thread(
++            target=run_discovery,
++            name="hardware-discovery",
++            daemon=True,
++        ).start()
++
++    def _on_hardware_discovery_finished(self, payload):
++        self._discovery_running = False
++        self.btn_refresh_cameras.setEnabled(True)
++        self.btn_refresh_controllers.setEnabled(True)
++        payload = dict(payload or {})
++        cameras = list(payload.get("cameras") or [])
++        controllers = list(payload.get("controllers") or [])
++
++        self.cmb_camera_candidates.blockSignals(True)
++        self.cmb_camera_candidates.clear()
++        self.cmb_camera_candidates.addItem("Selecciona una camara detectada", None)
++        for record in cameras:
++            self.cmb_camera_candidates.addItem(
++                format_camera_candidate(record),
++                record,
++            )
++        self.cmb_camera_candidates.setCurrentIndex(0)
++        self.cmb_camera_candidates.blockSignals(False)
++
++        available_cameras = sum(
++            1 for record in cameras if record.get("available")
++        )
++        self.lbl_camera_discovery.setText(
++            f"{available_cameras} camara(s) disponible(s) de "
++            f"{len(cameras)} candidato(s)."
++        )
++
++        self.cmb_controller_candidates.blockSignals(True)
++        self.cmb_controller_candidates.clear()
++        self.cmb_controller_candidates.addItem(
++            "Selecciona un puerto o controlador detectado",
++            None,
++        )
++        for record in controllers:
++            self.cmb_controller_candidates.addItem(
++                format_serial_candidate(record),
++                record,
++            )
++        self.cmb_controller_candidates.setCurrentIndex(0)
++        self.cmb_controller_candidates.blockSignals(False)
++
++        verified = sum(
++            1 for record in controllers if record.get("verified_controller")
++        )
++        self.lbl_controller_discovery.setText(
++            f"{len(controllers)} puerto(s) detectado(s); "
++            f"{verified} controlador(es) compatible(s) verificado(s). "
++            "La seleccion no modifica GPIO ni logica de la ESP32."
++        )
++        errors = list(payload.get("errors") or [])
++        if errors:
++            self.lbl_controller_discovery.setText(
++                self.lbl_controller_discovery.text()
++                + " Errores: "
++                + "; ".join(errors)
++            )
++
++    def _apply_camera_candidate(self, index):
++        if index <= 0:
++            return
++        record = self.cmb_camera_candidates.currentData()
++        if not isinstance(record, dict):
++            return
++        if not record.get("available"):
++            self.lbl_camera_discovery.setText(
++                f"No se selecciono {record.get('device')}: "
++                f"{record.get('status', 'no disponible')}"
++            )
++            return
++        self.txt_camera_device.setText(str(record.get("device")))
++        self.lbl_camera_discovery.setText(
++            f"Camara propuesta: {record.get('device')}. "
++            "Guarda y reinicia para aplicarla."
++        )
++
++    def _apply_controller_candidate(self, index):
++        if index <= 0:
++            return
++        record = self.cmb_controller_candidates.currentData()
++        if not isinstance(record, dict) or not record.get("device"):
++            return
++        self._set_platform_port(self.platform, record["device"])
++        self.lbl_controller_discovery.setText(
++            f"Puerto propuesto para {self.platform}: {record['device']}. "
++            f"{record.get('status', '')} Guarda y reinicia para aplicarlo."
++        )
++
++    def _set_platform_port(self, platform, port):
++        for row in range(self.tbl_ports.rowCount()):
++            if self._item_text(self.tbl_ports, row, 0) == platform:
++                self.tbl_ports.setItem(row, 1, QTableWidgetItem(str(port)))
++                return
++        self._add_port_row(platform, port)
++
+     def _read_ports(self):
+         ports = {}
+         for row in range(self.tbl_ports.rowCount()):
+@@ -438,16 +643,21 @@ class SystemConfigDialog(QDialog):
+ 
+     def _candidate(self):
+         candidate = copy.deepcopy(self.system_config.data)
++        commissioning_mode = self.chk_commissioning_mode.isChecked()
+         candidate["installation"].update({
+             "id": self.txt_installation_id.text().strip(),
+             "name": self.txt_installation_name.text().strip(),
++            "commissioning_mode": commissioning_mode,
+         })
+         candidate["recipes"].update({
+             "file": self.txt_recipe_file.text().strip(),
+             "auto_migrate": self.chk_auto_migrate.isChecked(),
+         })
+         candidate["camera"].update({
+-            "device": parse_camera_device(self.txt_camera_device.text()),
++            "device": parse_camera_device(
++                self.txt_camera_device.text(),
++                allow_unassigned=commissioning_mode,
++            ),
+             "width": self.spn_camera_width.value(),
+             "height": self.spn_camera_height.value(),
+             "capture_fps": self.spn_capture_fps.value(),
+diff --git a/vision/camera_worker.py b/vision/camera_worker.py
+index 50ed8e5..577352e 100644
+--- a/vision/camera_worker.py
++++ b/vision/camera_worker.py
+@@ -175,6 +175,9 @@ class CameraWorker(QObject):
+         }
+ 
+     def find_camera_device(self):
++        if self.camera_index in (None, ""):
++            return None
++
+         # SOLO BSUCAMOS EL DEVICE PARA LA RASPBERRY, SI SE TRABAJA EN WIDOWS SE USA CAMERA INDEX
+         if not self.is_linux():
+             return self.camera_index
+@@ -185,13 +188,10 @@ class CameraWorker(QObject):
+         else:
+             configured_device = f"/dev/video{configured_device}"
+ 
+-        candidates = [
+-            configured_device,
+-            "/dev/video0",
+-            "/dev/video1",
+-            "/dev/video2",
+-            "/dev/video3",
+-        ]
++        # Produccion abre unicamente el endpoint guardado. El inventario y la
++        # eleccion de otra camara pertenecen al modo de configuracion; usar un
++        # /dev/video* diferente silenciosamente podria inspeccionar otra vista.
++        candidates = [configured_device]
+ 
+         seen = set()
+ 
+-- 
+2.51.1
+
