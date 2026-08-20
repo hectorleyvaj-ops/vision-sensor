@@ -2,6 +2,7 @@
 
 
 def normalize_qt_request(value):
+    """Obtiene el valor de VISION_QT_API (QT) y lo normaliza a un valor estandarizado (PySide6 o PyQt5)."""
     normalized = str(value or "auto").strip().lower()
     aliases = {
         "auto": "auto",

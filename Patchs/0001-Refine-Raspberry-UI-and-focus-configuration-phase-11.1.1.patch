@@ -1,0 +1,1132 @@
+From 0aeb4f20fd9f2de817d1e1734191c9b90f1b1278 Mon Sep 17 00:00:00 2001
+From: Hector Leyva <hectorleyva.j@gmail.com>
+Date: Thu, 20 Aug 2026 08:06:48 -0600
+Subject: [PATCH] Refine Raspberry UI and focus configuration phase 11.1.1
+
+---
+ .../CONTEXTO_PROYECTO_WORKSURFACE_V19.md      |  49 +++++++
+ .../GUIA_REFINAMIENTO_FASE11_1_1_RASPBERRY.md | 121 ++++++++++++++++++
+ app/app.py                                    |   9 +-
+ core/camera_runtime.py                        |  20 ++-
+ core/focus_modes.py                           |  38 +++++-
+ main.py                                       |   3 +
+ tests/test_configuration_ui_support.py        |  14 ++
+ tests/test_focus_modes.py                     |  14 +-
+ tests/test_raspberry_ui_refinement.py         |  52 ++++++++
+ ui/config_window_logic.py                     |  95 +++++++-------
+ ui/focus_config_dialog.py                     | 111 ++++++++++++----
+ ui/responsive.py                              |  39 +++++-
+ ui/theme.py                                   |  12 ++
+ vision/camera_worker.py                       |  72 ++++++++++-
+ 14 files changed, 554 insertions(+), 95 deletions(-)
+ create mode 100644 Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V19.md
+ create mode 100644 Guias/GUIA_REFINAMIENTO_FASE11_1_1_RASPBERRY.md
+ create mode 100644 tests/test_raspberry_ui_refinement.py
+
+diff --git a/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V19.md b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V19.md
+new file mode 100644
+index 0000000..8b84275
+--- /dev/null
++++ b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V19.md
+@@ -0,0 +1,49 @@
++# Contexto Worksurface V19 - Refinamiento 11.1.1
++
++**Fecha:** 2026-08-20
++
++**Base:** fase 11.1 limpia (`64fe994`)
++
++## Decision
++
++La fase 12 continua bloqueada hasta validar fisicamente este refinamiento en la
++Raspberry. El motor Python sigue siendo un sensor de vision configurable que
++solo entrega `OK`, `NG` o `ERROR`; la ESP32 conserva I/O y secuencia de maquina.
++
++## Interfaz
++
++La diferencia PySide6/PyQt5 se atiende aplicando el tema a la aplicacion,
++repuliendo widgets heredados y retirando limpiezas tardias de estilos. Los
++mensajes tienen contraste explicito. Los editores secundarios son modales de
++aplicacion y Linux los lleva a pantalla completa una vez iniciado `exec()`.
++
++## Enfoque
++
++Los modos ahora tienen contratos visibles y diferentes:
++
++- automatico por receta: barrido grueso/fino/micro, seleccion por nitidez,
++  persistencia de valor y umbral, verificacion y posible recalibracion;
++- valor fijo del operador: entrada numerica directa sin barrido ni reenfoque;
++- autofocus continuo: autoridad de enfoque en la camara;
++- sin gestion: el motor no modifica el lente.
++
++`v4l2-ctl` se diagnostica como utilidad de `v4l-utils`, separada del driver y de
++la capacidad `focus_absolute` del endpoint.
++
++## Seguridad preservada
++
++La ausencia de camara, utilidad V4L2 o control de foco no impide abrir la
++interfaz. La configuracion permanece disponible, pero los diagnosticos y el
++estado de enfoque impiden produccion cuando la politica activa lo exige.
++
++## Puerta de salida
++
++Antes de fase 12 deben confirmarse en Raspberry:
++
++- tema y legibilidad 800x480;
++- modales en pantalla completa;
++- areas tactiles de botones y scrollbars;
++- deteccion de `v4l2-ctl`;
++- presencia real de `focus_absolute`;
++- calibracion automatica y aplicacion del valor fijo;
++- bloqueo seguro ante fallas de hardware.
+diff --git a/Guias/GUIA_REFINAMIENTO_FASE11_1_1_RASPBERRY.md b/Guias/GUIA_REFINAMIENTO_FASE11_1_1_RASPBERRY.md
+new file mode 100644
+index 0000000..552e71f
+--- /dev/null
++++ b/Guias/GUIA_REFINAMIENTO_FASE11_1_1_RASPBERRY.md
+@@ -0,0 +1,121 @@
++# Guia de refinamiento 11.1.1 - Interfaz Raspberry y enfoque
++
++## 1. Alcance
++
++Este parche es incremental sobre la fase 11.1 limpia (`64fe994`). Corrige la
++presentacion PyQt5 observada en Raspberry, conserva el arranque seguro sin
++hardware y aclara el contrato de enfoque. No cambia recetas Worksurface,
++firmware ESP32, GPIO, polaridades ni logica PLC.
++
++## 2. Aplicacion
++
++Con el arbol limpio y la fase 11.1 ya aplicada:
++
++```bash
++git status --short
++git am /ruta/0001-Refine-Raspberry-UI-and-focus-configuration-phase-11.1.1.patch
++```
++
++Si `git status --short` muestra cambios propios, guardarlos en un commit antes
++de aplicar el parche.
++
++## 3. Cambios de interfaz
++
++- El tema se instala tambien a nivel de `QApplication`, para que PyQt5 aplique
++  colores coherentes a ventanas superiores y `QMessageBox`.
++- Los textos y botones de `QMessageBox` tienen reglas explicitas de contraste.
++- Ya no se limpia el estilo de los botones despues de aplicar el tema.
++- `ESTACION`, `PROPIEDADES`, `GUARDAR` y `VOLVER` tienen anchos y alturas
++  tactiles acotados.
++- Los editores secundarios se ejecutan como modales de aplicacion.
++- En Linux pasan a pantalla completa despues de que `exec()` inicia su bucle;
++  esto evita que PyQt5 descarte el estado y bloquea la ventana inferior.
++- Las barras de desplazamiento conservan una zona tactil ancha y no muestran
++  botones de flecha estrechos.
++
++## 4. `v4l2-ctl` no es el driver
++
++`v4l2-ctl` es una utilidad de diagnostico y control proporcionada por el
++paquete `v4l-utils`. La camara puede entregar video mediante el driver V4L2 y,
++aun asi, faltar este ejecutable. En ese caso solo queda deshabilitado el control
++avanzado de enfoque.
++
++Instalacion y comprobacion:
++
++```bash
++sudo apt update
++sudo apt install -y v4l-utils
++which v4l2-ctl
++v4l2-ctl --list-devices
++v4l2-ctl -d /dev/video0 --list-ctrls
++```
++
++Usar en el ultimo comando el endpoint seleccionado en la estacion. Para los
++modos por receta o fijo, la lista debe incluir `focus_absolute`. Si no aparece,
++la camara o ese endpoint no permiten control manual; no se corrige instalando
++otro driver al azar.
++
++## 5. Modos de enfoque
++
++### Automatico por receta (recomendado)
++
++1. El operador selecciona una ROI con detalle relevante o usa el frame entero.
++2. **BUSCAR MEJOR ENFOQUE** recorre el rango `focus_absolute` en tres barridos:
++   grueso, fino y micro.
++3. Para cada valor calcula la varianza del Laplaciano en varios frames y
++   compara la mediana para reducir ruido.
++4. Guarda el mejor valor, la mediana, el pico y un umbral recomendado del 65 %
++   de la mediana final.
++5. Antes del primer ciclo aplica y verifica el valor. Si el detalle queda bajo
++   el umbral, puede recalibrar automaticamente.
++
++El valor no se decide por nombre de receta ni por el codigo DataMatrix: se
++calcula con la imagen fisica y queda almacenado dentro de esa receta.
++
++### Valor fijo definido por el operador
++
++El operador escribe directamente `focus_absolute`. Al guardar se aplica ese
++valor sin barrido, sin puntuacion de nitidez y sin reenfoque automatico. Sirve
++cuando la distancia y el lente ya estan caracterizados o cuando se desea un
++valor impuesto externamente.
++
++### Autofoco continuo
++
++Se deja a la camara ajustar el lente continuamente. No existe un valor fijo por
++receta y puede variar durante la inspeccion.
++
++### Sin gestion de enfoque
++
++El motor no modifica controles de enfoque. Es apropiado para lentes mecanicos
++fijos o camaras sin `focus_absolute`.
++
++## 6. Prueba en Raspberry
++
++```bash
++export VISION_QT_API=pyqt5
++export VISION_SYSTEM_CONFIG=installations/worksurface/system.json
++python main.py
++```
++
++Comprobar:
++
++1. Texto claro y botones tematicos en la configuracion principal.
++2. `QMessageBox` legible.
++3. Estacion, propiedades, enfoque y editores ocupan la pantalla y bloquean la
++   ventana inferior.
++4. La ausencia de `v4l2-ctl` menciona `v4l-utils`, no un driver faltante.
++5. El modo fijo muestra un campo numerico y oculta la busqueda automatica.
++6. El modo por receta muestra la ROI y **BUSCAR MEJOR ENFOQUE**.
++7. Una falla de camara o foco mantiene accesible configuracion, con produccion
++   y triggers bloqueados.
++
++## 7. Validacion automatica
++
++```bash
++python -m unittest discover -s tests -p "test_*.py" -v
++python -m compileall -q app core processing services tools ui vision tests
++python scripts/validate_installation.py installations/worksurface/commissioning.json
++```
++
++La validacion fisica de color, tacto, pantalla completa y controles V4L2 sigue
++requiriendo la Raspberry real.
+diff --git a/app/app.py b/app/app.py
+index 59b60fc..a6c61a0 100644
+--- a/app/app.py
++++ b/app/app.py
+@@ -9,6 +9,7 @@ from utils.qt_compat import (
+     QImage,
+     QPixmap,
+     QMainWindow,
++    QApplication,
+     QMetaObject,
+     Qt,
+     QTimer,
+@@ -48,6 +49,7 @@ class MainWindow(QMainWindow):
+ 
+         self.ui = Ui_MainWindow()
+         self.ui.setupUi(self)
++        self.setWindowTitle("Sistema de vision")
+         self.display_profile = profile_from_widget(self)
+         apply_main_window_layout(self, self.ui, self.display_profile)
+         self.installation_name = "Motor de vision"
+@@ -268,11 +270,15 @@ class MainWindow(QMainWindow):
+         self._apply_interface_theme()
+ 
+     def _apply_interface_theme(self):
+-        self.setStyleSheet(
++        stylesheet = (
+             interface_stylesheet(self.display_profile)
+             + operator_stylesheet(self.display_profile)
+             + compact_stylesheet(self.display_profile)
+         )
++        application = QApplication.instance()
++        if application is not None:
++            application.setStyleSheet(stylesheet)
++        self.setStyleSheet(stylesheet)
+ 
+     @staticmethod
+     def _refresh_widget_style(widget):
+@@ -342,7 +348,6 @@ class MainWindow(QMainWindow):
+             self.add_button_feedback(btn)
+ 
+     def add_button_feedback(self, button):
+-        button.setStyleSheet("")
+         button.setCursor(Qt.PointingHandCursor)
+ 
+     def setup_camera(self):
+diff --git a/core/camera_runtime.py b/core/camera_runtime.py
+index d0e0b97..e6dcf8c 100644
+--- a/core/camera_runtime.py
++++ b/core/camera_runtime.py
+@@ -19,8 +19,19 @@ def manual_focus_preflight(info):
+         return False, f"{detail}. Revisa el dispositivo y reinicia."
+     if not info.get("resolved_device"):
+         return False, "No se resolvio un dispositivo /dev/video*."
++    if info.get("v4l2_tool_available") is False:
++        return False, (
++            "Falta la utilidad v4l2-ctl. No es el driver de la camara: "
++            "instala el paquete con 'sudo apt install v4l-utils' y reinicia "
++            "la aplicacion."
++        )
+     if not info.get("v4l2_available"):
+-        return False, "v4l2-ctl no esta disponible o no pudo leer los controles."
++        detail = str(info.get("v4l2_error") or "").strip()
++        suffix = f" Detalle: {detail}" if detail else ""
++        return False, (
++            "v4l2-ctl esta instalado, pero no pudo leer los controles de la "
++            f"camara activa.{suffix}"
++        )
+     if not info.get("focus_absolute_supported"):
+         return False, "La camara activa no expone el control focus_absolute."
+     return True, "Camara lista para calibracion manual."
+@@ -35,6 +46,11 @@ def format_camera_runtime(info):
+     width = info.get("actual_width") or "?"
+     height = info.get("actual_height") or "?"
+     focus = "si" if info.get("focus_absolute_supported") else "no"
++    if info.get("platform") == "linux":
++        tool = "si" if info.get("v4l2_tool_available") else "no"
++        tool_text = f" | v4l2-ctl: {tool}"
++    else:
++        tool_text = ""
+     state = "ABIERTA" if info.get("camera_open") else "NO DISPONIBLE"
+     backend = info.get("capture_backend") or "?"
+     error = str(info.get("error") or "").strip()
+@@ -42,5 +58,5 @@ def format_camera_runtime(info):
+     return (
+         f"Camara solicitada: {requested} | activa: {resolved} | estado: {state} | "
+         f"backend: {backend} | formato: {width}x{height} | "
+-        f"focus_absolute: {focus}{error_text}"
++        f"focus_absolute: {focus}{tool_text}{error_text}"
+     )
+diff --git a/core/focus_modes.py b/core/focus_modes.py
+index 0be57b4..0b39c12 100644
+--- a/core/focus_modes.py
++++ b/core/focus_modes.py
+@@ -2,12 +2,42 @@
+ 
+ 
+ FOCUS_MODE_LABELS = {
+-    "calibrated": "Calibrado por receta",
+-    "manual_fixed": "Valor manual fijo",
+-    "auto_continuous": "Enfoque automático continuo",
+-    "disabled": "Sin control de enfoque",
++    "calibrated": "Automatico por receta (recomendado)",
++    "manual_fixed": "Valor fijo definido por el operador",
++    "auto_continuous": "Autofoco continuo de la camara",
++    "disabled": "Sin gestion de enfoque",
++}
++
++
++FOCUS_MODE_DESCRIPTIONS = {
++    "calibrated": (
++        "La aplicacion recorre el rango de focus_absolute, mide la nitidez de "
++        "la ROI con la varianza del Laplaciano y guarda en esta receta el mejor "
++        "valor. Tambien guarda un umbral inicial del 65 % para verificar el "
++        "primer ciclo y recalibrar si el enfoque se degrada."
++    ),
++    "manual_fixed": (
++        "El operador escribe un valor focus_absolute. La aplicacion lo aplica "
++        "sin barrido, sin puntuacion y sin reenfoque automatico."
++    ),
++    "auto_continuous": (
++        "La camara mantiene activo su autofocus. El valor puede variar durante "
++        "la inspeccion y no se guarda una distancia de enfoque por receta."
++    ),
++    "disabled": (
++        "El motor no modifica el enfoque de la camara. Util para lentes fijos "
++        "o dispositivos que no exponen controles de enfoque."
++    ),
+ }
+ 
+ 
+ def focus_mode_label(mode):
+     return FOCUS_MODE_LABELS.get(str(mode or ""), str(mode or "Desconocido"))
++
++
++def focus_mode_description(mode):
++    value = str(mode or "")
++    return FOCUS_MODE_DESCRIPTIONS.get(
++        value,
++        "Modo de enfoque no reconocido.",
++    )
+diff --git a/main.py b/main.py
+index 3ee0a2e..8ee8808 100644
+--- a/main.py
++++ b/main.py
+@@ -1,9 +1,12 @@
+ import sys
+ from app.app import MainWindow
++from core.display_profile import build_display_profile
++from ui.theme import interface_stylesheet
+ from utils.qt_compat import QApplication, QMessageBox
+ 
+ if __name__ == "__main__":
+     app = QApplication(sys.argv)
++    app.setStyleSheet(interface_stylesheet(build_display_profile(800, 480)))
+     
+     try:
+         window = MainWindow()
+diff --git a/tests/test_configuration_ui_support.py b/tests/test_configuration_ui_support.py
+index 106cdb3..0643f73 100644
+--- a/tests/test_configuration_ui_support.py
++++ b/tests/test_configuration_ui_support.py
+@@ -33,6 +33,18 @@ class ConfigurationUiSupportTests(unittest.TestCase):
+         })
+         self.assertTrue(ok)
+ 
++    def test_missing_v4l2_tool_is_not_reported_as_a_driver_failure(self):
++        ok, message = manual_focus_preflight({
++            "platform": "linux",
++            "camera_open": True,
++            "resolved_device": "/dev/video0",
++            "v4l2_tool_available": False,
++            "v4l2_available": False,
++        })
++        self.assertFalse(ok)
++        self.assertIn("v4l-utils", message)
++        self.assertIn("No es el driver", message)
++
+     def test_focus_control_readback_must_match_requested_value(self):
+         self.assertTrue(control_value_matches(320, 320))
+         self.assertFalse(control_value_matches(320, 319))
+@@ -68,6 +80,8 @@ class ConfigurationUiSupportTests(unittest.TestCase):
+             "QComboBox QAbstractItemView",
+             "QScrollBar:vertical",
+             "QMessageBox",
++            "QMessageBox QLabel",
++            "QMessageBox QPushButton",
+         ):
+             self.assertIn(selector, stylesheet)
+ 
+diff --git a/tests/test_focus_modes.py b/tests/test_focus_modes.py
+index 0ed617b..90763e2 100644
+--- a/tests/test_focus_modes.py
++++ b/tests/test_focus_modes.py
+@@ -1,6 +1,10 @@
+ import unittest
+ 
+-from core.focus_modes import FOCUS_MODE_LABELS, focus_mode_label
++from core.focus_modes import (
++    FOCUS_MODE_LABELS,
++    focus_mode_description,
++    focus_mode_label,
++)
+ 
+ 
+ class FocusModeLabelTests(unittest.TestCase):
+@@ -16,6 +20,14 @@ class FocusModeLabelTests(unittest.TestCase):
+     def test_unknown_future_mode_remains_visible(self):
+         self.assertEqual(focus_mode_label("future_mode"), "future_mode")
+ 
++    def test_recipe_calibration_and_fixed_value_are_explained_differently(self):
++        calibrated = focus_mode_description("calibrated")
++        fixed = focus_mode_description("manual_fixed")
++        self.assertIn("recorre", calibrated)
++        self.assertIn("mejor valor", calibrated)
++        self.assertIn("operador escribe", fixed)
++        self.assertIn("sin barrido", fixed)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_raspberry_ui_refinement.py b/tests/test_raspberry_ui_refinement.py
+new file mode 100644
+index 0000000..fcdf663
+--- /dev/null
++++ b/tests/test_raspberry_ui_refinement.py
+@@ -0,0 +1,52 @@
++import unittest
++from pathlib import Path
++
++
++class RaspberryUiRefinementTests(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.config_source = Path("ui/config_window_logic.py").read_text(
++            encoding="utf-8"
++        )
++        cls.focus_source = Path("ui/focus_config_dialog.py").read_text(
++            encoding="utf-8"
++        )
++        cls.responsive_source = Path("ui/responsive.py").read_text(
++            encoding="utf-8"
++        )
++        cls.camera_source = Path("vision/camera_worker.py").read_text(
++            encoding="utf-8"
++        )
++
++    def test_every_configuration_editor_uses_common_modal_execution(self):
++        self.assertNotIn("configure_dialog(", self.config_source)
++        self.assertEqual(self.config_source.count("exec_modal_dialog("), 6)
++        self.assertIn("Qt.ApplicationModal", self.responsive_source)
++        self.assertIn("QTimer.singleShot(0, dialog.showFullScreen)", self.responsive_source)
++
++    def test_config_buttons_are_not_reset_after_theme_application(self):
++        feedback = self.config_source.split(
++            "    def add_button_feedback", 1
++        )[1].split("    def apply_button_feedbakcs", 1)[0]
++        self.assertNotIn("setStyleSheet", feedback)
++        self.assertIn("application.setStyleSheet(stylesheet)", self.config_source)
++
++    def test_manual_focus_is_an_explicit_value_not_an_automatic_sweep(self):
++        self.assertIn("self.spn_manual_value", self.focus_source)
++        self.assertIn('mode == "manual_fixed"', self.focus_source)
++        self.assertIn('"auto_refocus_if_failed": False', self.focus_source)
++        request = self.focus_source.split(
++            "    def request_calibration", 1
++        )[1].split("    @Slot(object)", 1)[0]
++        self.assertIn('mode != "calibrated"', request)
++
++    def test_linux_fixed_focus_cannot_be_ready_without_focus_absolute(self):
++        recipe_focus = self.camera_source.split(
++            "    def set_focus_from_recipe", 1
++        )[1].split("    def get_focus_required_score", 1)[0]
++        self.assertIn("elif self.is_linux() and has_focus_value", recipe_focus)
++        self.assertIn("ready=False", recipe_focus)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/ui/config_window_logic.py b/ui/config_window_logic.py
+index fa56960..77efebd 100644
+--- a/ui/config_window_logic.py
++++ b/ui/config_window_logic.py
+@@ -1,8 +1,8 @@
+ import copy
+ from utils.qt_compat import (
+-    QT_LIB, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+-    QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea, QMessageBox,
+-    QLabel,
++    QT_LIB, QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
++    QComboBox, QInputDialog, Signal, Qt, QScrollArea, QMessageBox,
++    QLabel, QSizePolicy,
+ )
+ from core.editor_models import EditorValueError
+ from core.resource_archive import archive_resource_path as archive_path
+@@ -20,7 +20,7 @@ from ui.system_config_dialog import SystemConfigDialog
+ from ui.responsive import (
+     apply_config_window_layout,
+     compact_stylesheet,
+-    configure_dialog,
++    exec_modal_dialog,
+     profile_from_widget,
+ )
+ from ui.theme import interface_stylesheet
+@@ -46,6 +46,7 @@ class ConfigWindow(QWidget):
+ 
+         self.ui = Ui_Form()
+         self.ui.setupUi(self)
++        self.setWindowTitle("Configuracion del motor de vision")
+         self.display_profile = display_profile or profile_from_widget(self)
+         self._build_universal_controls()
+         apply_config_window_layout(self, self.ui, self.display_profile)
+@@ -102,14 +103,25 @@ class ConfigWindow(QWidget):
+         self.ui.bttm_layout.setSpacing(6)
+         self.ui.bttm_layout.insertWidget(1, self.btn_installation_config)
+         self.ui.bttm_layout.insertWidget(2, self.btn_recipe_config)
+-        max_width = 92 if self.display_profile.compact else 105
+-        for button in (
+-            self.btn_installation_config,
+-            self.btn_recipe_config,
+-            self.ui.btn_save,
+-            self.ui.btn_out,
++        widths = (
++            (104, 132, 96, 96)
++            if self.display_profile.compact
++            else (120, 150, 120, 120)
++        )
++        for button, minimum_width in zip(
++            (
++                self.btn_installation_config,
++                self.btn_recipe_config,
++                self.ui.btn_save,
++                self.ui.btn_out,
++            ),
++            widths,
+         ):
+-            button.setMaximumWidth(max_width)
++            button.setMinimumWidth(minimum_width)
++            button.setMaximumWidth(180)
++            button.setMinimumHeight(self.display_profile.touch_target)
++            button.setMaximumHeight(self.display_profile.touch_target + 8)
++            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+ 
+         self.ui.btn_select_r.setProperty("buttonRole", "primary")
+         self.ui.btn_save.setProperty("buttonRole", "primary")
+@@ -144,13 +156,22 @@ class ConfigWindow(QWidget):
+             self.ui.btn_out,
+         ):
+             widget.setStyleSheet("")
+-        self.setStyleSheet(
++        stylesheet = (
+             interface_stylesheet(self.display_profile)
+             + compact_stylesheet(self.display_profile)
+         )
++        application = QApplication.instance()
++        if application is not None:
++            application.setStyleSheet(stylesheet)
++        self.setStyleSheet(stylesheet)
++        self.setAttribute(Qt.WA_StyledBackground, True)
++        for widget in self.findChildren(QWidget):
++            style = widget.style()
++            style.unpolish(widget)
++            style.polish(widget)
++            widget.update()
+ 
+     def add_button_feedback(self, button):
+-        button.setStyleSheet("")
+         button.setCursor(Qt.PointingHandCursor)
+ 
+     def apply_button_feedbakcs(self):
+@@ -271,16 +292,12 @@ class ConfigWindow(QWidget):
+             controller_runtime=controller_runtime,
+         )
+         dialog.configuration_saved.connect(self.restart_required.emit)
+-        configure_dialog(
++        exec_modal_dialog(
+             dialog,
+             self.display_profile,
+             requested=(800, 600),
+             fullscreen=self.platform == "linux",
+         )
+-        if hasattr(dialog, "exec"):
+-            dialog.exec()
+-        else:
+-            dialog.exec_()
+ 
+     def open_recipe_settings(self):
+         if not self.current_recipe:
+@@ -299,16 +316,12 @@ class ConfigWindow(QWidget):
+             display_profile=self.display_profile,
+         )
+         dialog.recipe_saved.connect(self.on_recipe_settings_saved)
+-        configure_dialog(
++        exec_modal_dialog(
+             dialog,
+             self.display_profile,
+             requested=(520, 320),
+             fullscreen=self.platform == "linux",
+         )
+-        if hasattr(dialog, "exec"):
+-            dialog.exec()
+-        else:
+-            dialog.exec_()
+ 
+     def on_recipe_settings_saved(self, recipe):
+         name = recipe.get("name")
+@@ -348,18 +361,13 @@ class ConfigWindow(QWidget):
+             dialog.lbl_status.setText("Error: CameraWorker no está disponible.")
+             dialog.btn_calibrate.setEnabled(False)
+ 
+-        configure_dialog(
++        result = exec_modal_dialog(
+             dialog,
+             self.display_profile,
+             requested=(800, 600),
+             fullscreen=self.platform == "linux",
+         )
+ 
+-        if hasattr(dialog, "exec"):
+-            result = dialog.exec()
+-        else:
+-            result = dialog.exec_()
+-
+         if result:
+             self.recipe_manager.save(self.current_recipe)
+ 
+@@ -582,18 +590,13 @@ class ConfigWindow(QWidget):
+         btn_save.clicked.connect(save)
+         btn_cancel.clicked.connect(dialog.reject)
+ 
+-        configure_dialog(
++        exec_modal_dialog(
+             dialog,
+             self.display_profile,
+             requested=(700, 520),
+             fullscreen=self.platform == "linux",
+         )
+ 
+-        if hasattr(dialog, "exec"):
+-            dialog.exec()
+-        else:
+-            dialog.exec_()
+-
+     def add_step(self):
+         self.ensure_steps()  # ASEGURA QUE EXISTE LA CLAVE "steps" Y ES UNA LISTA
+ 
+@@ -735,18 +738,13 @@ class ConfigWindow(QWidget):
+         cmb_tools.currentIndexChanged.connect(reload_ui)
+ 
+         # MUESTRA LA NUEVA VENTANA DE EDICION DE FORMA BLOQUEANTE
+-        configure_dialog(
++        exec_modal_dialog(
+             dialog,
+             self.display_profile,
+             requested=(700, 520),
+             fullscreen=self.platform == "linux",
+         )
+ 
+-        if hasattr(dialog, "exec"):
+-            dialog.exec()
+-        else:
+-            dialog.exec_()
+-
+     def delete_tool(self):
+         self.ensure_steps()
+         selected = self.ui.cmb_tools.currentIndex()
+@@ -812,15 +810,12 @@ class ConfigWindow(QWidget):
+         dialog.setLabelText("Nombre:")
+         dialog.setStyleSheet(self.styleSheet())
+ 
+-        if self.platform == "linux":
+-            dialog.resize(300, 160)
+-        else:
+-            dialog.resize(360, 180)
+-
+-        if hasattr(dialog, "exec"):
+-            ok = dialog.exec()
+-        else:
+-            ok = dialog.exec_()
++        ok = exec_modal_dialog(
++            dialog,
++            self.display_profile,
++            requested=(360, 180),
++            fullscreen=self.platform == "linux",
++        )
+ 
+         if not ok:
+             return
+diff --git a/ui/focus_config_dialog.py b/ui/focus_config_dialog.py
+index 918baf0..f894235 100644
+--- a/ui/focus_config_dialog.py
++++ b/ui/focus_config_dialog.py
+@@ -1,10 +1,15 @@
+ from utils.qt_compat import (
+     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+-    QLabel, QComboBox, QScrollArea, QWidget, Qt, Signal, Slot, QSizePolicy
++    QLabel, QComboBox, QScrollArea, QSpinBox, QWidget, Qt, Signal, Slot,
++    QSizePolicy
+ )
+ 
+ from core.camera_runtime import format_camera_runtime, manual_focus_preflight
+-from core.focus_modes import FOCUS_MODE_LABELS, focus_mode_label
++from core.focus_modes import (
++    FOCUS_MODE_LABELS,
++    focus_mode_description,
++    focus_mode_label,
++)
+ from ui.widgets.video_widget import VideoWidget
+ from ui.responsive import compact_stylesheet, profile_from_widget
+ from ui.theme import interface_stylesheet
+@@ -71,6 +76,27 @@ class FocusConfigDialog(QDialog):
+             self.cmb_focus_mode.addItem(label, value)
+         self.cmb_focus_mode.setMinimumHeight(34)
+ 
++        self.lbl_mode_help = QLabel()
++        self.lbl_mode_help.setWordWrap(True)
++        self.lbl_mode_help.setProperty("uiRole", "summary")
++
++        self.manual_value_panel = QWidget()
++        manual_value_layout = QHBoxLayout(self.manual_value_panel)
++        manual_value_layout.setContentsMargins(0, 0, 0, 0)
++        manual_value_layout.addWidget(QLabel("Valor focus_absolute"))
++        self.spn_manual_value = QSpinBox()
++        focus_min = int(self.camera_runtime.get("focus_min") or 1)
++        focus_max = int(self.camera_runtime.get("focus_max") or 1023)
++        focus_step = max(1, int(self.camera_runtime.get("focus_step") or 1))
++        self.spn_manual_value.setRange(focus_min, max(focus_min, focus_max))
++        self.spn_manual_value.setSingleStep(focus_step)
++        self.spn_manual_value.setMinimumHeight(self.display_profile.touch_target)
++        self.spn_manual_value.setToolTip(
++            "Valor directo que expone la camara como focus_absolute. "
++            "Se aplicara sin buscar automaticamente otro enfoque."
++        )
++        manual_value_layout.addWidget(self.spn_manual_value, 1)
++
+         self.video = VideoWidget(
+             get_frame_callback=self.get_frame,
+             enable_edition=False,
+@@ -83,7 +109,7 @@ class FocusConfigDialog(QDialog):
+ 
+         self.btn_select_roi = QPushButton("SELECCIONAR ROI")
+         self.btn_clear_roi = QPushButton("FRAME COMPLETO")
+-        self.btn_calibrate = QPushButton("CALIBRAR")
++        self.btn_calibrate = QPushButton("BUSCAR MEJOR ENFOQUE")
+         self.btn_save = QPushButton("GUARDAR")
+         self.btn_cancel = QPushButton("CANCELAR")
+         self.btn_calibrate.setProperty("buttonRole", "primary")
+@@ -122,6 +148,8 @@ class FocusConfigDialog(QDialog):
+         body.addWidget(camera_note)
+         body.addWidget(QLabel("Modo de enfoque"))
+         body.addWidget(self.cmb_focus_mode)
++        body.addWidget(self.lbl_mode_help)
++        body.addWidget(self.manual_value_panel)
+         body.addWidget(self.video)
+         body.addLayout(buttons_top)
+ 
+@@ -137,10 +165,20 @@ class FocusConfigDialog(QDialog):
+         self.cmb_focus_mode.currentIndexChanged.connect(
+             lambda _index: self.on_focus_mode_changed(self.current_focus_mode())
+         )
++        self.spn_manual_value.valueChanged.connect(
++            lambda value: self._show_manual_value(value)
++            if self.current_focus_mode() == "manual_fixed"
++            else None
++        )
+ 
+     def current_focus_mode(self):
+         return str(self.cmb_focus_mode.currentData() or "disabled")
+ 
++    def _show_manual_value(self, value):
++        self.lbl_status.setText(
++            f"Valor fijo seleccionado: {int(value)}. Se aplicara al guardar."
++        )
++
+     def load_focus_config(self):
+         focus = self.recipe.get("focus", {})
+ 
+@@ -157,6 +195,9 @@ class FocusConfigDialog(QDialog):
+         else:
+             roi_text = "ROI actual: frame completo"
+ 
++        if value is not None:
++            self.spn_manual_value.setValue(int(value))
++
+         self.lbl_status.setText(
+             f"Modo: {focus_mode_label(mode)} | {roi_text} | Enfoque: {value} | "
+             f"Puntuacion minima: {min_score}"
+@@ -164,27 +205,34 @@ class FocusConfigDialog(QDialog):
+         self.on_focus_mode_changed(mode)
+ 
+     def on_focus_mode_changed(self, mode):
+-        calibration_enabled = mode in ("calibrated", "manual_fixed")
++        automatic_calibration = mode == "calibrated"
++        fixed_value = mode == "manual_fixed"
+         preflight_ok, preflight_message = manual_focus_preflight(self.camera_runtime)
+         if not self.camera_runtime:
+             preflight_ok = True
+-        self.btn_calibrate.setEnabled(calibration_enabled)
+-        self.btn_select_roi.setEnabled(calibration_enabled)
+-        self.btn_clear_roi.setEnabled(calibration_enabled)
+-
+-        if calibration_enabled and not preflight_ok:
+-            self.btn_calibrate.setEnabled(False)
+-
+-        descriptions = {
+-            "calibrated": "Barrido automatico inicial y foco congelado por receta.",
+-            "manual_fixed": "Usa el valor fijo guardado; CALIBRAR permite obtenerlo.",
+-            "auto_continuous": "La camara ajusta el foco continuamente.",
+-            "disabled": "La aplicacion no administra el enfoque.",
+-        }
+-        description = descriptions.get(mode, "Modo de enfoque no reconocido")
+-        if calibration_enabled and not preflight_ok:
+-            description = f"{description}\nNo disponible: {preflight_message}"
+-        self.lbl_status.setText(description)
++        self.btn_calibrate.setVisible(automatic_calibration)
++        self.btn_calibrate.setEnabled(automatic_calibration and preflight_ok)
++        self.btn_select_roi.setEnabled(automatic_calibration)
++        self.btn_clear_roi.setEnabled(automatic_calibration)
++        self.manual_value_panel.setVisible(fixed_value)
++
++        description = focus_mode_description(mode)
++        if mode in ("calibrated", "manual_fixed") and not preflight_ok:
++            description = f"{description}\nHardware no disponible ahora: {preflight_message}"
++        self.lbl_mode_help.setText(description)
++        focus = self.recipe.get("focus", {})
++        if mode == "manual_fixed":
++            self._show_manual_value(self.spn_manual_value.value())
++        elif mode == "calibrated":
++            self.lbl_status.setText(
++                "Calibracion guardada: focus_absolute="
++                f"{focus.get('value')} | mediana={focus.get('median_score')} | "
++                f"umbral={focus.get('min_score')}"
++            )
++        elif mode == "auto_continuous":
++            self.lbl_status.setText("La camara controlara el enfoque continuamente.")
++        else:
++            self.lbl_status.setText("El motor no modificara el enfoque.")
+ 
+     def enable_roi_selection(self):
+         self.video.enable_edition = True
+@@ -196,8 +244,10 @@ class FocusConfigDialog(QDialog):
+ 
+     def request_calibration(self):
+         mode = self.current_focus_mode()
+-        if mode not in ("calibrated", "manual_fixed"):
+-            self.lbl_status.setText("Este modo no requiere calibracion manual.")
++        if mode != "calibrated":
++            self.lbl_status.setText(
++                "La busqueda automatica solo corresponde al modo automatico por receta."
++            )
+             return
+ 
+         if self.camera_runtime:
+@@ -267,7 +317,7 @@ class FocusConfigDialog(QDialog):
+         roi = self.video.get_roi()
+         mode = self.current_focus_mode()
+ 
+-        if self.focus_result and mode in ("calibrated", "manual_fixed"):
++        if self.focus_result and mode == "calibrated":
+             self.recipe["focus"] = {
+                 "mode": mode,
+                 "enabled": True,
+@@ -280,6 +330,19 @@ class FocusConfigDialog(QDialog):
+                 "auto_refocus_if_failed": True,
+             }
+ 
++        elif mode == "manual_fixed":
++            self.recipe["focus"] = {
++                "mode": mode,
++                "enabled": True,
++                "roi": None,
++                "value": int(self.spn_manual_value.value()),
++                "min_score": None,
++                "median_score": None,
++                "peak_score": None,
++                "verify_on_first_trigger": False,
++                "auto_refocus_if_failed": False,
++            }
++
+         else:
+             self.recipe["focus"]["mode"] = mode
+             self.recipe["focus"]["enabled"] = mode != "disabled"
+diff --git a/ui/responsive.py b/ui/responsive.py
+index 7cd4a95..ec6f506 100644
+--- a/ui/responsive.py
++++ b/ui/responsive.py
+@@ -3,7 +3,7 @@ from core.display_profile import (
+     preferred_dialog_size,
+     preferred_window_size,
+ )
+-from utils.qt_compat import QSizePolicy
++from utils.qt_compat import QSizePolicy, Qt, QTimer
+ 
+ 
+ WIDGET_SIZE_MAX = 16777215
+@@ -145,7 +145,8 @@ def apply_config_window_layout(window, ui, profile):
+         ui.btn_out,
+     ):
+         _unlock(button, (0, profile.touch_target))
+-        button.setMaximumHeight(WIDGET_SIZE_MAX)
++        button.setMaximumHeight(profile.touch_target + 8)
++        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+ 
+     ui.top_bar.setMinimumHeight(profile.top_bar_height)
+     ui.top_bar.setMaximumHeight(profile.top_bar_height)
+@@ -165,17 +166,45 @@ def apply_config_window_layout(window, ui, profile):
+ 
+ 
+ def configure_dialog(dialog, profile, requested=(800, 600), fullscreen=False):
+-    """Fit modal editors to the detected screen; caller chooses exec()."""
++    """Fit one editor and make it modal before its nested event loop starts."""
+     dialog.setMinimumSize(0, 0)
+     dialog.setMaximumSize(profile.width, profile.height)
+     width, height = preferred_dialog_size(profile, *requested)
+     dialog.resize(width, height)
+     dialog.setProperty("displayMode", profile.mode)
+-    if profile.compact or fullscreen:
+-        dialog.showFullScreen()
++    if hasattr(dialog, "setModal"):
++        dialog.setModal(True)
++    if hasattr(dialog, "setWindowModality"):
++        dialog.setWindowModality(Qt.ApplicationModal)
++    dialog.setProperty("fullScreenEditor", bool(profile.compact or fullscreen))
+     return profile
+ 
+ 
++def exec_modal_dialog(
++    dialog,
++    profile,
++    requested=(800, 600),
++    fullscreen=False,
++):
++    """Execute a modal editor and enter fullscreen after exec owns the loop.
++
++    PyQt5 on Raspberry can discard a showFullScreen() issued before exec().
++    Scheduling it at the start of the nested loop keeps the complete screen
++    covered and prevents interaction with the configuration window below.
++    """
++    configure_dialog(
++        dialog,
++        profile,
++        requested=requested,
++        fullscreen=fullscreen,
++    )
++    if profile.compact or fullscreen:
++        QTimer.singleShot(0, dialog.showFullScreen)
++    if hasattr(dialog, "exec"):
++        return dialog.exec()
++    return dialog.exec_()
++
++
+ def compact_stylesheet(profile):
+     return f"""
+         QWidget[displayMode=\"compact\"] {{
+diff --git a/ui/theme.py b/ui/theme.py
+index 7fc7966..48beeab 100644
+--- a/ui/theme.py
++++ b/ui/theme.py
+@@ -215,6 +215,18 @@ def interface_stylesheet(profile):
+             color: rgb(245, 247, 250);
+             background-color: rgb(7, 17, 31);
+         }}
++        QMessageBox QLabel, QInputDialog QLabel {{
++            color: rgb(245, 247, 250);
++            background-color: transparent;
++            min-width: {max(220, round(280 * scale))}px;
++        }}
++        QMessageBox QPushButton, QInputDialog QPushButton {{
++            color: rgb(235, 241, 248);
++            background-color: rgb(17, 32, 51);
++            border: 1px solid rgb(58, 82, 108);
++            min-width: {max(76, round(92 * scale))}px;
++            min-height: {field_height}px;
++        }}
+     """
+ 
+ 
+diff --git a/vision/camera_worker.py b/vision/camera_worker.py
+index 577352e..c497098 100644
+--- a/vision/camera_worker.py
++++ b/vision/camera_worker.py
+@@ -88,6 +88,8 @@ class CameraWorker(QObject):
+         self.platform = platform
+ 
+         self.v4l2_available = False
++        self.v4l2_tool_available = False
++        self.v4l2_error = None
+         self.v4l2_controls = set()
+         self.autofocus_supported = False
+         self.focus_absolute_supported = False
+@@ -167,6 +169,8 @@ class CameraWorker(QObject):
+             "actual_height": active.get("actual_height"),
+             "actual_fps": active.get("actual_fps"),
+             "v4l2_available": bool(self.v4l2_available),
++            "v4l2_tool_available": bool(self.v4l2_tool_available),
++            "v4l2_error": self.v4l2_error,
+             "autofocus_supported": bool(self.autofocus_supported),
+             "focus_absolute_supported": bool(self.focus_absolute_supported),
+             "focus_min": self.focus_min,
+@@ -351,6 +355,8 @@ class CameraWorker(QObject):
+     def detect_v4l2_controls(self):
+         # INTENTA BUSCAR LOS CONTROLES PARA LA CAMARA SI EL SISTEMA ES LINUX (PRODUCCION)
+         self.v4l2_available = False
++        self.v4l2_tool_available = False
++        self.v4l2_error = None
+         self.v4l2_controls = set()
+         self.autofocus_supported = False
+         self.focus_absolute_supported = False
+@@ -360,8 +366,16 @@ class CameraWorker(QObject):
+             print("[CAMERA] Plataforma Windows/otra: v4l2 no aplica")
+             return
+ 
+-        if shutil.which("v4l2-ctl") is None:
+-            print("[CAMERA] v4l2-ctl no esta instalado. Se omitira calibracion avanzada.")
++        v4l2_tool = shutil.which("v4l2-ctl")
++        self.v4l2_tool_available = v4l2_tool is not None
++        if not self.v4l2_tool_available:
++            self.v4l2_error = (
++                "Falta v4l2-ctl; instala el paquete v4l-utils y reinicia"
++            )
++            print(
++                "[CAMERA][WARNING] v4l2-ctl no esta instalado. "
++                "No es el driver: instala 'sudo apt install v4l-utils'."
++            )
+             return
+ 
+         if not isinstance(self.device, str) or not self.device.startswith("/dev/video"):
+@@ -381,7 +395,14 @@ class CameraWorker(QObject):
+             output = (result.stdout or "") + "\n" + (result.stderr or "")
+ 
+             if result.returncode != 0:
+-                print(f"[CAMERA] No se pudieron extraer los controles v4l2: {output.strip()}")
++                self.v4l2_error = (
++                    output.strip()
++                    or f"v4l2-ctl termino con codigo {result.returncode}"
++                )
++                print(
++                    "[CAMERA] No se pudieron extraer los controles v4l2: "
++                    f"{self.v4l2_error}"
++                )
+                 return
+ 
+             # SEPARA LA RESPUESTA EN LINEAS PARA OBTENER LOS CONTROLES DESEADOS
+@@ -397,6 +418,10 @@ class CameraWorker(QObject):
+                     self.v4l2_controls.add(match.group(1))
+ 
+             self.v4l2_available = len(self.v4l2_controls) > 0
++            if not self.v4l2_available:
++                self.v4l2_error = (
++                    "La camara no publico controles V4L2 en este endpoint"
++                )
+ 
+             self.autofocus_supported = "focus_automatic_continuous" in self.v4l2_controls
+             self.focus_absolute_supported = "focus_absolute" in self.v4l2_controls
+@@ -417,6 +442,7 @@ class CameraWorker(QObject):
+             )
+ 
+         except Exception as e:
++            self.v4l2_error = str(e)
+             print(f"[CAMERA][ERROR] Error detectando controles: {e}")
+ 
+     def has_v4l2_control(self, control_name):
+@@ -1254,6 +1280,14 @@ class CameraWorker(QObject):
+             else:
+                 self.set_focus_status(busy=False, ready=False, reason="Focus Windows no pudo aplicarse desde receta")
+ 
++        elif self.is_linux() and has_focus_value:
++            self.locked_focus_value = None
++            self.set_focus_status(
++                busy=False,
++                ready=False,
++                reason="La camara Linux no permite aplicar focus_absolute",
++            )
++
+         elif has_focus_value:
+             self.locked_focus_value = self.focus_value
+             self.set_focus_status(busy=False, ready=True, reason="Focus cargado desde receta")
+@@ -1343,10 +1377,23 @@ class CameraWorker(QObject):
+             return
+ 
+         if not self.focus_absolute_supported:
+-            self.manual_focus_failed.emit(
+-                f"La camara activa {self.device} no expone focus_absolute. "
+-                "Verifica el dispositivo configurado y los controles con v4l2-ctl."
+-            )
++            if not self.v4l2_tool_available:
++                message = (
++                    "Falta v4l2-ctl. Instala v4l-utils con "
++                    "'sudo apt install v4l-utils' y reinicia la aplicacion."
++                )
++            elif not self.v4l2_available:
++                message = (
++                    "v4l2-ctl no pudo leer los controles de la camara activa "
++                    f"{self.device}: {self.v4l2_error or 'sin detalle'}"
++                )
++            else:
++                message = (
++                    f"La camara activa {self.device} no expone "
++                    "focus_absolute. El endpoint o la camara no permiten "
++                    "enfoque manual."
++                )
++            self.manual_focus_failed.emit(message)
+             return
+ 
+         try:
+@@ -1474,6 +1521,17 @@ class CameraWorker(QObject):
+                         "min_score": required_score,
+                     })
+                     return
++                if not focus_config.get("auto_refocus_if_failed", True):
++                    self.set_focus_status(
++                        busy=False,
++                        ready=False,
++                        reason="Foco guardado fuera de umbral",
++                    )
++                    self.focus_check_failed.emit(
++                        "El enfoque guardado no alcanzo el umbral y el "
++                        "reenfoque automatico esta deshabilitado."
++                    )
++                    return
+                 print("[CAMERA][WARNING] Score bajo. Recalibrando enfoque manual...")
+ 
+             else:
+-- 
+2.51.1
+

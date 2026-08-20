@@ -1,13 +1,19 @@
+"""
+Determina el backend Qt a utilizar y proporciona funciones de compatibilidad para cargar interfaces de usuario.
+"""
 import os
 
 from utils.qt_backend import normalize_qt_request
 
-
+#Constante Global para almacenar la libreria Qt seleccionada
 QT_LIB = None
 
 
 def _requested_backend():
-    """Return the requested Qt binding without coupling it to the OS name."""
+    """
+    Return the requested Qt binding without coupling it to the OS name.
+    Regresa el binding Qt solicitado sin acoplarlo al nombre del sistema operativo.
+    """
     value = os.getenv("VISION_QT_API", "auto")
     try:
         return normalize_qt_request(value)
