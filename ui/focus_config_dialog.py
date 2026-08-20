@@ -1,10 +1,15 @@
 from utils.qt_compat import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QComboBox, QScrollArea, QWidget, Qt, Signal, Slot, QSizePolicy
+    QLabel, QComboBox, QScrollArea, QSpinBox, QWidget, Qt, Signal, Slot,
+    QSizePolicy
 )
 
 from core.camera_runtime import format_camera_runtime, manual_focus_preflight
-from core.focus_modes import FOCUS_MODE_LABELS, focus_mode_label
+from core.focus_modes import (
+    FOCUS_MODE_LABELS,
+    focus_mode_description,
+    focus_mode_label,
+)
 from ui.widgets.video_widget import VideoWidget
 from ui.responsive import compact_stylesheet, profile_from_widget
 from ui.theme import interface_stylesheet
@@ -71,6 +76,27 @@ class FocusConfigDialog(QDialog):
             self.cmb_focus_mode.addItem(label, value)
         self.cmb_focus_mode.setMinimumHeight(34)
 
+        self.lbl_mode_help = QLabel()
+        self.lbl_mode_help.setWordWrap(True)
+        self.lbl_mode_help.setProperty("uiRole", "summary")
+
+        self.manual_value_panel = QWidget()
+        manual_value_layout = QHBoxLayout(self.manual_value_panel)
+        manual_value_layout.setContentsMargins(0, 0, 0, 0)
+        manual_value_layout.addWidget(QLabel("Valor focus_absolute"))
+        self.spn_manual_value = QSpinBox()
+        focus_min = int(self.camera_runtime.get("focus_min") or 1)
+        focus_max = int(self.camera_runtime.get("focus_max") or 1023)
+        focus_step = max(1, int(self.camera_runtime.get("focus_step") or 1))
+        self.spn_manual_value.setRange(focus_min, max(focus_min, focus_max))
+        self.spn_manual_value.setSingleStep(focus_step)
+        self.spn_manual_value.setMinimumHeight(self.display_profile.touch_target)
+        self.spn_manual_value.setToolTip(
+            "Valor directo que expone la camara como focus_absolute. "
+            "Se aplicara sin buscar automaticamente otro enfoque."
+        )
+        manual_value_layout.addWidget(self.spn_manual_value, 1)
+
         self.video = VideoWidget(
             get_frame_callback=self.get_frame,
             enable_edition=False,
@@ -83,7 +109,7 @@ class FocusConfigDialog(QDialog):
 
         self.btn_select_roi = QPushButton("SELECCIONAR ROI")
         self.btn_clear_roi = QPushButton("FRAME COMPLETO")
-        self.btn_calibrate = QPushButton("CALIBRAR")
+        self.btn_calibrate = QPushButton("BUSCAR MEJOR ENFOQUE")
         self.btn_save = QPushButton("GUARDAR")
         self.btn_cancel = QPushButton("CANCELAR")
         self.btn_calibrate.setProperty("buttonRole", "primary")
@@ -122,6 +148,8 @@ class FocusConfigDialog(QDialog):
         body.addWidget(camera_note)
         body.addWidget(QLabel("Modo de enfoque"))
         body.addWidget(self.cmb_focus_mode)
+        body.addWidget(self.lbl_mode_help)
+        body.addWidget(self.manual_value_panel)
         body.addWidget(self.video)
         body.addLayout(buttons_top)
 
@@ -137,9 +165,19 @@ class FocusConfigDialog(QDialog):
         self.cmb_focus_mode.currentIndexChanged.connect(
             lambda _index: self.on_focus_mode_changed(self.current_focus_mode())
         )
+        self.spn_manual_value.valueChanged.connect(
+            lambda value: self._show_manual_value(value)
+            if self.current_focus_mode() == "manual_fixed"
+            else None
+        )
 
     def current_focus_mode(self):
         return str(self.cmb_focus_mode.currentData() or "disabled")
+
+    def _show_manual_value(self, value):
+        self.lbl_status.setText(
+            f"Valor fijo seleccionado: {int(value)}. Se aplicara al guardar."
+        )
 
     def load_focus_config(self):
         focus = self.recipe.get("focus", {})
@@ -157,6 +195,9 @@ class FocusConfigDialog(QDialog):
         else:
             roi_text = "ROI actual: frame completo"
 
+        if value is not None:
+            self.spn_manual_value.setValue(int(value))
+
         self.lbl_status.setText(
             f"Modo: {focus_mode_label(mode)} | {roi_text} | Enfoque: {value} | "
             f"Puntuacion minima: {min_score}"
@@ -164,27 +205,34 @@ class FocusConfigDialog(QDialog):
         self.on_focus_mode_changed(mode)
 
     def on_focus_mode_changed(self, mode):
-        calibration_enabled = mode in ("calibrated", "manual_fixed")
+        automatic_calibration = mode == "calibrated"
+        fixed_value = mode == "manual_fixed"
         preflight_ok, preflight_message = manual_focus_preflight(self.camera_runtime)
         if not self.camera_runtime:
             preflight_ok = True
-        self.btn_calibrate.setEnabled(calibration_enabled)
-        self.btn_select_roi.setEnabled(calibration_enabled)
-        self.btn_clear_roi.setEnabled(calibration_enabled)
+        self.btn_calibrate.setVisible(automatic_calibration)
+        self.btn_calibrate.setEnabled(automatic_calibration and preflight_ok)
+        self.btn_select_roi.setEnabled(automatic_calibration)
+        self.btn_clear_roi.setEnabled(automatic_calibration)
+        self.manual_value_panel.setVisible(fixed_value)
 
-        if calibration_enabled and not preflight_ok:
-            self.btn_calibrate.setEnabled(False)
-
-        descriptions = {
-            "calibrated": "Barrido automatico inicial y foco congelado por receta.",
-            "manual_fixed": "Usa el valor fijo guardado; CALIBRAR permite obtenerlo.",
-            "auto_continuous": "La camara ajusta el foco continuamente.",
-            "disabled": "La aplicacion no administra el enfoque.",
-        }
-        description = descriptions.get(mode, "Modo de enfoque no reconocido")
-        if calibration_enabled and not preflight_ok:
-            description = f"{description}\nNo disponible: {preflight_message}"
-        self.lbl_status.setText(description)
+        description = focus_mode_description(mode)
+        if mode in ("calibrated", "manual_fixed") and not preflight_ok:
+            description = f"{description}\nHardware no disponible ahora: {preflight_message}"
+        self.lbl_mode_help.setText(description)
+        focus = self.recipe.get("focus", {})
+        if mode == "manual_fixed":
+            self._show_manual_value(self.spn_manual_value.value())
+        elif mode == "calibrated":
+            self.lbl_status.setText(
+                "Calibracion guardada: focus_absolute="
+                f"{focus.get('value')} | mediana={focus.get('median_score')} | "
+                f"umbral={focus.get('min_score')}"
+            )
+        elif mode == "auto_continuous":
+            self.lbl_status.setText("La camara controlara el enfoque continuamente.")
+        else:
+            self.lbl_status.setText("El motor no modificara el enfoque.")
 
     def enable_roi_selection(self):
         self.video.enable_edition = True
@@ -196,8 +244,10 @@ class FocusConfigDialog(QDialog):
 
     def request_calibration(self):
         mode = self.current_focus_mode()
-        if mode not in ("calibrated", "manual_fixed"):
-            self.lbl_status.setText("Este modo no requiere calibracion manual.")
+        if mode != "calibrated":
+            self.lbl_status.setText(
+                "La busqueda automatica solo corresponde al modo automatico por receta."
+            )
             return
 
         if self.camera_runtime:
@@ -267,7 +317,7 @@ class FocusConfigDialog(QDialog):
         roi = self.video.get_roi()
         mode = self.current_focus_mode()
 
-        if self.focus_result and mode in ("calibrated", "manual_fixed"):
+        if self.focus_result and mode == "calibrated":
             self.recipe["focus"] = {
                 "mode": mode,
                 "enabled": True,
@@ -278,6 +328,19 @@ class FocusConfigDialog(QDialog):
                 "peak_score": self.focus_result.get("peak_score"),
                 "verify_on_first_trigger": True,
                 "auto_refocus_if_failed": True,
+            }
+
+        elif mode == "manual_fixed":
+            self.recipe["focus"] = {
+                "mode": mode,
+                "enabled": True,
+                "roi": None,
+                "value": int(self.spn_manual_value.value()),
+                "min_score": None,
+                "median_score": None,
+                "peak_score": None,
+                "verify_on_first_trigger": False,
+                "auto_refocus_if_failed": False,
             }
 
         else:

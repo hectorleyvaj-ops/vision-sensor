@@ -3,7 +3,7 @@ from core.display_profile import (
     preferred_dialog_size,
     preferred_window_size,
 )
-from utils.qt_compat import QSizePolicy
+from utils.qt_compat import QSizePolicy, Qt, QTimer
 
 
 WIDGET_SIZE_MAX = 16777215
@@ -145,7 +145,8 @@ def apply_config_window_layout(window, ui, profile):
         ui.btn_out,
     ):
         _unlock(button, (0, profile.touch_target))
-        button.setMaximumHeight(WIDGET_SIZE_MAX)
+        button.setMaximumHeight(profile.touch_target + 8)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
     ui.top_bar.setMinimumHeight(profile.top_bar_height)
     ui.top_bar.setMaximumHeight(profile.top_bar_height)
@@ -165,15 +166,43 @@ def apply_config_window_layout(window, ui, profile):
 
 
 def configure_dialog(dialog, profile, requested=(800, 600), fullscreen=False):
-    """Fit modal editors to the detected screen; caller chooses exec()."""
+    """Fit one editor and make it modal before its nested event loop starts."""
     dialog.setMinimumSize(0, 0)
     dialog.setMaximumSize(profile.width, profile.height)
     width, height = preferred_dialog_size(profile, *requested)
     dialog.resize(width, height)
     dialog.setProperty("displayMode", profile.mode)
-    if profile.compact or fullscreen:
-        dialog.showFullScreen()
+    if hasattr(dialog, "setModal"):
+        dialog.setModal(True)
+    if hasattr(dialog, "setWindowModality"):
+        dialog.setWindowModality(Qt.ApplicationModal)
+    dialog.setProperty("fullScreenEditor", bool(profile.compact or fullscreen))
     return profile
+
+
+def exec_modal_dialog(
+    dialog,
+    profile,
+    requested=(800, 600),
+    fullscreen=False,
+):
+    """Execute a modal editor and enter fullscreen after exec owns the loop.
+
+    PyQt5 on Raspberry can discard a showFullScreen() issued before exec().
+    Scheduling it at the start of the nested loop keeps the complete screen
+    covered and prevents interaction with the configuration window below.
+    """
+    configure_dialog(
+        dialog,
+        profile,
+        requested=requested,
+        fullscreen=fullscreen,
+    )
+    if profile.compact or fullscreen:
+        QTimer.singleShot(0, dialog.showFullScreen)
+    if hasattr(dialog, "exec"):
+        return dialog.exec()
+    return dialog.exec_()
 
 
 def compact_stylesheet(profile):

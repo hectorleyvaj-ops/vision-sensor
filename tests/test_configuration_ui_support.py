@@ -33,6 +33,18 @@ class ConfigurationUiSupportTests(unittest.TestCase):
         })
         self.assertTrue(ok)
 
+    def test_missing_v4l2_tool_is_not_reported_as_a_driver_failure(self):
+        ok, message = manual_focus_preflight({
+            "platform": "linux",
+            "camera_open": True,
+            "resolved_device": "/dev/video0",
+            "v4l2_tool_available": False,
+            "v4l2_available": False,
+        })
+        self.assertFalse(ok)
+        self.assertIn("v4l-utils", message)
+        self.assertIn("No es el driver", message)
+
     def test_focus_control_readback_must_match_requested_value(self):
         self.assertTrue(control_value_matches(320, 320))
         self.assertFalse(control_value_matches(320, 319))
@@ -68,6 +80,8 @@ class ConfigurationUiSupportTests(unittest.TestCase):
             "QComboBox QAbstractItemView",
             "QScrollBar:vertical",
             "QMessageBox",
+            "QMessageBox QLabel",
+            "QMessageBox QPushButton",
         ):
             self.assertIn(selector, stylesheet)
 

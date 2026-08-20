@@ -215,6 +215,18 @@ def interface_stylesheet(profile):
             color: rgb(245, 247, 250);
             background-color: rgb(7, 17, 31);
         }}
+        QMessageBox QLabel, QInputDialog QLabel {{
+            color: rgb(245, 247, 250);
+            background-color: transparent;
+            min-width: {max(220, round(280 * scale))}px;
+        }}
+        QMessageBox QPushButton, QInputDialog QPushButton {{
+            color: rgb(235, 241, 248);
+            background-color: rgb(17, 32, 51);
+            border: 1px solid rgb(58, 82, 108);
+            min-width: {max(76, round(92 * scale))}px;
+            min-height: {field_height}px;
+        }}
     """
 
 

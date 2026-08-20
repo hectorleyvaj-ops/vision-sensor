@@ -1,9 +1,12 @@
 import sys
 from app.app import MainWindow
+from core.display_profile import build_display_profile
+from ui.theme import interface_stylesheet
 from utils.qt_compat import QApplication, QMessageBox
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setStyleSheet(interface_stylesheet(build_display_profile(800, 480)))
     
     try:
         window = MainWindow()

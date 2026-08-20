@@ -9,6 +9,7 @@ from utils.qt_compat import (
     QImage,
     QPixmap,
     QMainWindow,
+    QApplication,
     QMetaObject,
     Qt,
     QTimer,
@@ -48,6 +49,7 @@ class MainWindow(QMainWindow):
 
         self.ui = Ui_MainWindow()
         self.ui.setupUi(self)
+        self.setWindowTitle("Sistema de vision")
         self.display_profile = profile_from_widget(self)
         apply_main_window_layout(self, self.ui, self.display_profile)
         self.installation_name = "Motor de vision"
@@ -268,11 +270,15 @@ class MainWindow(QMainWindow):
         self._apply_interface_theme()
 
     def _apply_interface_theme(self):
-        self.setStyleSheet(
+        stylesheet = (
             interface_stylesheet(self.display_profile)
             + operator_stylesheet(self.display_profile)
             + compact_stylesheet(self.display_profile)
         )
+        application = QApplication.instance()
+        if application is not None:
+            application.setStyleSheet(stylesheet)
+        self.setStyleSheet(stylesheet)
 
     @staticmethod
     def _refresh_widget_style(widget):
@@ -342,7 +348,6 @@ class MainWindow(QMainWindow):
             self.add_button_feedback(btn)
 
     def add_button_feedback(self, button):
-        button.setStyleSheet("")
         button.setCursor(Qt.PointingHandCursor)
 
     def setup_camera(self):

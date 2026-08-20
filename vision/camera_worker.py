@@ -88,6 +88,8 @@ class CameraWorker(QObject):
         self.platform = platform
 
         self.v4l2_available = False
+        self.v4l2_tool_available = False
+        self.v4l2_error = None
         self.v4l2_controls = set()
         self.autofocus_supported = False
         self.focus_absolute_supported = False
@@ -167,6 +169,8 @@ class CameraWorker(QObject):
             "actual_height": active.get("actual_height"),
             "actual_fps": active.get("actual_fps"),
             "v4l2_available": bool(self.v4l2_available),
+            "v4l2_tool_available": bool(self.v4l2_tool_available),
+            "v4l2_error": self.v4l2_error,
             "autofocus_supported": bool(self.autofocus_supported),
             "focus_absolute_supported": bool(self.focus_absolute_supported),
             "focus_min": self.focus_min,
@@ -351,6 +355,8 @@ class CameraWorker(QObject):
     def detect_v4l2_controls(self):
         # INTENTA BUSCAR LOS CONTROLES PARA LA CAMARA SI EL SISTEMA ES LINUX (PRODUCCION)
         self.v4l2_available = False
+        self.v4l2_tool_available = False
+        self.v4l2_error = None
         self.v4l2_controls = set()
         self.autofocus_supported = False
         self.focus_absolute_supported = False
@@ -360,8 +366,16 @@ class CameraWorker(QObject):
             print("[CAMERA] Plataforma Windows/otra: v4l2 no aplica")
             return
 
-        if shutil.which("v4l2-ctl") is None:
-            print("[CAMERA] v4l2-ctl no esta instalado. Se omitira calibracion avanzada.")
+        v4l2_tool = shutil.which("v4l2-ctl")
+        self.v4l2_tool_available = v4l2_tool is not None
+        if not self.v4l2_tool_available:
+            self.v4l2_error = (
+                "Falta v4l2-ctl; instala el paquete v4l-utils y reinicia"
+            )
+            print(
+                "[CAMERA][WARNING] v4l2-ctl no esta instalado. "
+                "No es el driver: instala 'sudo apt install v4l-utils'."
+            )
             return
 
         if not isinstance(self.device, str) or not self.device.startswith("/dev/video"):
@@ -381,7 +395,14 @@ class CameraWorker(QObject):
             output = (result.stdout or "") + "\n" + (result.stderr or "")
 
             if result.returncode != 0:
-                print(f"[CAMERA] No se pudieron extraer los controles v4l2: {output.strip()}")
+                self.v4l2_error = (
+                    output.strip()
+                    or f"v4l2-ctl termino con codigo {result.returncode}"
+                )
+                print(
+                    "[CAMERA] No se pudieron extraer los controles v4l2: "
+                    f"{self.v4l2_error}"
+                )
                 return
 
             # SEPARA LA RESPUESTA EN LINEAS PARA OBTENER LOS CONTROLES DESEADOS
@@ -397,6 +418,10 @@ class CameraWorker(QObject):
                     self.v4l2_controls.add(match.group(1))
 
             self.v4l2_available = len(self.v4l2_controls) > 0
+            if not self.v4l2_available:
+                self.v4l2_error = (
+                    "La camara no publico controles V4L2 en este endpoint"
+                )
 
             self.autofocus_supported = "focus_automatic_continuous" in self.v4l2_controls
             self.focus_absolute_supported = "focus_absolute" in self.v4l2_controls
@@ -417,6 +442,7 @@ class CameraWorker(QObject):
             )
 
         except Exception as e:
+            self.v4l2_error = str(e)
             print(f"[CAMERA][ERROR] Error detectando controles: {e}")
 
     def has_v4l2_control(self, control_name):
@@ -1254,6 +1280,14 @@ class CameraWorker(QObject):
             else:
                 self.set_focus_status(busy=False, ready=False, reason="Focus Windows no pudo aplicarse desde receta")
 
+        elif self.is_linux() and has_focus_value:
+            self.locked_focus_value = None
+            self.set_focus_status(
+                busy=False,
+                ready=False,
+                reason="La camara Linux no permite aplicar focus_absolute",
+            )
+
         elif has_focus_value:
             self.locked_focus_value = self.focus_value
             self.set_focus_status(busy=False, ready=True, reason="Focus cargado desde receta")
@@ -1343,10 +1377,23 @@ class CameraWorker(QObject):
             return
 
         if not self.focus_absolute_supported:
-            self.manual_focus_failed.emit(
-                f"La camara activa {self.device} no expone focus_absolute. "
-                "Verifica el dispositivo configurado y los controles con v4l2-ctl."
-            )
+            if not self.v4l2_tool_available:
+                message = (
+                    "Falta v4l2-ctl. Instala v4l-utils con "
+                    "'sudo apt install v4l-utils' y reinicia la aplicacion."
+                )
+            elif not self.v4l2_available:
+                message = (
+                    "v4l2-ctl no pudo leer los controles de la camara activa "
+                    f"{self.device}: {self.v4l2_error or 'sin detalle'}"
+                )
+            else:
+                message = (
+                    f"La camara activa {self.device} no expone "
+                    "focus_absolute. El endpoint o la camara no permiten "
+                    "enfoque manual."
+                )
+            self.manual_focus_failed.emit(message)
             return
 
         try:
@@ -1473,6 +1520,17 @@ class CameraWorker(QObject):
                         "peak_score": peak_score,
                         "min_score": required_score,
                     })
+                    return
+                if not focus_config.get("auto_refocus_if_failed", True):
+                    self.set_focus_status(
+                        busy=False,
+                        ready=False,
+                        reason="Foco guardado fuera de umbral",
+                    )
+                    self.focus_check_failed.emit(
+                        "El enfoque guardado no alcanzo el umbral y el "
+                        "reenfoque automatico esta deshabilitado."
+                    )
                     return
                 print("[CAMERA][WARNING] Score bajo. Recalibrando enfoque manual...")
 

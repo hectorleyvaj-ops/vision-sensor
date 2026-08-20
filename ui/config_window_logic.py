@@ -1,8 +1,8 @@
 import copy
 from utils.qt_compat import (
-    QT_LIB, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
-    QComboBox, QInputDialog, QTimer, Signal, Qt, QScrollArea, QMessageBox,
-    QLabel,
+    QT_LIB, QApplication, QWidget, QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
+    QComboBox, QInputDialog, Signal, Qt, QScrollArea, QMessageBox,
+    QLabel, QSizePolicy,
 )
 from core.editor_models import EditorValueError
 from core.resource_archive import archive_resource_path as archive_path
@@ -20,7 +20,7 @@ from ui.system_config_dialog import SystemConfigDialog
 from ui.responsive import (
     apply_config_window_layout,
     compact_stylesheet,
-    configure_dialog,
+    exec_modal_dialog,
     profile_from_widget,
 )
 from ui.theme import interface_stylesheet
@@ -46,6 +46,7 @@ class ConfigWindow(QWidget):
 
         self.ui = Ui_Form()
         self.ui.setupUi(self)
+        self.setWindowTitle("Configuracion del motor de vision")
         self.display_profile = display_profile or profile_from_widget(self)
         self._build_universal_controls()
         apply_config_window_layout(self, self.ui, self.display_profile)
@@ -102,14 +103,25 @@ class ConfigWindow(QWidget):
         self.ui.bttm_layout.setSpacing(6)
         self.ui.bttm_layout.insertWidget(1, self.btn_installation_config)
         self.ui.bttm_layout.insertWidget(2, self.btn_recipe_config)
-        max_width = 92 if self.display_profile.compact else 105
-        for button in (
-            self.btn_installation_config,
-            self.btn_recipe_config,
-            self.ui.btn_save,
-            self.ui.btn_out,
+        widths = (
+            (104, 132, 96, 96)
+            if self.display_profile.compact
+            else (120, 150, 120, 120)
+        )
+        for button, minimum_width in zip(
+            (
+                self.btn_installation_config,
+                self.btn_recipe_config,
+                self.ui.btn_save,
+                self.ui.btn_out,
+            ),
+            widths,
         ):
-            button.setMaximumWidth(max_width)
+            button.setMinimumWidth(minimum_width)
+            button.setMaximumWidth(180)
+            button.setMinimumHeight(self.display_profile.touch_target)
+            button.setMaximumHeight(self.display_profile.touch_target + 8)
+            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self.ui.btn_select_r.setProperty("buttonRole", "primary")
         self.ui.btn_save.setProperty("buttonRole", "primary")
@@ -144,13 +156,22 @@ class ConfigWindow(QWidget):
             self.ui.btn_out,
         ):
             widget.setStyleSheet("")
-        self.setStyleSheet(
+        stylesheet = (
             interface_stylesheet(self.display_profile)
             + compact_stylesheet(self.display_profile)
         )
+        application = QApplication.instance()
+        if application is not None:
+            application.setStyleSheet(stylesheet)
+        self.setStyleSheet(stylesheet)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        for widget in self.findChildren(QWidget):
+            style = widget.style()
+            style.unpolish(widget)
+            style.polish(widget)
+            widget.update()
 
     def add_button_feedback(self, button):
-        button.setStyleSheet("")
         button.setCursor(Qt.PointingHandCursor)
 
     def apply_button_feedbakcs(self):
@@ -271,16 +292,12 @@ class ConfigWindow(QWidget):
             controller_runtime=controller_runtime,
         )
         dialog.configuration_saved.connect(self.restart_required.emit)
-        configure_dialog(
+        exec_modal_dialog(
             dialog,
             self.display_profile,
             requested=(800, 600),
             fullscreen=self.platform == "linux",
         )
-        if hasattr(dialog, "exec"):
-            dialog.exec()
-        else:
-            dialog.exec_()
 
     def open_recipe_settings(self):
         if not self.current_recipe:
@@ -299,16 +316,12 @@ class ConfigWindow(QWidget):
             display_profile=self.display_profile,
         )
         dialog.recipe_saved.connect(self.on_recipe_settings_saved)
-        configure_dialog(
+        exec_modal_dialog(
             dialog,
             self.display_profile,
             requested=(520, 320),
             fullscreen=self.platform == "linux",
         )
-        if hasattr(dialog, "exec"):
-            dialog.exec()
-        else:
-            dialog.exec_()
 
     def on_recipe_settings_saved(self, recipe):
         name = recipe.get("name")
@@ -348,17 +361,12 @@ class ConfigWindow(QWidget):
             dialog.lbl_status.setText("Error: CameraWorker no está disponible.")
             dialog.btn_calibrate.setEnabled(False)
 
-        configure_dialog(
+        result = exec_modal_dialog(
             dialog,
             self.display_profile,
             requested=(800, 600),
             fullscreen=self.platform == "linux",
         )
-
-        if hasattr(dialog, "exec"):
-            result = dialog.exec()
-        else:
-            result = dialog.exec_()
 
         if result:
             self.recipe_manager.save(self.current_recipe)
@@ -582,17 +590,12 @@ class ConfigWindow(QWidget):
         btn_save.clicked.connect(save)
         btn_cancel.clicked.connect(dialog.reject)
 
-        configure_dialog(
+        exec_modal_dialog(
             dialog,
             self.display_profile,
             requested=(700, 520),
             fullscreen=self.platform == "linux",
         )
-
-        if hasattr(dialog, "exec"):
-            dialog.exec()
-        else:
-            dialog.exec_()
 
     def add_step(self):
         self.ensure_steps()  # ASEGURA QUE EXISTE LA CLAVE "steps" Y ES UNA LISTA
@@ -735,17 +738,12 @@ class ConfigWindow(QWidget):
         cmb_tools.currentIndexChanged.connect(reload_ui)
 
         # MUESTRA LA NUEVA VENTANA DE EDICION DE FORMA BLOQUEANTE
-        configure_dialog(
+        exec_modal_dialog(
             dialog,
             self.display_profile,
             requested=(700, 520),
             fullscreen=self.platform == "linux",
         )
-
-        if hasattr(dialog, "exec"):
-            dialog.exec()
-        else:
-            dialog.exec_()
 
     def delete_tool(self):
         self.ensure_steps()
@@ -812,15 +810,12 @@ class ConfigWindow(QWidget):
         dialog.setLabelText("Nombre:")
         dialog.setStyleSheet(self.styleSheet())
 
-        if self.platform == "linux":
-            dialog.resize(300, 160)
-        else:
-            dialog.resize(360, 180)
-
-        if hasattr(dialog, "exec"):
-            ok = dialog.exec()
-        else:
-            ok = dialog.exec_()
+        ok = exec_modal_dialog(
+            dialog,
+            self.display_profile,
+            requested=(360, 180),
+            fullscreen=self.platform == "linux",
+        )
 
         if not ok:
             return
