@@ -133,8 +133,8 @@ class ConfigWindow(QWidget):
             button.setMaximumHeight(self.display_profile.touch_target + 8)
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        self.ui.btn_select_r.setProperty("buttonRole", "primary")
-        self.ui.btn_save.setProperty("buttonRole", "primary")
+        self.ui.btn_select_r.setProperty("buttonRole", "commit")
+        self.ui.btn_save.setProperty("buttonRole", "commit")
         self.ui.btn_del_r.setProperty("buttonRole", "danger")
         self.ui.btn_del_t.setProperty("buttonRole", "danger")
         self.ui.btn_add_r.setToolTip("Crear una receta configurable")

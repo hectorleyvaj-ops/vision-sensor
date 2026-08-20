@@ -74,6 +74,23 @@ def interface_stylesheet(profile):
             background-color: rgb(57, 198, 200);
             font-weight: 700;
         }}
+        QPushButton[buttonRole="commit"] {{
+            color: rgb(245, 247, 250);
+            border: 2px solid rgb(57, 198, 200);
+            background-color: rgb(21, 104, 112);
+            font-weight: 800;
+        }}
+        QPushButton[buttonRole="commit"]:hover {{
+            color: rgb(255, 255, 255);
+            border-color: rgb(103, 229, 222);
+            background-color: rgb(27, 126, 133);
+        }}
+        QPushButton[buttonRole="commit"]:pressed {{
+            color: rgb(4, 24, 31);
+            border-color: rgb(245, 247, 250);
+            background-color: rgb(103, 229, 222);
+            padding-top: 4px;
+        }}
         QPushButton[buttonRole="danger"] {{
             color: rgb(255, 226, 229);
             border-color: rgb(159, 60, 72);

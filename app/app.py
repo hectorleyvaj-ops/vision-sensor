@@ -274,6 +274,10 @@ class MainWindow(QMainWindow):
     def _build_log_scroll_controls(self):
         """Replace the narrow native scrollbar with two touch controls."""
         self.ui.list_log.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        native_scrollbar = self.ui.list_log.verticalScrollBar()
+        native_scrollbar.setFixedWidth(0)
+        native_scrollbar.hide()
+        self.ui.list_log.setViewportMargins(0, 0, 0, 0)
         self.btn_log_up = QPushButton("▲")
         self.btn_log_down = QPushButton("▼")
         for button, accessible_name in (
@@ -299,7 +303,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "btn_log_up"):
             return
         control_width = max(44, self.display_profile.touch_target + 4)
-        control_height = max(34, self.display_profile.log_height - 12)
+        control_height = max(30, self.display_profile.log_height - 17)
         self.btn_log_up.setFixedSize(control_width, control_height)
         self.btn_log_down.setFixedSize(control_width, control_height)
 

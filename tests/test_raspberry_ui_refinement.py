@@ -52,6 +52,10 @@ class RaspberryUiRefinementTests(unittest.TestCase):
 
     def test_recent_events_use_large_touch_buttons_instead_of_native_scrollbar(self):
         self.assertIn("setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)", self.app_source)
+        self.assertIn("native_scrollbar.setFixedWidth(0)", self.app_source)
+        self.assertIn("native_scrollbar.hide()", self.app_source)
+        self.assertIn("setViewportMargins(0, 0, 0, 0)", self.app_source)
+        self.assertIn("log_height - 17", self.app_source)
         self.assertIn('QPushButton("▲")', self.app_source)
         self.assertIn('QPushButton("▼")', self.app_source)
         self.assertIn("setAutoRepeat(True)", self.app_source)
@@ -62,6 +66,13 @@ class RaspberryUiRefinementTests(unittest.TestCase):
         self.assertIn('QPushButton("RECETA")', self.config_source)
         self.assertEqual(self.config_source.count('setProperty("buttonRole", "navigation")'), 2)
         self.assertIn('buttonRole="navigation"]:pressed', self.theme_source)
+
+    def test_activate_and_save_buttons_are_readable_and_have_press_feedback(self):
+        self.assertEqual(
+            self.config_source.count('setProperty("buttonRole", "commit")'), 2
+        )
+        self.assertIn('buttonRole="commit"] {', self.theme_source)
+        self.assertIn('buttonRole="commit"]:pressed', self.theme_source)
 
 
 if __name__ == "__main__":
