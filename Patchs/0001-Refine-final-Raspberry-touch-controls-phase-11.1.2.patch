@@ -1,0 +1,352 @@
+From 7e383819d20595c9c0960ebfdce2a1b83499dd76 Mon Sep 17 00:00:00 2001
+From: Hector Leyva <hectorleyva.j@gmail.com>
+Date: Thu, 20 Aug 2026 10:23:41 -0600
+Subject: [PATCH] Refine final Raspberry touch controls phase 11.1.2
+
+---
+ .../CONTEXTO_PROYECTO_WORKSURFACE_V20.md      | 48 +++++++++++++++++
+ ...INAMIENTO_FASE11_1_2_CONTROLES_TACTILES.md | 53 +++++++++++++++++++
+ app/app.py                                    | 40 ++++++++++++++
+ tests/test_raspberry_ui_refinement.py         | 16 ++++++
+ ui/config_window_logic.py                     | 16 ++++--
+ ui/responsive.py                              | 10 +++-
+ ui/theme.py                                   | 30 +++++++++++
+ 7 files changed, 208 insertions(+), 5 deletions(-)
+ create mode 100644 Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V20.md
+ create mode 100644 Guias/GUIA_REFINAMIENTO_FASE11_1_2_CONTROLES_TACTILES.md
+
+diff --git a/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V20.md b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V20.md
+new file mode 100644
+index 0000000..81dcfe8
+--- /dev/null
++++ b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V20.md
+@@ -0,0 +1,48 @@
++# Contexto Worksurface V20 - Cierre visual 11.1.2
++
++**Fecha:** 2026-08-20
++
++**Base:** refinamiento 11.1.1 (`0aeb4f2`)
++
++## Estado de interfaz
++
++El feedback fisico confirma que la paleta, ventanas modales y configuracion de
++enfoque funcionan correctamente en Raspberry. El cierre 11.1.2 solamente
++ajusta controles de titulo, navegacion inferior y desplazamiento de eventos.
++
++La fase de interfaz puede considerarse cerrada cuando la prueba fisica confirme
++estos ultimos controles.
++
++## Siguiente fase: industrializacion
++
++La fase 12 debe preparar una instalacion reproducible y recuperable:
++
++- instalador o script de aprovisionamiento;
++- entorno virtual y dependencias del sistema;
++- servicio `systemd` con usuario y rutas explicitas;
++- arranque automatico, reinicio controlado y apagado limpio;
++- variables `VISION_SYSTEM_CONFIG` y `VISION_QT_API` persistentes;
++- logs mediante journal y conservacion de trazabilidad;
++- inicio de interfaz en modo kiosco;
++- diagnostico y reparacion del touchscreen;
++- respaldo, restauracion y procedimiento de actualizacion.
++
++No se trasladan I/O, polaridades ni secuencia de maquina al motor Python.
++
++## Fase final: aceptacion Worksurface
++
++Despues de industrializar se requiere configurar el hardware y producto reales,
++comisionar MODELO_A/B/C desde la interfaz y ejecutar pruebas completas:
++
++- inicio y apagado repetidos;
++- combinaciones OK/NG de los tres modelos;
++- desconexion y reconexion de camara y ESP32;
++- cancelacion, timeout, watchdog y perdida serial;
++- codigos DataMatrix e imagenes maestras definitivos;
++- enfoque, ROI y umbrales por receta;
++- latencia de ciclo y trazabilidad;
++- tasa de falsos aceptados y falsos rechazados;
++- validacion estricta y version etiquetada.
++
++Solo al completar esa evidencia la instalacion debe pasar de
++`LISTA PARA CALIBRAR` a comisionada para produccion.
+diff --git a/Guias/GUIA_REFINAMIENTO_FASE11_1_2_CONTROLES_TACTILES.md b/Guias/GUIA_REFINAMIENTO_FASE11_1_2_CONTROLES_TACTILES.md
+new file mode 100644
+index 0000000..76c64cf
+--- /dev/null
++++ b/Guias/GUIA_REFINAMIENTO_FASE11_1_2_CONTROLES_TACTILES.md
+@@ -0,0 +1,53 @@
++# Guia de refinamiento 11.1.2 - Controles tactiles finales
++
++## Alcance
++
++Parche incremental sobre el refinamiento 11.1.1 (`0aeb4f2`). Atiende el ultimo
++feedback visual de Raspberry antes de iniciar la industrializacion. No modifica
++recetas, configuracion Worksurface, firmware ESP32, GPIO ni logica PLC.
++
++## Cambios
++
++- Los botones de minimizar y cerrar reducen cinco pixeles por lado respecto al
++  objetivo tactil general.
++- La lista de eventos oculta su scrollbar vertical nativa.
++- Se agregan botones independientes `▲` y `▼`, anchos, con repeticion al
++  mantenerlos presionados.
++- Los controles de eventos cambian claramente a turquesa mientras se pulsan.
++- Los botones inferiores de configuracion se presentan como `ESTACION` y
++  `RECETA`, con ancho simetrico, texto explicito y contraste propio.
++- `ESTACION` y `RECETA` muestran borde y fondo distintos durante la pulsacion.
++
++## Aplicacion
++
++```bash
++git status --short
++git log -1 --oneline
++git am /ruta/0001-Refine-final-Raspberry-touch-controls-phase-11.1.2.patch
++```
++
++La base esperada es:
++
++```text
++0aeb4f2 Refine Raspberry UI and focus configuration phase 11.1.1
++```
++
++## Verificacion visual
++
++1. Confirmar que minimizar y cerrar dejan mas aire vertical en la barra.
++2. Generar suficientes eventos para permitir desplazamiento.
++3. Pulsar `▲` y `▼`; cada pulsacion debe mover una entrada.
++4. Mantener presionado; el desplazamiento debe repetirse.
++5. Confirmar que no aparece la barra vertical angosta.
++6. Confirmar texto completo y respuesta visual en `ESTACION` y `RECETA`.
++7. Abrir ambos botones y comprobar que conservan su funcion original.
++
++## Validacion automatizada
++
++```bash
++python -m unittest discover -s tests -p "test_*.py" -q
++python -m compileall -q app core processing services tools ui vision tests
++python scripts/validate_installation.py installations/worksurface/commissioning.json
++```
++
++Resultado esperado: 141 pruebas correctas y Worksurface `LISTA PARA CALIBRAR`.
+diff --git a/app/app.py b/app/app.py
+index a6c61a0..1b28d04 100644
+--- a/app/app.py
++++ b/app/app.py
+@@ -10,6 +10,7 @@ from utils.qt_compat import (
+     QPixmap,
+     QMainWindow,
+     QApplication,
++    QPushButton,
+     QMetaObject,
+     Qt,
+     QTimer,
+@@ -267,8 +268,46 @@ class MainWindow(QMainWindow):
+         self.ui.list_log.setToolTip(
+             "Ultimos eventos del motor. Consulte la trazabilidad para el detalle."
+         )
++        self._build_log_scroll_controls()
+         self._apply_interface_theme()
+ 
++    def _build_log_scroll_controls(self):
++        """Replace the narrow native scrollbar with two touch controls."""
++        self.ui.list_log.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
++        self.btn_log_up = QPushButton("▲")
++        self.btn_log_down = QPushButton("▼")
++        for button, accessible_name in (
++            (self.btn_log_up, "Subir eventos recientes"),
++            (self.btn_log_down, "Bajar eventos recientes"),
++        ):
++            button.setObjectName(accessible_name.replace(" ", "_"))
++            button.setProperty("buttonRole", "logScroll")
++            button.setAccessibleName(accessible_name)
++            button.setToolTip(accessible_name)
++            button.setCursor(Qt.PointingHandCursor)
++            button.setAutoRepeat(True)
++            button.setAutoRepeatDelay(350)
++            button.setAutoRepeatInterval(100)
++
++        self.btn_log_up.clicked.connect(lambda: self._scroll_recent_events(-1))
++        self.btn_log_down.clicked.connect(lambda: self._scroll_recent_events(1))
++        self.ui.horizontalLayout_3.addWidget(self.btn_log_up)
++        self.ui.horizontalLayout_3.addWidget(self.btn_log_down)
++        self._resize_log_scroll_controls()
++
++    def _resize_log_scroll_controls(self):
++        if not hasattr(self, "btn_log_up"):
++            return
++        control_width = max(44, self.display_profile.touch_target + 4)
++        control_height = max(34, self.display_profile.log_height - 12)
++        self.btn_log_up.setFixedSize(control_width, control_height)
++        self.btn_log_down.setFixedSize(control_width, control_height)
++
++    def _scroll_recent_events(self, direction):
++        scrollbar = self.ui.list_log.verticalScrollBar()
++        step = max(1, int(scrollbar.singleStep()))
++        scrollbar.setValue(scrollbar.value() + (int(direction) * step))
++
+     def _apply_interface_theme(self):
+         stylesheet = (
+             interface_stylesheet(self.display_profile)
+@@ -332,6 +371,7 @@ class MainWindow(QMainWindow):
+     def on_display_screen_changed(self, screen):
+         self.display_profile = profile_from_screen(screen)
+         apply_main_window_layout(self, self.ui, self.display_profile)
++        self._resize_log_scroll_controls()
+         self._apply_interface_theme()
+         self.refresh_operator_dashboard()
+         print(
+diff --git a/tests/test_raspberry_ui_refinement.py b/tests/test_raspberry_ui_refinement.py
+index fcdf663..d4f358d 100644
+--- a/tests/test_raspberry_ui_refinement.py
++++ b/tests/test_raspberry_ui_refinement.py
+@@ -17,12 +17,15 @@ class RaspberryUiRefinementTests(unittest.TestCase):
+         cls.camera_source = Path("vision/camera_worker.py").read_text(
+             encoding="utf-8"
+         )
++        cls.app_source = Path("app/app.py").read_text(encoding="utf-8")
++        cls.theme_source = Path("ui/theme.py").read_text(encoding="utf-8")
+ 
+     def test_every_configuration_editor_uses_common_modal_execution(self):
+         self.assertNotIn("configure_dialog(", self.config_source)
+         self.assertEqual(self.config_source.count("exec_modal_dialog("), 6)
+         self.assertIn("Qt.ApplicationModal", self.responsive_source)
+         self.assertIn("QTimer.singleShot(0, dialog.showFullScreen)", self.responsive_source)
++        self.assertIn("int(profile.touch_target) - 5", self.responsive_source)
+ 
+     def test_config_buttons_are_not_reset_after_theme_application(self):
+         feedback = self.config_source.split(
+@@ -47,6 +50,19 @@ class RaspberryUiRefinementTests(unittest.TestCase):
+         self.assertIn("elif self.is_linux() and has_focus_value", recipe_focus)
+         self.assertIn("ready=False", recipe_focus)
+ 
++    def test_recent_events_use_large_touch_buttons_instead_of_native_scrollbar(self):
++        self.assertIn("setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)", self.app_source)
++        self.assertIn('QPushButton("▲")', self.app_source)
++        self.assertIn('QPushButton("▼")', self.app_source)
++        self.assertIn("setAutoRepeat(True)", self.app_source)
++        self.assertIn('buttonRole="logScroll"', self.theme_source)
++
++    def test_station_and_recipe_buttons_have_explicit_press_feedback(self):
++        self.assertIn('QPushButton("ESTACION")', self.config_source)
++        self.assertIn('QPushButton("RECETA")', self.config_source)
++        self.assertEqual(self.config_source.count('setProperty("buttonRole", "navigation")'), 2)
++        self.assertIn('buttonRole="navigation"]:pressed', self.theme_source)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/ui/config_window_logic.py b/ui/config_window_logic.py
+index 77efebd..788dbfd 100644
+--- a/ui/config_window_logic.py
++++ b/ui/config_window_logic.py
+@@ -99,14 +99,24 @@ class ConfigWindow(QWidget):
+         self.ui.left_panel.insertWidget(2, self.lbl_recipe_state)
+ 
+         self.btn_installation_config = QPushButton("ESTACION")
+-        self.btn_recipe_config = QPushButton("PROPIEDADES")
++        self.btn_installation_config.setObjectName("btn_installation_config")
++        self.btn_installation_config.setProperty("buttonRole", "navigation")
++        self.btn_installation_config.setToolTip(
++            "Configurar hardware y parametros de la estacion"
++        )
++        self.btn_recipe_config = QPushButton("RECETA")
++        self.btn_recipe_config.setObjectName("btn_recipe_config")
++        self.btn_recipe_config.setProperty("buttonRole", "navigation")
++        self.btn_recipe_config.setToolTip(
++            "Editar identificacion y comisionamiento de la receta"
++        )
+         self.ui.bttm_layout.setSpacing(6)
+         self.ui.bttm_layout.insertWidget(1, self.btn_installation_config)
+         self.ui.bttm_layout.insertWidget(2, self.btn_recipe_config)
+         widths = (
+-            (104, 132, 96, 96)
++            (100, 100, 96, 96)
+             if self.display_profile.compact
+-            else (120, 150, 120, 120)
++            else (128, 128, 120, 120)
+         )
+         for button, minimum_width in zip(
+             (
+diff --git a/ui/responsive.py b/ui/responsive.py
+index ec6f506..e18c486 100644
+--- a/ui/responsive.py
++++ b/ui/responsive.py
+@@ -34,6 +34,11 @@ def _set_font_points(widget, points, bold=None):
+     widget.setFont(font)
+ 
+ 
++def window_control_size(profile):
++    """Keep title-bar controls compact without losing their click target."""
++    return max(30, int(profile.touch_target) - 5)
++
++
+ def apply_main_window_layout(window, ui, profile):
+     """Remove generated fixed geometry and apply one resolution policy."""
+     _unlock(window, (320, 240))
+@@ -70,8 +75,9 @@ def apply_main_window_layout(window, ui, profile):
+     for widget in (ui.lbl_cam, ui.lbl_model, ui.lbl_indicator_1, ui.list_log):
+         _set_font_points(widget, profile.body_points)
+ 
+-    ui.btn_minimizar.setFixedSize(profile.touch_target, profile.touch_target)
+-    ui.btn_cerrar.setFixedSize(profile.touch_target, profile.touch_target)
++    title_button_size = window_control_size(profile)
++    ui.btn_minimizar.setFixedSize(title_button_size, title_button_size)
++    ui.btn_cerrar.setFixedSize(title_button_size, title_button_size)
+     ui.btn_config.setMinimumHeight(profile.touch_target)
+     ui.btn_config.setMaximumHeight(profile.touch_target + 6)
+     ui.indicator_1.setFixedSize(profile.indicator_size, profile.indicator_size)
+diff --git a/ui/theme.py b/ui/theme.py
+index 48beeab..1ddc9f4 100644
+--- a/ui/theme.py
++++ b/ui/theme.py
+@@ -79,6 +79,32 @@ def interface_stylesheet(profile):
+             border-color: rgb(159, 60, 72);
+             background-color: rgb(92, 32, 43);
+         }}
++        QPushButton[buttonRole="navigation"] {{
++            color: rgb(235, 241, 248);
++            border: 2px solid rgb(57, 198, 200);
++            background-color: rgb(17, 32, 51);
++            font-weight: 700;
++        }}
++        QPushButton[buttonRole="navigation"]:pressed {{
++            color: rgb(4, 24, 31);
++            border-color: rgb(235, 241, 248);
++            background-color: rgb(57, 198, 200);
++            padding-top: 4px;
++        }}
++        QPushButton[buttonRole="logScroll"] {{
++            color: rgb(235, 241, 248);
++            border: 2px solid rgb(58, 82, 108);
++            border-radius: {field_radius + 2}px;
++            background-color: rgb(17, 32, 51);
++            font-weight: 800;
++            min-height: 0;
++            padding: 0;
++        }}
++        QPushButton[buttonRole="logScroll"]:pressed {{
++            color: rgb(4, 24, 31);
++            border-color: rgb(235, 241, 248);
++            background-color: rgb(57, 198, 200);
++        }}
+ 
+         QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox, QPlainTextEdit,
+         QTextEdit, QTableWidget, QListWidget {{
+@@ -296,10 +322,14 @@ def operator_stylesheet(profile):
+         QPushButton#btn_minimizar {{
+             background-color: rgb(17, 32, 51);
+             border: 1px solid rgb(58, 82, 108);
++            min-height: 0;
++            padding: 0;
+         }}
+         QPushButton#btn_cerrar {{
+             background-color: rgb(92, 32, 43);
+             border: 1px solid rgb(159, 60, 72);
++            min-height: 0;
++            padding: 0;
+         }}
+         QPushButton#indicator_1 {{
+             min-width: {indicator_size}px;
+-- 
+2.51.1
+
