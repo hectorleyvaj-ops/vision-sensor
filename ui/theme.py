@@ -79,6 +79,32 @@ def interface_stylesheet(profile):
             border-color: rgb(159, 60, 72);
             background-color: rgb(92, 32, 43);
         }}
+        QPushButton[buttonRole="navigation"] {{
+            color: rgb(235, 241, 248);
+            border: 2px solid rgb(57, 198, 200);
+            background-color: rgb(17, 32, 51);
+            font-weight: 700;
+        }}
+        QPushButton[buttonRole="navigation"]:pressed {{
+            color: rgb(4, 24, 31);
+            border-color: rgb(235, 241, 248);
+            background-color: rgb(57, 198, 200);
+            padding-top: 4px;
+        }}
+        QPushButton[buttonRole="logScroll"] {{
+            color: rgb(235, 241, 248);
+            border: 2px solid rgb(58, 82, 108);
+            border-radius: {field_radius + 2}px;
+            background-color: rgb(17, 32, 51);
+            font-weight: 800;
+            min-height: 0;
+            padding: 0;
+        }}
+        QPushButton[buttonRole="logScroll"]:pressed {{
+            color: rgb(4, 24, 31);
+            border-color: rgb(235, 241, 248);
+            background-color: rgb(57, 198, 200);
+        }}
 
         QComboBox, QLineEdit, QDoubleSpinBox, QSpinBox, QPlainTextEdit,
         QTextEdit, QTableWidget, QListWidget {{
@@ -296,10 +322,14 @@ def operator_stylesheet(profile):
         QPushButton#btn_minimizar {{
             background-color: rgb(17, 32, 51);
             border: 1px solid rgb(58, 82, 108);
+            min-height: 0;
+            padding: 0;
         }}
         QPushButton#btn_cerrar {{
             background-color: rgb(92, 32, 43);
             border: 1px solid rgb(159, 60, 72);
+            min-height: 0;
+            padding: 0;
         }}
         QPushButton#indicator_1 {{
             min-width: {indicator_size}px;

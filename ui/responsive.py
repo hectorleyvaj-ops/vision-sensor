@@ -34,6 +34,11 @@ def _set_font_points(widget, points, bold=None):
     widget.setFont(font)
 
 
+def window_control_size(profile):
+    """Keep title-bar controls compact without losing their click target."""
+    return max(30, int(profile.touch_target) - 5)
+
+
 def apply_main_window_layout(window, ui, profile):
     """Remove generated fixed geometry and apply one resolution policy."""
     _unlock(window, (320, 240))
@@ -70,8 +75,9 @@ def apply_main_window_layout(window, ui, profile):
     for widget in (ui.lbl_cam, ui.lbl_model, ui.lbl_indicator_1, ui.list_log):
         _set_font_points(widget, profile.body_points)
 
-    ui.btn_minimizar.setFixedSize(profile.touch_target, profile.touch_target)
-    ui.btn_cerrar.setFixedSize(profile.touch_target, profile.touch_target)
+    title_button_size = window_control_size(profile)
+    ui.btn_minimizar.setFixedSize(title_button_size, title_button_size)
+    ui.btn_cerrar.setFixedSize(title_button_size, title_button_size)
     ui.btn_config.setMinimumHeight(profile.touch_target)
     ui.btn_config.setMaximumHeight(profile.touch_target + 6)
     ui.indicator_1.setFixedSize(profile.indicator_size, profile.indicator_size)

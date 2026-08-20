@@ -17,12 +17,15 @@ class RaspberryUiRefinementTests(unittest.TestCase):
         cls.camera_source = Path("vision/camera_worker.py").read_text(
             encoding="utf-8"
         )
+        cls.app_source = Path("app/app.py").read_text(encoding="utf-8")
+        cls.theme_source = Path("ui/theme.py").read_text(encoding="utf-8")
 
     def test_every_configuration_editor_uses_common_modal_execution(self):
         self.assertNotIn("configure_dialog(", self.config_source)
         self.assertEqual(self.config_source.count("exec_modal_dialog("), 6)
         self.assertIn("Qt.ApplicationModal", self.responsive_source)
         self.assertIn("QTimer.singleShot(0, dialog.showFullScreen)", self.responsive_source)
+        self.assertIn("int(profile.touch_target) - 5", self.responsive_source)
 
     def test_config_buttons_are_not_reset_after_theme_application(self):
         feedback = self.config_source.split(
@@ -46,6 +49,19 @@ class RaspberryUiRefinementTests(unittest.TestCase):
         )[1].split("    def get_focus_required_score", 1)[0]
         self.assertIn("elif self.is_linux() and has_focus_value", recipe_focus)
         self.assertIn("ready=False", recipe_focus)
+
+    def test_recent_events_use_large_touch_buttons_instead_of_native_scrollbar(self):
+        self.assertIn("setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)", self.app_source)
+        self.assertIn('QPushButton("▲")', self.app_source)
+        self.assertIn('QPushButton("▼")', self.app_source)
+        self.assertIn("setAutoRepeat(True)", self.app_source)
+        self.assertIn('buttonRole="logScroll"', self.theme_source)
+
+    def test_station_and_recipe_buttons_have_explicit_press_feedback(self):
+        self.assertIn('QPushButton("ESTACION")', self.config_source)
+        self.assertIn('QPushButton("RECETA")', self.config_source)
+        self.assertEqual(self.config_source.count('setProperty("buttonRole", "navigation")'), 2)
+        self.assertIn('buttonRole="navigation"]:pressed', self.theme_source)
 
 
 if __name__ == "__main__":

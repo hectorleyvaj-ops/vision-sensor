@@ -10,6 +10,7 @@ from utils.qt_compat import (
     QPixmap,
     QMainWindow,
     QApplication,
+    QPushButton,
     QMetaObject,
     Qt,
     QTimer,
@@ -267,7 +268,45 @@ class MainWindow(QMainWindow):
         self.ui.list_log.setToolTip(
             "Ultimos eventos del motor. Consulte la trazabilidad para el detalle."
         )
+        self._build_log_scroll_controls()
         self._apply_interface_theme()
+
+    def _build_log_scroll_controls(self):
+        """Replace the narrow native scrollbar with two touch controls."""
+        self.ui.list_log.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.btn_log_up = QPushButton("▲")
+        self.btn_log_down = QPushButton("▼")
+        for button, accessible_name in (
+            (self.btn_log_up, "Subir eventos recientes"),
+            (self.btn_log_down, "Bajar eventos recientes"),
+        ):
+            button.setObjectName(accessible_name.replace(" ", "_"))
+            button.setProperty("buttonRole", "logScroll")
+            button.setAccessibleName(accessible_name)
+            button.setToolTip(accessible_name)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setAutoRepeat(True)
+            button.setAutoRepeatDelay(350)
+            button.setAutoRepeatInterval(100)
+
+        self.btn_log_up.clicked.connect(lambda: self._scroll_recent_events(-1))
+        self.btn_log_down.clicked.connect(lambda: self._scroll_recent_events(1))
+        self.ui.horizontalLayout_3.addWidget(self.btn_log_up)
+        self.ui.horizontalLayout_3.addWidget(self.btn_log_down)
+        self._resize_log_scroll_controls()
+
+    def _resize_log_scroll_controls(self):
+        if not hasattr(self, "btn_log_up"):
+            return
+        control_width = max(44, self.display_profile.touch_target + 4)
+        control_height = max(34, self.display_profile.log_height - 12)
+        self.btn_log_up.setFixedSize(control_width, control_height)
+        self.btn_log_down.setFixedSize(control_width, control_height)
+
+    def _scroll_recent_events(self, direction):
+        scrollbar = self.ui.list_log.verticalScrollBar()
+        step = max(1, int(scrollbar.singleStep()))
+        scrollbar.setValue(scrollbar.value() + (int(direction) * step))
 
     def _apply_interface_theme(self):
         stylesheet = (
@@ -332,6 +371,7 @@ class MainWindow(QMainWindow):
     def on_display_screen_changed(self, screen):
         self.display_profile = profile_from_screen(screen)
         apply_main_window_layout(self, self.ui, self.display_profile)
+        self._resize_log_scroll_controls()
         self._apply_interface_theme()
         self.refresh_operator_dashboard()
         print(

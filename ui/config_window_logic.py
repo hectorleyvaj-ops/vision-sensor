@@ -99,14 +99,24 @@ class ConfigWindow(QWidget):
         self.ui.left_panel.insertWidget(2, self.lbl_recipe_state)
 
         self.btn_installation_config = QPushButton("ESTACION")
-        self.btn_recipe_config = QPushButton("PROPIEDADES")
+        self.btn_installation_config.setObjectName("btn_installation_config")
+        self.btn_installation_config.setProperty("buttonRole", "navigation")
+        self.btn_installation_config.setToolTip(
+            "Configurar hardware y parametros de la estacion"
+        )
+        self.btn_recipe_config = QPushButton("RECETA")
+        self.btn_recipe_config.setObjectName("btn_recipe_config")
+        self.btn_recipe_config.setProperty("buttonRole", "navigation")
+        self.btn_recipe_config.setToolTip(
+            "Editar identificacion y comisionamiento de la receta"
+        )
         self.ui.bttm_layout.setSpacing(6)
         self.ui.bttm_layout.insertWidget(1, self.btn_installation_config)
         self.ui.bttm_layout.insertWidget(2, self.btn_recipe_config)
         widths = (
-            (104, 132, 96, 96)
+            (100, 100, 96, 96)
             if self.display_profile.compact
-            else (120, 150, 120, 120)
+            else (128, 128, 120, 120)
         )
         for button, minimum_width in zip(
             (
