@@ -1,0 +1,1216 @@
+From 04e07e85f54cbdd62d1ef732e1af46300b00f3b3 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Thu, 27 Aug 2026 22:53:57 +0900
+Subject: [PATCH] Add industrial deployment and configurable commissioning
+ phase 12
+
+---
+ ...CTO_WORKSURFACE_V23_FASE12_IMPLEMENTADA.md | 37 ++++++++
+ Guias/GUIA_FASE12_DESPLIEGUE_INDUSTRIAL.md    | 31 +++++++
+ core/deployment_manifest.py                   | 60 +++++++++++++
+ core/deployment_paths.py                      | 89 +++++++++++++++++++
+ core/resource_paths.py                        |  2 +-
+ core/runtime_health.py                        | 44 +++++++++
+ deploy/autostart/vision-sensor.desktop        |  7 ++
+ deploy/systemd/vision-sensor.service.in       | 20 +++++
+ deploy/vision-sensor.env.example              |  5 ++
+ docs/industrial_deployment.md                 | 54 +++++++++++
+ installations/worksurface/commissioning.json  | 22 -----
+ main.py                                       | 33 +++++++
+ scripts/backup_installation.py                | 44 +++++++++
+ scripts/configure_touchscreen.py              | 58 ++++++++++++
+ scripts/diagnose_deployment.py                | 64 +++++++++++++
+ scripts/install_raspberry.sh                  | 44 +++++++++
+ scripts/launch_vision.sh                      | 27 ++++++
+ scripts/prepare_installation.py               | 78 ++++++++++++++++
+ scripts/restore_installation.py               | 43 +++++++++
+ scripts/rollback_raspberry.sh                 |  8 ++
+ scripts/start_graphical_service.sh            |  5 ++
+ scripts/switch_release.py                     | 22 +++++
+ scripts/update_raspberry.sh                   | 10 +++
+ scripts/validate_installation.py              | 16 +++-
+ scripts/vision_service.sh                     |  9 ++
+ tests/test_deployment_phase12.py              | 79 ++++++++++++++++
+ tests/test_installation_package.py            | 10 +--
+ 27 files changed, 887 insertions(+), 34 deletions(-)
+ create mode 100644 Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V23_FASE12_IMPLEMENTADA.md
+ create mode 100644 Guias/GUIA_FASE12_DESPLIEGUE_INDUSTRIAL.md
+ create mode 100644 core/deployment_manifest.py
+ create mode 100644 core/deployment_paths.py
+ create mode 100644 core/runtime_health.py
+ create mode 100644 deploy/autostart/vision-sensor.desktop
+ create mode 100644 deploy/systemd/vision-sensor.service.in
+ create mode 100644 deploy/vision-sensor.env.example
+ create mode 100644 docs/industrial_deployment.md
+ create mode 100644 scripts/backup_installation.py
+ create mode 100644 scripts/configure_touchscreen.py
+ create mode 100644 scripts/diagnose_deployment.py
+ create mode 100644 scripts/install_raspberry.sh
+ create mode 100644 scripts/launch_vision.sh
+ create mode 100644 scripts/prepare_installation.py
+ create mode 100644 scripts/restore_installation.py
+ create mode 100644 scripts/rollback_raspberry.sh
+ create mode 100644 scripts/start_graphical_service.sh
+ create mode 100644 scripts/switch_release.py
+ create mode 100644 scripts/update_raspberry.sh
+ create mode 100644 scripts/vision_service.sh
+ create mode 100644 tests/test_deployment_phase12.py
+
+diff --git a/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V23_FASE12_IMPLEMENTADA.md b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V23_FASE12_IMPLEMENTADA.md
+new file mode 100644
+index 0000000..fcd9f22
+--- /dev/null
++++ b/Contextos/CONTEXTO_PROYECTO_WORKSURFACE_V23_FASE12_IMPLEMENTADA.md
+@@ -0,0 +1,37 @@
++# Contexto Worksurface V23 - Fase 12 implementada
++
++La fase 12 convierte el motor en una instalación mantenible para Raspberry Pi
++OS Desktop de 32 bits. No modifica firmware ESP32, PLC, pines, polaridades,
++calibraciones físicas ni la aceptación estadística de producción.
++
++## Decisiones implementadas
++
++- El código se instala como releases inmutables bajo /opt/vision-sensor.
++- Configuración, recetas, recursos e imágenes maestras se copian una sola vez
++  a /var/lib/vision-sensor y sobreviven actualizaciones y rollback.
++- La interfaz Qt corre como servicio de usuario. Un lanzador de autostart
++  importa la sesión gráfica Wayland/X11 antes de iniciar el servicio.
++- El servicio abre en estado degradado cuando falta cámara o ESP32; esto no
++  autoriza producción y se conserva READY=0.
++- El estado técnico se publica atómicamente en health.json y no se confunde
++  con el READY enviado al controlador.
++- Se incluyen preflight, diagnóstico, backup con checksums, restauración y
++  rollback de código.
++- El touchscreen usa perfiles de matriz libinput y reglas udev con
++  identificadores estables; ninguna matriz se aplica sin selección explícita.
++
++## Política de recetas configurable
++
++El motor no impone DataMatrix, histograma, foco calibrado ni cantidad de pasos
++por MODELO_A, MODELO_B o MODELO_C. El manifest mantiene únicamente el mapeo
++externo propio de la instalación. Una receta no comisionada puede estar vacía,
++incompleta o usar las herramientas que el operador decida; el resultado normal
++es LISTA PARA CALIBRAR. Una receta declarada comisionada sí se valida como
++ejecutable antes de permitir producción.
++
++## Pendiente de fase 13
++
++Seleccionar hardware definitivo, ajustar recetas con piezas reales, capturar
++recursos maestros, comisionar cada receta y ejecutar las pruebas de aceptación
++industrial. La fase 12 debe probarse físicamente en la Raspberry antes de
++considerarse cerrada.
+diff --git a/Guias/GUIA_FASE12_DESPLIEGUE_INDUSTRIAL.md b/Guias/GUIA_FASE12_DESPLIEGUE_INDUSTRIAL.md
+new file mode 100644
+index 0000000..2d00105
+--- /dev/null
++++ b/Guias/GUIA_FASE12_DESPLIEGUE_INDUSTRIAL.md
+@@ -0,0 +1,31 @@
++# Guía de fase 12: despliegue industrial
++
++Después de aplicar el parche, copia el proyecto a la Raspberry y ejecuta:
++
++    sudo ./scripts/install_raspberry.sh --installation worksurface --seed worksurface --user "$USER"
++
++El inicio automático ocurre al abrir la siguiente sesión gráfica del usuario.
++La interfaz no se ejecuta como root.
++
++## Mantenimiento
++
++    ./scripts/vision_service.sh status
++    ./scripts/vision_service.sh logs 120
++    ./scripts/vision_service.sh stop
++    ./scripts/vision_service.sh start
++
++## Estados esperados
++
++Sin cámara o ESP32, la interfaz debe abrir y la validación normal debe decir
++LISTA PARA CALIBRAR. La validación estricta devuelve código 3 mientras no haya
++recetas comisionadas. PAQUETE INVALIDO sólo indica una falla estructural.
++
++## Recuperación
++
++El código activo se puede revertir sin borrar datos:
++
++    sudo ./scripts/rollback_raspberry.sh /opt/vision-sensor
++
++Antes de cualquier cambio físico importante crea un backup. Consulta
++docs/industrial_deployment.md para los comandos de backup, restauración,
++diagnóstico y touchscreen.
+diff --git a/core/deployment_manifest.py b/core/deployment_manifest.py
+new file mode 100644
+index 0000000..b087767
+--- /dev/null
++++ b/core/deployment_manifest.py
+@@ -0,0 +1,60 @@
++"""Checksum manifests used by backup and restore maintenance commands."""
++
++import hashlib
++import json
++import os
++from datetime import datetime, timezone
++from pathlib import Path
++
++
++def sha256_file(path):
++    digest = hashlib.sha256()
++    with Path(path).open("rb") as stream:
++        for block in iter(lambda: stream.read(1024 * 1024), b""):
++            digest.update(block)
++    return digest.hexdigest()
++
++
++def build_manifest(root, *, installation_id, version=""):
++    root = Path(root)
++    files = []
++    for path in sorted(item for item in root.rglob("*") if item.is_file()):
++        files.append({
++            "path": path.relative_to(root).as_posix(),
++            "sha256": sha256_file(path),
++            "size": path.stat().st_size,
++        })
++    return {
++        "schema_version": 1,
++        "installation_id": str(installation_id),
++        "version": str(version),
++        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
++        "files": files,
++    }
++
++
++def write_manifest(root, **values):
++    manifest = build_manifest(root, **values)
++    path = Path(root) / "manifest.json"
++    temporary = path.with_name(path.name + ".tmp")
++    try:
++        temporary.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
++        os.replace(temporary, path)
++    finally:
++        if temporary.exists():
++            temporary.unlink()
++    return manifest
++
++
++def verify_manifest(root):
++    root = Path(root)
++    manifest_path = root / "manifest.json"
++    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
++    errors = []
++    for record in payload.get("files", []):
++        path = root / record["path"]
++        if not path.is_file():
++            errors.append(f"Falta {record['path']}")
++        elif path.stat().st_size != record["size"] or sha256_file(path) != record["sha256"]:
++            errors.append(f"Checksum invalido: {record['path']}")
++    return payload, errors
+diff --git a/core/deployment_paths.py b/core/deployment_paths.py
+new file mode 100644
+index 0000000..070c5c9
+--- /dev/null
++++ b/core/deployment_paths.py
+@@ -0,0 +1,89 @@
++"""Paths and atomic release switches for an installed vision sensor."""
++
++import os
++from dataclasses import dataclass
++from pathlib import Path
++
++
++@dataclass(frozen=True)
++class DeploymentPaths:
++    """Keep code releases separate from mutable station data."""
++
++    prefix: Path
++    installation_id: str
++
++    @classmethod
++    def from_values(cls, prefix="/opt/vision-sensor", installation_id="vision-station"):
++        installation_id = str(installation_id or "").strip()
++        if not installation_id or "/" in installation_id or ".." in installation_id:
++            raise ValueError("installation_id invalido")
++        return cls(Path(prefix), installation_id)
++
++    @property
++    def releases(self):
++        return self.prefix / "releases"
++
++    @property
++    def current(self):
++        return self.prefix / "current"
++
++    @property
++    def previous(self):
++        return self.prefix / "previous"
++
++    @property
++    def data_root(self):
++        return Path("/var/lib/vision-sensor")
++
++    @property
++    def installation(self):
++        return self.data_root / "installations" / self.installation_id
++
++    @property
++    def runtime(self):
++        return self.data_root / "runtime" / self.installation_id
++
++    @property
++    def backups(self):
++        return Path("/var/backups/vision-sensor") / self.installation_id
++
++    @property
++    def environment_file(self):
++        return Path("/etc/vision-sensor/vision-sensor.env")
++
++    @property
++    def system_config(self):
++        return self.installation / "system.json"
++
++    def mutable_directories(self):
++        return (self.installation, self.runtime, self.backups)
++
++    def ensure_runtime_layout(self):
++        for path in (self.installation, self.runtime):
++            path.mkdir(parents=True, exist_ok=True)
++
++
++def atomic_replace_symlink(link, target):
++    """Replace *link* atomically without following an existing symlink."""
++    link = Path(link)
++    target = Path(target)
++    if not target.exists():
++        raise FileNotFoundError(f"No existe el release destino: {target}")
++    link.parent.mkdir(parents=True, exist_ok=True)
++    temporary = link.with_name(link.name + ".new")
++    if temporary.exists() or temporary.is_symlink():
++        temporary.unlink()
++    temporary.symlink_to(target)
++    os.replace(temporary, link)
++
++
++def switch_release(paths, target):
++    """Point current at *target*, preserving the prior current release."""
++    target = Path(target).resolve()
++    previous_target = None
++    if paths.current.is_symlink():
++        previous_target = paths.current.resolve()
++    if previous_target and previous_target != target:
++        atomic_replace_symlink(paths.previous, previous_target)
++    atomic_replace_symlink(paths.current, target)
++    return previous_target
+diff --git a/core/resource_paths.py b/core/resource_paths.py
+index a6b62fe..a232a13 100644
+--- a/core/resource_paths.py
++++ b/core/resource_paths.py
+@@ -5,6 +5,6 @@ from pathlib import Path
+ 
+ def recipe_resource_root(recipe_file):
+     path = Path(str(recipe_file or ""))
+-    if "installations" in path.parts:
++    if path.is_absolute() or "installations" in path.parts:
+         return path.parent / "master_images"
+     return Path("master_img")
+diff --git a/core/runtime_health.py b/core/runtime_health.py
+new file mode 100644
+index 0000000..f9e28e8
+--- /dev/null
++++ b/core/runtime_health.py
+@@ -0,0 +1,44 @@
++"""Persist a small deployment health state independently from READY."""
++
++import json
++import os
++from datetime import datetime, timezone
++from pathlib import Path
++
++
++VALID_STATES = {"starting", "degraded", "ready", "stopped"}
++
++
++def _now():
++    return datetime.now(timezone.utc).isoformat(timespec="seconds")
++
++
++def write_runtime_health(path, state, *, version="", pid=None, diagnostic=""):
++    """Atomically publish technical health.  It never authorizes production."""
++    if state not in VALID_STATES:
++        raise ValueError(f"Estado tecnico no soportado: {state}")
++    path = Path(path)
++    path.parent.mkdir(parents=True, exist_ok=True)
++    payload = {
++        "schema_version": 1,
++        "state": state,
++        "version": str(version),
++        "pid": os.getpid() if pid is None else int(pid),
++        "updated_at": _now(),
++        "diagnostic": str(diagnostic or ""),
++    }
++    temporary = path.with_name(path.name + ".tmp")
++    try:
++        temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
++        os.replace(temporary, path)
++    finally:
++        if temporary.exists():
++            temporary.unlink()
++    return payload
++
++
++def read_runtime_health(path):
++    try:
++        return json.loads(Path(path).read_text(encoding="utf-8"))
++    except (FileNotFoundError, json.JSONDecodeError):
++        return None
+diff --git a/deploy/autostart/vision-sensor.desktop b/deploy/autostart/vision-sensor.desktop
+new file mode 100644
+index 0000000..ba4ee2f
+--- /dev/null
++++ b/deploy/autostart/vision-sensor.desktop
+@@ -0,0 +1,7 @@
++[Desktop Entry]
++Type=Application
++Name=Vision Sensor
++Comment=Start the configured vision sensor after the graphical session is ready
++Exec=/opt/vision-sensor/current/scripts/start_graphical_service.sh
++Terminal=false
++X-GNOME-Autostart-enabled=true
+diff --git a/deploy/systemd/vision-sensor.service.in b/deploy/systemd/vision-sensor.service.in
+new file mode 100644
+index 0000000..f806fdf
+--- /dev/null
++++ b/deploy/systemd/vision-sensor.service.in
+@@ -0,0 +1,20 @@
++[Unit]
++Description=Vision Sensor graphical runtime
++After=graphical-session.target
++PartOf=graphical-session.target
++
++[Service]
++Type=simple
++EnvironmentFile=@ENVIRONMENT_FILE@
++WorkingDirectory=@CURRENT_RELEASE@
++ExecStart=@CURRENT_RELEASE@/scripts/launch_vision.sh
++Restart=on-failure
++RestartSec=5
++StartLimitIntervalSec=120
++StartLimitBurst=3
++TimeoutStopSec=20
++StandardOutput=journal
++StandardError=journal
++
++[Install]
++WantedBy=graphical-session.target
+diff --git a/deploy/vision-sensor.env.example b/deploy/vision-sensor.env.example
+new file mode 100644
+index 0000000..9fdb170
+--- /dev/null
++++ b/deploy/vision-sensor.env.example
+@@ -0,0 +1,5 @@
++# Este archivo pertenece a la instancia, no al release de codigo.
++VISION_SYSTEM_CONFIG=/var/lib/vision-sensor/installations/worksurface/system.json
++VISION_QT_API=pyqt5
++VISION_DEPLOYMENT_RUNTIME=/var/lib/vision-sensor/runtime/worksurface
++VISION_RELEASE_VERSION=unconfigured
+diff --git a/docs/industrial_deployment.md b/docs/industrial_deployment.md
+new file mode 100644
+index 0000000..b75cfc6
+--- /dev/null
++++ b/docs/industrial_deployment.md
+@@ -0,0 +1,54 @@
++# Despliegue industrial en Raspberry Pi
++
++Esta fase instala el motor de visión sin mezclar el código con los datos que
++el operador modifica. El programa gráfico siempre corre con el usuario de
++escritorio, nunca como root.
++
++## Instalación
++
++En una copia limpia del proyecto, desde Raspberry Pi OS Desktop de 32 bits:
++
++    sudo ./scripts/install_raspberry.sh --installation worksurface --seed worksurface --user "$USER"
++    systemctl --user enable --now vision-sensor.service
++
++La sesión gráfica debe iniciar automáticamente para ese usuario. El instalador
++no cambia esa opción ni contraseñas: actívala explícitamente desde raspi-config
++si todavía no está configurada.
++
++Código: /opt/vision-sensor/current. Datos configurables:
++/var/lib/vision-sensor/installations/worksurface. Una actualización no
++sobrescribe recetas, imágenes maestras, configuración ni trazabilidad.
++
++## Operación
++
++    ./scripts/vision_service.sh status
++    ./scripts/vision_service.sh logs 120
++    ./scripts/vision_service.sh stop
++    ./scripts/vision_service.sh start
++
++Para obtener un diagnóstico sin modificar el equipo:
++
++    python3 scripts/diagnose_deployment.py --config /var/lib/vision-sensor/installations/worksurface/system.json --runtime-health /var/lib/vision-sensor/runtime/worksurface/health.json
++
++## Actualización, rollback y respaldo
++
++    sudo ./scripts/update_raspberry.sh /ruta/nueva/version /opt/vision-sensor
++    sudo ./scripts/rollback_raspberry.sh /opt/vision-sensor
++    python3 scripts/backup_installation.py --source /var/lib/vision-sensor/installations/worksurface --destination /var/backups/vision-sensor/worksurface --installation worksurface
++
++El rollback cambia únicamente el código. La restauración valida checksums antes
++de sustituir una instalación.
++
++## Touchscreen
++
++Primero identifica por teclado, SSH o VNC los IDs estables del touch. Genera la
++regla sin escribirla para revisarla:
++
++    python3 scripts/configure_touchscreen.py --vendor 1234 --product abcd --profile rotate-180
++
++Solo después de confirmar, aplícala con --apply. La recuperación es:
++
++    sudo python3 scripts/configure_touchscreen.py --rollback
++
++Reinicia o desconecta/reconecta el dispositivo después de modificar reglas
++udev. No se usan nombres variables como /dev/input/eventN.
+diff --git a/installations/worksurface/commissioning.json b/installations/worksurface/commissioning.json
+index d5ffb5e..7aba36e 100644
+--- a/installations/worksurface/commissioning.json
++++ b/installations/worksurface/commissioning.json
+@@ -32,28 +32,6 @@
+             }
+         }
+     ],
+-    "recipe_policy": {
+-        "required_tools": [
+-            "dmtx",
+-            "img_hist"
+-        ],
+-        "require_calibrated_focus": true,
+-        "required_focus_fields": [
+-            "roi",
+-            "value",
+-            "min_score",
+-            "median_score",
+-            "peak_score"
+-        ],
+-        "parameter_rules": [
+-            {
+-                "tool": "img_hist",
+-                "parameter": "threshold",
+-                "operator": "gt",
+-                "value": 0.0
+-            }
+-        ]
+-    },
+     "pending_physical_values": [
+         "Contenido DataMatrix exacto para A/B/C",
+         "ROI DataMatrix e imagen por modelo",
+diff --git a/main.py b/main.py
+index 8ee8808..613eb78 100644
+--- a/main.py
++++ b/main.py
+@@ -1,10 +1,21 @@
++import os
+ import sys
++from pathlib import Path
+ from app.app import MainWindow
+ from core.display_profile import build_display_profile
++from core.runtime_health import write_runtime_health
+ from ui.theme import interface_stylesheet
+ from utils.qt_compat import QApplication, QMessageBox
+ 
+ if __name__ == "__main__":
++    runtime_root = os.getenv("VISION_DEPLOYMENT_RUNTIME", "")
++    health_path = Path(runtime_root) / "health.json" if runtime_root else None
++    if health_path:
++        write_runtime_health(
++            health_path,
++            "starting",
++            version=os.getenv("VISION_RELEASE_VERSION", ""),
++        )
+     app = QApplication(sys.argv)
+     app.setStyleSheet(interface_stylesheet(build_display_profile(800, 480)))
+     
+@@ -18,8 +29,30 @@ if __name__ == "__main__":
+         )
+         print(f"[STARTUP][FATAL] {message}", file=sys.stderr)
+         QMessageBox.critical(None, "Error de arranque", message)
++        if health_path:
++            write_runtime_health(
++                health_path,
++                "stopped",
++                version=os.getenv("VISION_RELEASE_VERSION", ""),
++                diagnostic=str(exc),
++            )
+         sys.exit(2)
+ 
++    if health_path:
++        write_runtime_health(
++            health_path,
++            "degraded",
++            version=os.getenv("VISION_RELEASE_VERSION", ""),
++            diagnostic="Interfaz iniciada; READY productivo se valida por separado.",
++        )
++        app.aboutToQuit.connect(
++            lambda: write_runtime_health(
++                health_path,
++                "stopped",
++                version=os.getenv("VISION_RELEASE_VERSION", ""),
++            )
++        )
++
+     if sys.platform.startswith("linux"):
+         window.showFullScreen()
+     elif sys.platform.startswith("win"):
+diff --git a/scripts/backup_installation.py b/scripts/backup_installation.py
+new file mode 100644
+index 0000000..6697140
+--- /dev/null
++++ b/scripts/backup_installation.py
+@@ -0,0 +1,44 @@
++"""Create a verified, portable backup of one mutable installation."""
++
++import argparse
++import shutil
++from datetime import datetime, timezone
++from pathlib import Path
++
++from core.deployment_manifest import write_manifest
++
++
++def backup_installation(source, destination_root, installation_id, version="", include_traceability=False):
++    source = Path(source)
++    destination_root = Path(destination_root)
++    if not source.is_dir():
++        raise ValueError(f"No existe la instalacion: {source}")
++    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
++    target = destination_root / (stamp + "-" + str(installation_id))
++    target.mkdir(parents=True, exist_ok=False)
++    for item in source.iterdir():
++        if item.name == "traceability" and not include_traceability:
++            continue
++        destination = target / item.name
++        if item.is_dir():
++            shutil.copytree(item, destination)
++        else:
++            shutil.copy2(item, destination)
++    write_manifest(target, installation_id=installation_id, version=version)
++    return target
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--source", required=True)
++    parser.add_argument("--destination", required=True)
++    parser.add_argument("--installation", required=True)
++    parser.add_argument("--version", default="")
++    parser.add_argument("--include-traceability", action="store_true")
++    args = parser.parse_args(argv)
++    print(backup_installation(args.source, args.destination, args.installation, args.version, args.include_traceability))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/configure_touchscreen.py b/scripts/configure_touchscreen.py
+new file mode 100644
+index 0000000..8dc486c
+--- /dev/null
++++ b/scripts/configure_touchscreen.py
+@@ -0,0 +1,58 @@
++"""Generate reversible libinput udev rules without applying a blind transform."""
++
++import argparse
++from pathlib import Path
++
++
++MATRICES = {
++    "normal": (1, 0, 0, 0, 1, 0),
++    "invert-x": (-1, 0, 1, 0, 1, 0),
++    "invert-y": (1, 0, 0, 0, -1, 1),
++    "rotate-180": (-1, 0, 1, 0, -1, 1),
++    "rotate-90": (0, -1, 1, 1, 0, 0),
++    "rotate-270": (0, 1, 0, -1, 0, 1),
++}
++
++
++def udev_rule(vendor, product, profile):
++    if profile not in MATRICES:
++        raise ValueError("Perfil tactil no soportado")
++    if not vendor or not product:
++        raise ValueError("Se requieren vendor y product estables de udev")
++    matrix = " ".join(str(value) for value in MATRICES[profile])
++    return 'ACTION=="add|change", SUBSYSTEM=="input", ENV{{ID_VENDOR_ID}}=="{}", ENV{{ID_MODEL_ID}}=="{}", ENV{{LIBINPUT_CALIBRATION_MATRIX}}="{}"\n'.format(vendor, product, matrix)
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--vendor")
++    parser.add_argument("--product")
++    parser.add_argument("--profile", choices=sorted(MATRICES))
++    parser.add_argument("--rule", default="/etc/udev/rules.d/99-vision-sensor-touchscreen.rules")
++    parser.add_argument("--rollback", action="store_true")
++    parser.add_argument("--apply", action="store_true")
++    args = parser.parse_args(argv)
++    target = Path(args.rule)
++    if args.rollback:
++        if target.exists():
++            target.unlink()
++        print("Regla tactil retirada. Reinicia o reconecta el dispositivo.")
++        return 0
++    if not args.vendor or not args.product or not args.profile:
++        parser.error("Selecciona vendor, product y profile despues de identificar el touchscreen.")
++    rule = udev_rule(args.vendor, args.product, args.profile)
++    print(rule, end="")
++    if args.apply:
++        target.parent.mkdir(parents=True, exist_ok=True)
++        backup = target.with_suffix(target.suffix + ".bak")
++        if target.exists():
++            backup.write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
++        target.write_text(rule, encoding="utf-8")
++        print("Regla escrita. Ejecuta udevadm control --reload-rules y reinicia o reconecta el touch.")
++    else:
++        print("Revision: usa --apply solo despues de confirmar vendor, product y perfil.")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/diagnose_deployment.py b/scripts/diagnose_deployment.py
+new file mode 100644
+index 0000000..2c2ed1e
+--- /dev/null
++++ b/scripts/diagnose_deployment.py
+@@ -0,0 +1,64 @@
++"""Read-only deployment diagnosis; safe to run before hardware is configured."""
++
++import argparse
++import json
++import os
++import platform
++import shutil
++import subprocess
++import sys
++from pathlib import Path
++
++from core.runtime_health import read_runtime_health
++
++
++def _item(status, code, message, **details):
++    return {"status": status, "code": code, "message": message, "details": details}
++
++
++def diagnose(config_path, runtime_path=None):
++    config_path = Path(config_path)
++    items = []
++    items.append(_item("PASS" if config_path.is_file() else "ERROR", "SYSTEM_CONFIG", str(config_path)))
++    for command in ("v4l2-ctl", "python3"):
++        items.append(_item("PASS" if shutil.which(command) else "WARNING", "COMMAND_" + command.replace("-", "_").upper(), command))
++    for module in ("cv2", "numpy", "serial"):
++        try:
++            __import__(module)
++            items.append(_item("PASS", "PYTHON_" + module.upper(), module))
++        except ImportError:
++            items.append(_item("WARNING", "PYTHON_" + module.upper(), module + " no disponible"))
++    camera_links = sorted(str(path) for path in Path("/dev/v4l/by-id").glob("*")) if Path("/dev/v4l/by-id").exists() else []
++    serial_links = sorted(str(path) for path in Path("/dev/serial/by-id").glob("*")) if Path("/dev/serial/by-id").exists() else []
++    items.append(_item("PASS" if camera_links else "WARNING", "CAMERAS", "Camaras persistentes", devices=camera_links))
++    items.append(_item("PASS" if serial_links else "WARNING", "SERIAL", "Puertos persistentes", devices=serial_links))
++    runtime = read_runtime_health(runtime_path) if runtime_path else None
++    if runtime:
++        items.append(_item("PASS", "RUNTIME_HEALTH", runtime.get("state", "unknown"), health=runtime))
++    return {
++        "platform": platform.platform(),
++        "architecture": platform.machine(),
++        "user": os.getenv("USER", ""),
++        "session_type": os.getenv("XDG_SESSION_TYPE", "unknown"),
++        "qt_api": os.getenv("VISION_QT_API", "auto"),
++        "items": items,
++    }
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--config", required=True)
++    parser.add_argument("--runtime-health")
++    parser.add_argument("--json", action="store_true")
++    args = parser.parse_args(argv)
++    report = diagnose(args.config, args.runtime_health)
++    if args.json:
++        print(json.dumps(report, indent=2, ensure_ascii=False))
++    else:
++        for item in report["items"]:
++            print("[{}] {}: {}".format(item["status"], item["code"], item["message"]))
++    return 2 if any(item["status"] == "ERROR" for item in report["items"]) else 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/install_raspberry.sh b/scripts/install_raspberry.sh
+new file mode 100644
+index 0000000..c686f13
+--- /dev/null
++++ b/scripts/install_raspberry.sh
+@@ -0,0 +1,44 @@
++#!/usr/bin/env bash
++# Provision one Raspberry Pi OS Desktop station. Run only with sudo.
++set -euo pipefail
++if [[ "$EUID" -ne 0 ]]; then echo "Ejecuta este instalador con sudo." >&2; exit 1; fi
++
++installation="vision-station"; seed="generic"; operator="$SUDO_USER"; prefix="/opt/vision-sensor"
++while [[ "$#" -gt 0 ]]; do
++  case "$1" in
++    --installation) installation="$2"; shift 2 ;;
++    --seed) seed="$2"; shift 2 ;;
++    --user) operator="$2"; shift 2 ;;
++    --prefix) prefix="$2"; shift 2 ;;
++    *) echo "Opcion no reconocida: $1" >&2; exit 64 ;;
++  esac
++done
++if [[ -z "$operator" || "$operator" == "root" ]]; then echo "Indica el usuario de escritorio con --user." >&2; exit 64; fi
++if [[ "$seed" != "generic" && "$seed" != "worksurface" ]]; then echo "--seed debe ser generic o worksurface" >&2; exit 64; fi
++if [[ "$(uname -m)" != armv7l && "$(dpkg --print-architecture)" != armhf ]]; then echo "Se requiere Raspberry Pi OS de 32 bits (armhf)." >&2; exit 65; fi
++
++script_dir="$(cd "$(dirname "$0")" && pwd)"; release_root="$(cd "$script_dir/.." && pwd)"
++version="$(git -C "$release_root" rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)"
++release="$prefix/releases/$version"; data_root="/var/lib/vision-sensor"
++install_root="$data_root/installations/$installation"; runtime_root="$data_root/runtime/$installation"; env_file="/etc/vision-sensor/vision-sensor.env"
++apt-get update
++apt-get install -y python3-venv python3-pyqt5 python3-opencv python3-numpy libdmtx0b v4l-utils
++install -d -m 0755 "$prefix/releases" "$data_root/installations" "$data_root/runtime" /etc/vision-sensor
++if [[ ! -d "$release" ]]; then cp -a "$release_root" "$release"; find "$release" -name .git -type d -prune -exec rm -rf {} +; fi
++python3 -m venv --system-site-packages "$release/.venv"
++"$release/.venv/bin/pip" install --no-input -r "$release/requirements-rpi32.txt"
++usermod -aG video,dialout "$operator"
++"$release/.venv/bin/python" "$release/scripts/prepare_installation.py" --source-root "$release" --destination "$install_root" --seed "$seed" --installation-id "$installation"
++install -d -o "$operator" -g "$operator" "$install_root" "$runtime_root"; chown -R "$operator:$operator" "$install_root" "$runtime_root"
++if [[ ! -f "$env_file" ]]; then install -m 0644 "$release/deploy/vision-sensor.env.example" "$env_file"; fi
++sed -i -e "s|^VISION_SYSTEM_CONFIG=.*|VISION_SYSTEM_CONFIG=$install_root/system.json|" -e "s|^VISION_DEPLOYMENT_RUNTIME=.*|VISION_DEPLOYMENT_RUNTIME=$runtime_root|" -e "s|^VISION_RELEASE_VERSION=.*|VISION_RELEASE_VERSION=$version|" "$env_file"
++install -d -m 0755 "/home/$operator/.config/systemd/user"
++sed -e "s|@CURRENT_RELEASE@|$prefix/current|g" -e "s|@ENVIRONMENT_FILE@|$env_file|g" "$release/deploy/systemd/vision-sensor.service.in" > "/home/$operator/.config/systemd/user/vision-sensor.service"
++chown "$operator:$operator" "/home/$operator/.config/systemd/user/vision-sensor.service"
++install -d -m 0755 "/home/$operator/.config/autostart"
++sed "s|/opt/vision-sensor/current|$prefix/current|g" "$release/deploy/autostart/vision-sensor.desktop" > "/home/$operator/.config/autostart/vision-sensor.desktop"
++chown "$operator:$operator" "/home/$operator/.config/autostart/vision-sensor.desktop"
++previous=""; if [[ -L "$prefix/current" ]]; then previous="$(readlink -f "$prefix/current")"; fi
++"$release/.venv/bin/python" "$release/scripts/switch_release.py" --prefix "$prefix" --installation "$installation" --target "$release"
++echo "Instalacion lista. El autostart iniciara el servicio tras la proxima sesion grafica de $operator."
++echo "Datos persistentes: $install_root"
+diff --git a/scripts/launch_vision.sh b/scripts/launch_vision.sh
+new file mode 100644
+index 0000000..cd0c34a
+--- /dev/null
++++ b/scripts/launch_vision.sh
+@@ -0,0 +1,27 @@
++#!/usr/bin/env bash
++# Single entry point for systemd and a manual graphical start.
++set -euo pipefail
++
++script_dir="$(cd "$(dirname "$0")" && pwd)"
++release_root="$(cd "$script_dir/.." && pwd)"
++cd "$release_root"
++VISION_SYSTEM_CONFIG="${VISION_SYSTEM_CONFIG:-config/system.json}"
++VISION_DEPLOYMENT_RUNTIME="${VISION_DEPLOYMENT_RUNTIME:-runtime/deployment}"
++
++if [[ ! -f "$VISION_SYSTEM_CONFIG" ]]; then
++  echo "[DEPLOY][FATAL] No existe VISION_SYSTEM_CONFIG: $VISION_SYSTEM_CONFIG" >&2
++  exit 20
++fi
++mkdir -p "$VISION_DEPLOYMENT_RUNTIME"
++python_bin="$release_root/.venv/bin/python"
++if [[ ! -x "$python_bin" ]]; then python_bin="python3"; fi
++
++set +e
++"$python_bin" scripts/validate_installation.py "$(dirname "$VISION_SYSTEM_CONFIG")/commissioning.json"
++status="$?"
++set -e
++if [[ "$status" -eq 2 ]]; then
++  echo "[DEPLOY][FATAL] La configuracion estructural es invalida; no se reiniciara." >&2
++  exit 20
++fi
++exec "$python_bin" main.py
+diff --git a/scripts/prepare_installation.py b/scripts/prepare_installation.py
+new file mode 100644
+index 0000000..ed046a3
+--- /dev/null
++++ b/scripts/prepare_installation.py
+@@ -0,0 +1,78 @@
++"""Copy a generic or project seed into mutable storage without overwriting it."""
++
++import argparse
++import json
++import shutil
++from pathlib import Path
++
++
++def _write_json(path, value):
++    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
++
++
++def seed_installation(source_root, destination, seed, installation_id=None):
++    source_root = Path(source_root)
++    destination = Path(destination)
++    source = source_root / ("installations" / Path(seed) if seed != "generic" else Path("config"))
++    if destination.exists():
++        return False
++    destination.parent.mkdir(parents=True, exist_ok=True)
++    shutil.copytree(source, destination)
++    config_path = destination / "system.json"
++    if seed == "generic":
++        shutil.copy2(source_root / "core" / "models" / "recipes.json", destination / "recipes.json")
++        _write_json(
++            destination / "commissioning.json",
++            {
++                "schema_version": 1,
++                "system_config": "system.json",
++                "project_root": ".",
++                "allow_empty_recipes": True,
++                "required_models": [],
++            },
++        )
++    config = json.loads(config_path.read_text(encoding="utf-8"))
++    if installation_id:
++        config.setdefault("installation", {})["id"] = str(installation_id)
++    config["recipes"]["file"] = str((destination / "recipes.json").resolve())
++    trace = config.setdefault("traceability", {})
++    trace["directory"] = str((destination.parent.parent / "runtime" / config["installation"]["id"] / "traceability").resolve())
++    _write_json(config_path, config)
++    recipes_path = destination / "recipes.json"
++    if recipes_path.exists():
++        payload = json.loads(recipes_path.read_text(encoding="utf-8"))
++        for recipe in payload.get("recipes", []):
++            for step in recipe.get("steps", []):
++                params = step.get("params", {})
++                paths = params.get("template_paths", [])
++                resolved_paths = []
++                for item in paths:
++                    item_path = Path(item)
++                    if item_path.is_absolute():
++                        resolved_paths.append(str(item_path))
++                        continue
++                    source_item = (source_root / item_path).resolve()
++                    try:
++                        relative_to_seed = source_item.relative_to(source.resolve())
++                    except ValueError:
++                        resolved_paths.append(str(source_item))
++                    else:
++                        resolved_paths.append(str((destination / relative_to_seed).resolve()))
++                params["template_paths"] = resolved_paths
++        _write_json(recipes_path, payload)
++    return True
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--source-root", required=True)
++    parser.add_argument("--destination", required=True)
++    parser.add_argument("--seed", choices=("generic", "worksurface"), default="generic")
++    parser.add_argument("--installation-id")
++    args = parser.parse_args(argv)
++    print("Semilla creada" if seed_installation(args.source_root, args.destination, args.seed, args.installation_id) else "La instalacion existente se conserva")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/restore_installation.py b/scripts/restore_installation.py
+new file mode 100644
+index 0000000..4350e0d
+--- /dev/null
++++ b/scripts/restore_installation.py
+@@ -0,0 +1,43 @@
++"""Restore a verified backup using a staging directory and atomic rename."""
++
++import argparse
++import shutil
++import tempfile
++from datetime import datetime, timezone
++from pathlib import Path
++
++from core.deployment_manifest import verify_manifest
++from scripts.validate_installation import validate_installation
++
++
++def restore_installation(backup, destination):
++    backup, destination = Path(backup), Path(destination)
++    manifest, errors = verify_manifest(backup)
++    if errors:
++        raise ValueError("; ".join(errors))
++    with tempfile.TemporaryDirectory(prefix="vision-restore-", dir=str(destination.parent)) as temporary:
++        staged = Path(temporary) / "installation"
++        shutil.copytree(backup, staged, ignore=shutil.ignore_patterns("manifest.json"))
++        report = validate_installation(staged / "commissioning.json")
++        if report["errors"]:
++            raise ValueError("Backup estructuralmente invalido")
++        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
++        previous = destination.with_name(destination.name + ".before-restore-" + stamp)
++        if destination.exists():
++            destination.replace(previous)
++        staged.replace(destination)
++    return manifest
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--backup", required=True)
++    parser.add_argument("--destination", required=True)
++    args = parser.parse_args(argv)
++    restore_installation(args.backup, args.destination)
++    print("Restauracion completada")
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/rollback_raspberry.sh b/scripts/rollback_raspberry.sh
+new file mode 100644
+index 0000000..359cd7a
+--- /dev/null
++++ b/scripts/rollback_raspberry.sh
+@@ -0,0 +1,8 @@
++#!/usr/bin/env bash
++set -euo pipefail
++prefix="${1:-/opt/vision-sensor}"
++if [[ "$EUID" -ne 0 ]]; then echo "Usa sudo." >&2; exit 1; fi
++if [[ ! -L "$prefix/previous" ]]; then echo "No hay release anterior recuperable." >&2; exit 2; fi
++current="$(readlink -f "$prefix/current")"; previous="$(readlink -f "$prefix/previous")"
++python3 "$(dirname "$0")/switch_release.py" --prefix "$prefix" --target "$previous"
++echo "Rollback de codigo completado. Los datos persistentes no fueron modificados."
+diff --git a/scripts/start_graphical_service.sh b/scripts/start_graphical_service.sh
+new file mode 100644
+index 0000000..50ce0fa
+--- /dev/null
++++ b/scripts/start_graphical_service.sh
+@@ -0,0 +1,5 @@
++#!/usr/bin/env bash
++# Called by desktop autostart after Wayland/X11 variables are available.
++set -euo pipefail
++systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE
++systemctl --user start vision-sensor.service
+diff --git a/scripts/switch_release.py b/scripts/switch_release.py
+new file mode 100644
+index 0000000..c09199f
+--- /dev/null
++++ b/scripts/switch_release.py
+@@ -0,0 +1,22 @@
++"""Atomically activate one release while preserving the previous target."""
++
++import argparse
++
++from core.deployment_paths import DeploymentPaths, switch_release
++
++
++def main(argv=None):
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--prefix", default="/opt/vision-sensor")
++    parser.add_argument("--installation", default="vision-station")
++    parser.add_argument("--target", required=True)
++    args = parser.parse_args(argv)
++    paths = DeploymentPaths.from_values(args.prefix, args.installation)
++    previous = switch_release(paths, args.target)
++    print("Release anterior: {}".format(previous or "ninguno"))
++    print("Release activa: {}".format(paths.current.resolve()))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/scripts/update_raspberry.sh b/scripts/update_raspberry.sh
+new file mode 100644
+index 0000000..15b53fc
+--- /dev/null
++++ b/scripts/update_raspberry.sh
+@@ -0,0 +1,10 @@
++#!/usr/bin/env bash
++set -euo pipefail
++source_root="${1:?Uso: $0 /ruta/a/nueva_version [prefijo]}"; prefix="${2:-/opt/vision-sensor}"
++if [[ "$EUID" -ne 0 ]]; then echo "Usa sudo." >&2; exit 1; fi
++version="$(git -C "$source_root" rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)"; target="$prefix/releases/$version"
++if [[ ! -d "$target" ]]; then cp -a "$source_root" "$target"; find "$target" -name .git -type d -prune -exec rm -rf {} +; fi
++python3 -m venv --system-site-packages "$target/.venv"; "$target/.venv/bin/pip" install --no-input -r "$target/requirements-rpi32.txt"
++"$target/.venv/bin/python" -m compileall -q "$target/app" "$target/core" "$target/services" "$target/ui"
++"$target/.venv/bin/python" "$target/scripts/switch_release.py" --prefix "$prefix" --target "$target"
++echo "Release activa: $target. Los datos persistentes no fueron modificados."
+diff --git a/scripts/validate_installation.py b/scripts/validate_installation.py
+index 8de2a84..b0e0d1b 100644
+--- a/scripts/validate_installation.py
++++ b/scripts/validate_installation.py
+@@ -155,13 +155,20 @@ def validate_installation(manifest_path):
+         for recipe in recipes
+         if isinstance(recipe, dict) and recipe.get("selected")
+     ]
+-    if len(selected) != 1:
++    allow_empty_recipes = manifest.get("allow_empty_recipes") is True
++    if recipes and len(selected) != 1:
+         add(
+             "errors",
+             "RECIPE_SELECTION",
+             "Debe existir exactamente una receta seleccionada",
+             selected=selected,
+         )
++    elif not recipes and not allow_empty_recipes:
++        add(
++            "errors",
++            "RECIPE_SELECTION",
++            "El catalogo no contiene recetas y el manifiesto no lo permite",
++        )
+ 
+     try:
+         SystemConfig.validate_data(system_config.data, recipe_names=names)
+@@ -234,6 +241,9 @@ def validate_installation(manifest_path):
+         )
+ 
+     policy = manifest.get("recipe_policy", {})
++    if not isinstance(policy, dict):
++        add("errors", "RECIPE_POLICY", "recipe_policy debe ser un objeto")
++        policy = {}
+     required_tools = set(policy.get("required_tools", []))
+     required_focus_fields = policy.get("required_focus_fields", [])
+     parameter_rules = policy.get("parameter_rules", [])
+@@ -257,7 +267,7 @@ def validate_installation(manifest_path):
+         missing_tools = sorted(required_tools - active_tools)
+         if missing_tools:
+             add(
+-                "errors",
++                "errors" if commissioned else "pending",
+                 "REQUIRED_TOOLS",
+                 f"{recipe_name}: faltan herramientas habilitadas",
+                 tools=missing_tools,
+@@ -363,7 +373,7 @@ def validate_installation(manifest_path):
+     report["ready_for_production"] = (
+         not report["errors"]
+         and not report["pending"]
+-        and bool(required_map)
++        and (bool(required_map) or allow_empty_recipes)
+     )
+     return report
+ 
+diff --git a/scripts/vision_service.sh b/scripts/vision_service.sh
+new file mode 100644
+index 0000000..9938272
+--- /dev/null
++++ b/scripts/vision_service.sh
+@@ -0,0 +1,9 @@
++#!/usr/bin/env bash
++# Human-friendly wrapper around the per-user graphical service.
++set -euo pipefail
++command="${1:-status}"
++case "$command" in
++  status|start|stop|restart|enable|disable) systemctl --user "$command" vision-sensor.service ;;
++  logs) journalctl --user -u vision-sensor.service -n "${2:-120}" --no-pager ;;
++  *) echo "Uso: $0 {status|start|stop|restart|logs|enable|disable}" >&2; exit 64 ;;
++esac
+diff --git a/tests/test_deployment_phase12.py b/tests/test_deployment_phase12.py
+new file mode 100644
+index 0000000..b6f4f1a
+--- /dev/null
++++ b/tests/test_deployment_phase12.py
+@@ -0,0 +1,79 @@
++import tempfile
++import unittest
++from pathlib import Path
++
++from core.deployment_manifest import verify_manifest, write_manifest
++from core.deployment_paths import DeploymentPaths, switch_release
++from core.runtime_health import read_runtime_health, write_runtime_health
++from scripts.prepare_installation import seed_installation
++from scripts.configure_touchscreen import MATRICES, udev_rule
++from scripts.validate_installation import validate_installation
++
++
++class DeploymentPhase12Tests(unittest.TestCase):
++    def test_paths_do_not_embed_a_user_or_hardware_endpoint(self):
++        paths = DeploymentPaths.from_values("/opt/vision-sensor", "worksurface")
++        self.assertEqual(paths.system_config, Path("/var/lib/vision-sensor/installations/worksurface/system.json"))
++        self.assertEqual(paths.runtime, Path("/var/lib/vision-sensor/runtime/worksurface"))
++        with self.assertRaises(ValueError):
++            DeploymentPaths.from_values("/opt/vision-sensor", "../unsafe")
++
++    def test_release_switch_preserves_previous_atomically(self):
++        with tempfile.TemporaryDirectory() as temp_dir:
++            paths = DeploymentPaths.from_values(temp_dir, "station")
++            one = paths.releases / "one"
++            two = paths.releases / "two"
++            one.mkdir(parents=True)
++            two.mkdir(parents=True)
++            switch_release(paths, one)
++            previous = switch_release(paths, two)
++            self.assertEqual(previous, one.resolve())
++            self.assertEqual(paths.current.resolve(), two.resolve())
++            self.assertEqual(paths.previous.resolve(), one.resolve())
++
++    def test_runtime_health_is_atomic_and_not_ready_authorization(self):
++        with tempfile.TemporaryDirectory() as temp_dir:
++            path = Path(temp_dir) / "health.json"
++            payload = write_runtime_health(path, "degraded", version="test")
++            self.assertEqual(payload["state"], "degraded")
++            self.assertEqual(read_runtime_health(path)["state"], "degraded")
++            self.assertNotIn("READY", payload)
++
++    def test_touchscreen_profiles_use_stable_udev_identifiers(self):
++        self.assertEqual(len(MATRICES["rotate-180"]), 6)
++        rule = udev_rule("1234", "abcd", "invert-x")
++        self.assertIn('ENV{ID_VENDOR_ID}=="1234"', rule)
++        self.assertIn("LIBINPUT_CALIBRATION_MATRIX", rule)
++        self.assertNotIn("event", rule)
++
++    def test_generic_seed_is_preserved_and_valid_for_configuration(self):
++        root = Path(__file__).resolve().parents[1]
++        with tempfile.TemporaryDirectory() as temp_dir:
++            destination = Path(temp_dir) / "station"
++            self.assertTrue(seed_installation(root, destination, "generic", "station-test"))
++            self.assertFalse(seed_installation(root, destination, "generic"))
++            report = validate_installation(destination / "commissioning.json")
++        self.assertEqual(report["errors"], [])
++        self.assertTrue(report["ready_for_commissioning"])
++        self.assertEqual(report["installation"], "station-test")
++
++    def test_service_contract_keeps_qt_in_the_graphical_user_session(self):
++        root = Path(__file__).resolve().parents[1]
++        service = (root / "deploy/systemd/vision-sensor.service.in").read_text(encoding="utf-8")
++        autostart = (root / "deploy/autostart/vision-sensor.desktop").read_text(encoding="utf-8")
++        self.assertIn("Restart=on-failure", service)
++        self.assertNotIn("User=root", service)
++        self.assertIn("start_graphical_service.sh", autostart)
++
++    def test_manifest_detects_tampered_backup(self):
++        with tempfile.TemporaryDirectory() as temp_dir:
++            root = Path(temp_dir)
++            (root / "system.json").write_text("{}", encoding="utf-8")
++            write_manifest(root, installation_id="test", version="x")
++            self.assertEqual(verify_manifest(root)[1], [])
++            (root / "system.json").write_text("{broken}", encoding="utf-8")
++            self.assertTrue(verify_manifest(root)[1])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_installation_package.py b/tests/test_installation_package.py
+index 088b073..e85ac66 100644
+--- a/tests/test_installation_package.py
++++ b/tests/test_installation_package.py
+@@ -27,8 +27,8 @@ class InstallationPackageTests(unittest.TestCase):
+         self.assertTrue(report["ready_for_commissioning"])
+         self.assertFalse(report["ready_for_production"])
+         pending_codes = {item["code"] for item in report["pending"]}
+-        self.assertIn("FOCUS_COMMISSIONING", pending_codes)
+         self.assertIn("RECIPE_NOT_COMMISSIONED", pending_codes)
++        self.assertNotIn("REQUIRED_TOOLS", pending_codes)
+         self.assertNotIn("TOOL_COMMISSIONING", pending_codes)
+         self.assertEqual(
+             Path(report["manifest"]),
+@@ -60,13 +60,7 @@ class InstallationPackageTests(unittest.TestCase):
+             },
+         )
+         self.assertTrue(all(recipe["commissioned"] is False for recipe in recipes))
+-        self.assertTrue(
+-            all(
+-                recipe["steps"][0]["params"].get("roi")
+-                and recipe["steps"][1]["params"].get("template_paths")
+-                for recipe in recipes
+-            )
+-        )
++        self.assertTrue(all("steps" in recipe for recipe in recipes))
+ 
+     def test_invalid_model_mapping_is_rejected(self):
+         with tempfile.TemporaryDirectory() as temp_dir:
+-- 
+2.51.1
+
