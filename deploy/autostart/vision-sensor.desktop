@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Vision Sensor
+Comment=Start the configured vision sensor after the graphical session is ready
+Exec=/opt/vision-sensor/current/scripts/start_graphical_service.sh
+Terminal=false
+X-GNOME-Autostart-enabled=true

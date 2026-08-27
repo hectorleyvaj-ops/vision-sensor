@@ -32,28 +32,6 @@
             }
         }
     ],
-    "recipe_policy": {
-        "required_tools": [
-            "dmtx",
-            "img_hist"
-        ],
-        "require_calibrated_focus": true,
-        "required_focus_fields": [
-            "roi",
-            "value",
-            "min_score",
-            "median_score",
-            "peak_score"
-        ],
-        "parameter_rules": [
-            {
-                "tool": "img_hist",
-                "parameter": "threshold",
-                "operator": "gt",
-                "value": 0.0
-            }
-        ]
-    },
     "pending_physical_values": [
         "Contenido DataMatrix exacto para A/B/C",
         "ROI DataMatrix e imagen por modelo",

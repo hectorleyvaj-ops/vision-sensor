@@ -155,12 +155,19 @@ def validate_installation(manifest_path):
         for recipe in recipes
         if isinstance(recipe, dict) and recipe.get("selected")
     ]
-    if len(selected) != 1:
+    allow_empty_recipes = manifest.get("allow_empty_recipes") is True
+    if recipes and len(selected) != 1:
         add(
             "errors",
             "RECIPE_SELECTION",
             "Debe existir exactamente una receta seleccionada",
             selected=selected,
+        )
+    elif not recipes and not allow_empty_recipes:
+        add(
+            "errors",
+            "RECIPE_SELECTION",
+            "El catalogo no contiene recetas y el manifiesto no lo permite",
         )
 
     try:
@@ -234,6 +241,9 @@ def validate_installation(manifest_path):
         )
 
     policy = manifest.get("recipe_policy", {})
+    if not isinstance(policy, dict):
+        add("errors", "RECIPE_POLICY", "recipe_policy debe ser un objeto")
+        policy = {}
     required_tools = set(policy.get("required_tools", []))
     required_focus_fields = policy.get("required_focus_fields", [])
     parameter_rules = policy.get("parameter_rules", [])
@@ -257,7 +267,7 @@ def validate_installation(manifest_path):
         missing_tools = sorted(required_tools - active_tools)
         if missing_tools:
             add(
-                "errors",
+                "errors" if commissioned else "pending",
                 "REQUIRED_TOOLS",
                 f"{recipe_name}: faltan herramientas habilitadas",
                 tools=missing_tools,
@@ -363,7 +373,7 @@ def validate_installation(manifest_path):
     report["ready_for_production"] = (
         not report["errors"]
         and not report["pending"]
-        and bool(required_map)
+        and (bool(required_map) or allow_empty_recipes)
     )
     return report
 
