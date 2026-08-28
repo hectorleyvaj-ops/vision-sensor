@@ -14,6 +14,8 @@ def seed_installation(source_root, destination, seed, installation_id=None):
     source_root = Path(source_root)
     destination = Path(destination)
     source = source_root / ("installations" / Path(seed) if seed != "generic" else Path("config"))
+    if not source.is_dir():
+        raise ValueError(f"No existe la semilla solicitada: {source}")
     if destination.exists():
         return False
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -67,7 +69,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-root", required=True)
     parser.add_argument("--destination", required=True)
-    parser.add_argument("--seed", choices=("generic", "worksurface"), default="generic")
+    parser.add_argument("--seed", default="generic")
     parser.add_argument("--installation-id")
     args = parser.parse_args(argv)
     print("Semilla creada" if seed_installation(args.source_root, args.destination, args.seed, args.installation_id) else "La instalacion existente se conserva")

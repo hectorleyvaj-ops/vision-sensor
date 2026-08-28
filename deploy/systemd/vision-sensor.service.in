@@ -2,6 +2,8 @@
 Description=Vision Sensor graphical runtime
 After=graphical-session.target
 PartOf=graphical-session.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -10,8 +12,6 @@ WorkingDirectory=@CURRENT_RELEASE@
 ExecStart=@CURRENT_RELEASE@/scripts/launch_vision.sh
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=120
-StartLimitBurst=3
 TimeoutStopSec=20
 StandardOutput=journal
 StandardError=journal

@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +67,69 @@ class DeploymentPhase12Tests(unittest.TestCase):
         self.assertIn("Restart=on-failure", service)
         self.assertNotIn("User=root", service)
         self.assertIn("start_graphical_service.sh", autostart)
+        unit_section, service_section = service.split("[Service]", 1)
+        self.assertIn("StartLimitIntervalSec=120", unit_section)
+        self.assertNotIn("StartLimitIntervalSec", service_section)
+
+    def test_maintenance_clis_import_project_from_any_working_directory(self):
+        root = Path(__file__).resolve().parents[1]
+        scripts = (
+            "switch_release.py",
+            "backup_installation.py",
+            "restore_installation.py",
+            "diagnose_deployment.py",
+        )
+        with tempfile.TemporaryDirectory() as external_dir:
+            for script in scripts:
+                result = subprocess.run(
+                    [sys.executable, str(root / "scripts" / script), "--help"],
+                    cwd=external_dir,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_shell_scripts_are_linux_executables_and_select_dmtx_package(self):
+        root = Path(__file__).resolve().parents[1]
+        required = (
+            "install_raspberry.sh",
+            "launch_vision.sh",
+            "rollback_raspberry.sh",
+            "start_graphical_service.sh",
+            "update_raspberry.sh",
+            "vision_service.sh",
+        )
+        for name in required:
+            path = root / "scripts" / name
+            self.assertTrue(os.access(path, os.X_OK), name)
+            self.assertNotIn(b"\r\n", path.read_bytes(), name)
+        installer = (root / "scripts/install_raspberry.sh").read_text(encoding="utf-8")
+        self.assertIn("libdmtx0t64", installer)
+        self.assertIn("libdmtx0b", installer)
+        self.assertIn("apt-cache show", installer)
+        attributes = (root / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn("*.sh text eol=lf", attributes)
+
+    def test_named_installation_seed_is_supported(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            source_root = temp_root / "source"
+            seed = source_root / "installations" / "custom-station"
+            seed.mkdir(parents=True)
+            (seed / "system.json").write_text(
+                '{"schema_version":2,"installation":{"id":"custom"},"recipes":{"file":"recipes.json"},"traceability":{}}',
+                encoding="utf-8",
+            )
+            (seed / "recipes.json").write_text(
+                '{"schema_version":3,"recipes":[]}',
+                encoding="utf-8",
+            )
+            destination = temp_root / "data" / "custom"
+            self.assertTrue(
+                seed_installation(source_root, destination, "custom-station", "custom")
+            )
+            self.assertTrue((destination / "system.json").is_file())
 
     def test_manifest_detects_tampered_backup(self):
         with tempfile.TemporaryDirectory() as temp_dir:

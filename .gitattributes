@@ -1,0 +1,5 @@
+# Scripts deployed to Linux must never receive Windows CRLF terminators.
+*.sh text eol=lf
+*.py text eol=lf
+*.service text eol=lf
+*.desktop text eol=lf

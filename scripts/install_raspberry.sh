@@ -14,15 +14,31 @@ while [[ "$#" -gt 0 ]]; do
   esac
 done
 if [[ -z "$operator" || "$operator" == "root" ]]; then echo "Indica el usuario de escritorio con --user." >&2; exit 64; fi
-if [[ "$seed" != "generic" && "$seed" != "worksurface" ]]; then echo "--seed debe ser generic o worksurface" >&2; exit 64; fi
+if [[ ! "$seed" =~ ^[A-Za-z0-9._-]+$ ]]; then echo "--seed contiene caracteres no permitidos" >&2; exit 64; fi
 if [[ "$(uname -m)" != armv7l && "$(dpkg --print-architecture)" != armhf ]]; then echo "Se requiere Raspberry Pi OS de 32 bits (armhf)." >&2; exit 65; fi
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"; release_root="$(cd "$script_dir/.." && pwd)"
 version="$(git -C "$release_root" rev-parse --short HEAD 2>/dev/null || date -u +%Y%m%d%H%M%S)"
 release="$prefix/releases/$version"; data_root="/var/lib/vision-sensor"
 install_root="$data_root/installations/$installation"; runtime_root="$data_root/runtime/$installation"; env_file="/etc/vision-sensor/vision-sensor.env"
+if [[ "$seed" != "generic" && ! -d "$release_root/installations/$seed" ]]; then
+  echo "No existe la semilla: $release_root/installations/$seed" >&2
+  exit 66
+fi
 apt-get update
-apt-get install -y python3-venv python3-pyqt5 python3-opencv python3-numpy libdmtx0b v4l-utils
+dmtx_package=""
+for candidate in libdmtx0t64 libdmtx0b; do
+  if apt-cache show "$candidate" >/dev/null 2>&1; then
+    dmtx_package="$candidate"
+    break
+  fi
+done
+if [[ -z "$dmtx_package" ]]; then
+  echo "No se encontro una biblioteca libdmtx compatible en APT." >&2
+  exit 67
+fi
+echo "Biblioteca DataMatrix seleccionada: $dmtx_package"
+apt-get install -y python3-venv python3-pyqt5 python3-opencv python3-numpy "$dmtx_package" v4l-utils
 install -d -m 0755 "$prefix/releases" "$data_root/installations" "$data_root/runtime" /etc/vision-sensor
 if [[ ! -d "$release" ]]; then cp -a "$release_root" "$release"; find "$release" -name .git -type d -prune -exec rm -rf {} +; fi
 python3 -m venv --system-site-packages "$release/.venv"
