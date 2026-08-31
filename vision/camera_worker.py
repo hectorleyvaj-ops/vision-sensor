@@ -6,7 +6,7 @@ import subprocess
 import threading
 
 from utils.qt_compat import QObject, Signal, Slot
-from core.camera_runtime import control_value_matches
+from core.camera_runtime import control_value_matches, resolve_v4l2_device
 from vision.manual_focus_controller import ManualFocusController
 
 class CameraWorker(QObject):
@@ -90,6 +90,7 @@ class CameraWorker(QObject):
         self.v4l2_available = False
         self.v4l2_tool_available = False
         self.v4l2_error = None
+        self.v4l2_device = None
         self.v4l2_controls = set()
         self.autofocus_supported = False
         self.focus_absolute_supported = False
@@ -171,6 +172,7 @@ class CameraWorker(QObject):
             "v4l2_available": bool(self.v4l2_available),
             "v4l2_tool_available": bool(self.v4l2_tool_available),
             "v4l2_error": self.v4l2_error,
+            "v4l2_device": self.v4l2_device,
             "autofocus_supported": bool(self.autofocus_supported),
             "focus_absolute_supported": bool(self.focus_absolute_supported),
             "focus_min": self.focus_min,
@@ -357,6 +359,7 @@ class CameraWorker(QObject):
         self.v4l2_available = False
         self.v4l2_tool_available = False
         self.v4l2_error = None
+        self.v4l2_device = None
         self.v4l2_controls = set()
         self.autofocus_supported = False
         self.focus_absolute_supported = False
@@ -378,14 +381,26 @@ class CameraWorker(QObject):
             )
             return
 
-        if not isinstance(self.device, str) or not self.device.startswith("/dev/video"):
-            print("[CAMERA] Dispositivo Linux invalido para v4l2")
+        # La configuracion de produccion prioriza enlaces persistentes como
+        # /dev/v4l/by-id/... para que la camara no cambie cuando Linux reasigna
+        # los indices. v4l2-ctl acepta esos enlaces, pero validamos su destino
+        # canonico para evitar ejecutar controles sobre otro tipo de endpoint.
+        try:
+            resolved_device = resolve_v4l2_device(self.device)
+        except ValueError as exc:
+            self.v4l2_error = str(exc)
+            print(f"[CAMERA] {self.v4l2_error}")
             return
+        self.v4l2_device = resolved_device
+        print(
+            f"[CAMERA] Endpoint V4L2 de controles: "
+            f"{self.device} -> {self.v4l2_device}"
+        )
 
         try:
             # COMANDO PARA OBTENER LA LISTA DE CONTROLES
             result = subprocess.run(
-                ["v4l2-ctl", "-d", self.device, "--list-ctrls"],
+                [v4l2_tool, "-d", self.v4l2_device, "--list-ctrls"],
                 check=False,
                 capture_output=True,
                 text=True
@@ -458,7 +473,12 @@ class CameraWorker(QObject):
         if self.device is None:
             raise RuntimeError("[CAMERA][ERROR] No hay dispositivo valido")
 
-        cmd = ["v4l2-ctl", "-d", self.device] + args
+        try:
+            control_device = self.v4l2_device or resolve_v4l2_device(self.device)
+        except ValueError as exc:
+            raise RuntimeError(f"[CAMERA][ERROR] {exc}") from exc
+        v4l2_tool = shutil.which("v4l2-ctl") or "v4l2-ctl"
+        cmd = [v4l2_tool, "-d", control_device] + args
 
         print(f"[V4L2][CMD] {' '.join(cmd)}")
 

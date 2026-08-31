@@ -38,7 +38,7 @@ try:
         QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout,
         QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox, QDialog,
         QInputDialog, QScrollArea, QSizePolicy, QTabWidget, QTableWidget,
-        QTableWidgetItem, QMessageBox, QPlainTextEdit
+        QTableWidgetItem, QMessageBox, QPlainTextEdit, QAbstractItemView
     )
     from PySide6.QtCore import QObject, QThread, Signal, Qt, QTimer, Slot, QMetaObject
     from PySide6.QtGui import QImage, QPixmap, QPainter, QColor, QPen
@@ -75,7 +75,7 @@ except ImportError as pyside_error:
             QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, QFormLayout,
             QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox, QCheckBox, QDialog,
             QInputDialog, QScrollArea, QSizePolicy, QTabWidget, QTableWidget,
-            QTableWidgetItem, QMessageBox, QPlainTextEdit,
+            QTableWidgetItem, QMessageBox, QPlainTextEdit, QAbstractItemView,
         )
         from PyQt5.QtCore import (  # type: ignore
             QObject, QThread, pyqtSignal as Signal, pyqtSlot as Slot,

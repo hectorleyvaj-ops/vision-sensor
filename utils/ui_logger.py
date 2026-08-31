@@ -2,7 +2,7 @@ import sys
 import time
 import threading
 
-from utils.qt_compat import QObject, Signal, Slot, Qt
+from utils.qt_compat import QObject, Signal, Slot, Qt, QAbstractItemView
 
 
 class TeeStream:
@@ -102,6 +102,11 @@ class UiLogger(QObject):
         widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         widget.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         widget.setWordWrap(True)
+        widget.setUniformItemSizes(False)
+        scroll_per_pixel = getattr(QAbstractItemView, "ScrollPerPixel", None)
+        if scroll_per_pixel is None:
+            scroll_per_pixel = QAbstractItemView.ScrollMode.ScrollPerPixel
+        widget.setVerticalScrollMode(scroll_per_pixel)
 
         self.apply_log_widget_style(widget)
 
@@ -217,15 +222,14 @@ class UiLogger(QObject):
             self.detach_list_widget(widget)
 
     def _append_to_single_widget(self, widget, level, message):
+        bar = widget.verticalScrollBar()
+        was_at_btm = bar.value() >= bar.maximum() - 2
         widget.addItem(message)
 
         max_items = widget.property("_ui_logger_max_items") or 80
 
         while widget.count() > max_items:
             widget.takeItem(0)
-
-        bar = widget.verticalScrollBar()
-        was_at_btm = bar.value() >= bar.maximum() -2
 
         if was_at_btm:
             widget.scrollToBottom()

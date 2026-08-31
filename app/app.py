@@ -15,6 +15,7 @@ from utils.qt_compat import (
     Qt,
     QTimer,
     QLabel,
+    QAbstractItemView,
 )
 from utils.ui_logger import get_ui_logger
 # IMPORTS DE UI
@@ -274,7 +275,16 @@ class MainWindow(QMainWindow):
     def _build_log_scroll_controls(self):
         """Replace the narrow native scrollbar with two touch controls."""
         self.ui.list_log.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll_per_pixel = getattr(QAbstractItemView, "ScrollPerPixel", None)
+        if scroll_per_pixel is None:
+            scroll_per_pixel = QAbstractItemView.ScrollMode.ScrollPerPixel
+        self.ui.list_log.setVerticalScrollMode(scroll_per_pixel)
+        self.ui.list_log.setWordWrap(True)
+        self.ui.list_log.setUniformItemSizes(False)
         native_scrollbar = self.ui.list_log.verticalScrollBar()
+        native_scrollbar.setSingleStep(
+            max(12, self.ui.list_log.fontMetrics().height())
+        )
         native_scrollbar.setFixedWidth(0)
         native_scrollbar.hide()
         self.ui.list_log.setViewportMargins(0, 0, 0, 0)
@@ -303,7 +313,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "btn_log_up"):
             return
         control_width = max(44, self.display_profile.touch_target + 4)
-        control_height = max(30, self.display_profile.log_height - 17)
+        control_height = max(27, self.display_profile.log_height - 18)
         self.btn_log_up.setFixedSize(control_width, control_height)
         self.btn_log_down.setFixedSize(control_width, control_height)
 

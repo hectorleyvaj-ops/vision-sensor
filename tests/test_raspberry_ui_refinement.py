@@ -55,7 +55,7 @@ class RaspberryUiRefinementTests(unittest.TestCase):
         self.assertIn("native_scrollbar.setFixedWidth(0)", self.app_source)
         self.assertIn("native_scrollbar.hide()", self.app_source)
         self.assertIn("setViewportMargins(0, 0, 0, 0)", self.app_source)
-        self.assertIn("log_height - 17", self.app_source)
+        self.assertIn("log_height - 18", self.app_source)
         self.assertIn('QPushButton("▲")', self.app_source)
         self.assertIn('QPushButton("▼")', self.app_source)
         self.assertIn("setAutoRepeat(True)", self.app_source)

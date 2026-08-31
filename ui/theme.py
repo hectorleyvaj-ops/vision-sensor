@@ -76,7 +76,7 @@ def interface_stylesheet(profile):
         }}
         QPushButton[buttonRole="commit"] {{
             color: rgb(245, 247, 250);
-            border: 2px solid rgb(57, 198, 200);
+            border: 1px solid rgb(57, 198, 200);
             background-color: rgb(21, 104, 112);
             font-weight: 800;
         }}
@@ -93,12 +93,23 @@ def interface_stylesheet(profile):
         }}
         QPushButton[buttonRole="danger"] {{
             color: rgb(255, 226, 229);
-            border-color: rgb(159, 60, 72);
+            border: 1px solid rgb(159, 60, 72);
             background-color: rgb(92, 32, 43);
+        }}
+        QPushButton[buttonRole="danger"]:hover {{
+            color: rgb(255, 238, 240);
+            border-color: rgb(244, 100, 112);
+            background-color: rgb(116, 38, 50);
+        }}
+        QPushButton[buttonRole="danger"]:pressed {{
+            color: rgb(35, 8, 13);
+            border-color: rgb(255, 226, 229);
+            background-color: rgb(244, 100, 112);
+            padding-top: 4px;
         }}
         QPushButton[buttonRole="navigation"] {{
             color: rgb(235, 241, 248);
-            border: 2px solid rgb(57, 198, 200);
+            border: 1px solid rgb(57, 198, 200);
             background-color: rgb(17, 32, 51);
             font-weight: 700;
         }}

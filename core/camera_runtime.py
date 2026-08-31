@@ -1,5 +1,22 @@
 """Pure presentation and validation helpers for camera runtime state."""
 
+import os
+import re
+
+
+def resolve_v4l2_device(device, realpath=os.path.realpath):
+    """Resolve a configured Linux endpoint to its canonical /dev/video node."""
+    if not isinstance(device, str) or not device.startswith("/dev/"):
+        raise ValueError(f"Dispositivo Linux invalido para V4L2: {device!r}")
+
+    resolved_device = realpath(device)
+    if not re.fullmatch(r"/dev/video\d+", resolved_device):
+        raise ValueError(
+            f"El endpoint {device} no resuelve a un dispositivo /dev/video*: "
+            f"{resolved_device}"
+        )
+    return resolved_device
+
 
 def control_value_matches(requested, actual):
     if actual is None:

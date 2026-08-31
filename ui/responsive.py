@@ -79,10 +79,17 @@ def apply_main_window_layout(window, ui, profile):
     ui.btn_minimizar.setFixedSize(title_button_size, title_button_size)
     ui.btn_cerrar.setFixedSize(title_button_size, title_button_size)
     ui.btn_config.setMinimumHeight(profile.touch_target)
-    ui.btn_config.setMaximumHeight(profile.touch_target + 6)
+    ui.btn_config.setMaximumHeight(
+        profile.touch_target if profile.compact else profile.touch_target + 6
+    )
     ui.indicator_1.setFixedSize(profile.indicator_size, profile.indicator_size)
-    ui.lbl_model.setMinimumHeight(profile.touch_target + 10)
+    ui.lbl_model.setMinimumHeight(
+        profile.touch_target + (4 if profile.compact else 10)
+    )
+    if profile.compact:
+        ui.lbl_model.setMaximumHeight(profile.touch_target + 4)
     ui.lbl_indicator_1.setMinimumHeight(profile.indicator_size)
+    ui.lbl_indicator_1.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     ui.left_panel.setSpacing(profile.spacing)
     ui.left_panel.setContentsMargins(0, 0, 0, 0)
