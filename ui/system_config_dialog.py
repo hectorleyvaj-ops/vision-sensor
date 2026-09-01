@@ -262,8 +262,9 @@ class SystemConfigDialog(QDialog):
     def _build_mapping_tab(self):
         layout = self._layout_tab("Mapeo")
         help_label = QLabel(
-            "Mapea el identificador opaco enviado por el controlador al nombre "
-            "exacto de una receta."
+            "Este cuadro no ordena ni asigna prioridad a las recetas. Mapea "
+            "cada identificador recibido del controlador al nombre de una "
+            "receta; el orden de las filas no cambia el funcionamiento."
         )
         help_label.setWordWrap(True)
         layout.addWidget(help_label)
@@ -326,7 +327,10 @@ class SystemConfigDialog(QDialog):
             self.chk_heartbeat: "Supervisa que el enlace con el controlador siga vivo.",
             self.chk_ready_notifications: "Publica READY o NOT_READY al controlador.",
             self.tbl_ports: "Puerto por sistema operativo; puede incluir una entrada default.",
-            self.tbl_model_map: "Traduce el ID externo recibido a una receta existente.",
+            self.tbl_model_map: (
+                "Traduce el ID externo recibido a una receta existente. "
+                "El orden de las filas no establece prioridad."
+            ),
             self.chk_require_controller_ready: "Bloquea triggers si el controlador no esta listo.",
             self.chk_require_controller_sync: "Exige negociar vision_controller_v1 antes de producir.",
             self.chk_require_focus_ready: "Bloquea produccion sin enfoque valido.",

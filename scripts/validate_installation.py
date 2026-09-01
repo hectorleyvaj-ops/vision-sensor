@@ -182,7 +182,9 @@ def validate_installation(manifest_path):
     }
     model_map = system_config.section("controller").get("model_map", {})
     required_models = manifest.get("required_models", [])
+    exact_model_map = manifest.get("exact_model_map") is True
     required_map = {}
+    required_recipe_names = set()
     for model in required_models:
         if not isinstance(model, dict):
             add("errors", "MODEL_DECLARATION", "Modelo requerido invalido")
@@ -190,28 +192,32 @@ def validate_installation(manifest_path):
         external_id = str(model.get("external_id", "")).strip()
         recipe_name = str(model.get("recipe", "")).strip()
         part_number = str(model.get("part_number", "")).strip()
-        if not external_id or not recipe_name or not part_number:
+        if not recipe_name or not part_number or (exact_model_map and not external_id):
             add(
                 "errors",
                 "MODEL_DECLARATION",
-                "Cada modelo requiere external_id, recipe y part_number",
+                (
+                    "Cada modelo requiere recipe y part_number; external_id "
+                    "tambien es obligatorio cuando exact_model_map=true"
+                ),
                 model=model,
             )
             continue
-        required_map[external_id] = recipe_name
-        if model_map.get(external_id) != recipe_name:
+        required_recipe_names.add(recipe_name)
+        if external_id:
+            required_map[external_id] = recipe_name
+        if exact_model_map and model_map.get(external_id) != recipe_name:
             add(
                 "errors",
                 "MODEL_MAPPING",
                 f"El modelo externo {external_id} debe apuntar a {recipe_name}",
             )
-            continue
         recipe = recipes_by_name.get(recipe_name)
         if recipe is None:
             add("errors", "MODEL_RECIPE", f"No existe la receta {recipe_name}")
             continue
         machine = recipe.get("machine", {})
-        if machine.get("external_model") != external_id:
+        if exact_model_map and machine.get("external_model") != external_id:
             add(
                 "errors",
                 "MODEL_METADATA",
@@ -224,7 +230,7 @@ def validate_installation(manifest_path):
                 f"{recipe_name} no declara part_number={part_number}",
             )
 
-    if manifest.get("exact_model_map") is True and model_map != required_map:
+    if exact_model_map and model_map != required_map:
         add(
             "errors",
             "EXACT_MODEL_MAP",
@@ -232,13 +238,38 @@ def validate_installation(manifest_path):
             expected=required_map,
             actual=model_map,
         )
-    elif required_map:
+    elif exact_model_map and required_map:
         add(
             "passes",
             "MODEL_MAP",
             "Mapeo externo coincide con el manifiesto",
             mappings=required_map,
         )
+    elif required_recipe_names:
+        mapped_recipe_names = {
+            str(recipe_name).strip()
+            for recipe_name in model_map.values()
+            if str(recipe_name).strip()
+        }
+        missing_mappings = sorted(required_recipe_names - mapped_recipe_names)
+        if missing_mappings:
+            add(
+                "errors",
+                "MODEL_MAPPING",
+                "Hay recetas requeridas sin un identificador externo asignado",
+                missing_recipes=missing_mappings,
+                actual=model_map,
+            )
+        else:
+            add(
+                "passes",
+                "MODEL_MAP",
+                (
+                    "El mapeo configurable cubre todas las recetas requeridas; "
+                    "el orden y los identificadores externos son configurables"
+                ),
+                mappings=model_map,
+            )
 
     policy = manifest.get("recipe_policy", {})
     if not isinstance(policy, dict):

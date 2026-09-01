@@ -20,8 +20,9 @@ set +e
 "$python_bin" scripts/validate_installation.py "$(dirname "$VISION_SYSTEM_CONFIG")/commissioning.json"
 status="$?"
 set -e
-if [[ "$status" -eq 2 ]]; then
-  echo "[DEPLOY][FATAL] La configuracion estructural es invalida; no se reiniciara." >&2
-  exit 20
+export VISION_COMMISSIONING_VALIDATION_STATUS="$status"
+if [[ "$status" -ne 0 ]]; then
+  echo "[DEPLOY][WARNING] La validacion de comisionamiento reporto observaciones (codigo $status)." >&2
+  echo "[DEPLOY][WARNING] La interfaz continuara para permitir corregir la estacion; READY productivo se valida por separado." >&2
 fi
 exec "$python_bin" main.py

@@ -173,6 +173,23 @@ class MainWindow(QMainWindow):
             trace_writer=self.cycle_trace,
             platform=self.platform,
         )
+        commissioning_status = str(
+            os.getenv("VISION_COMMISSIONING_VALIDATION_STATUS", "0")
+        ).strip()
+        if commissioning_status not in ("", "0"):
+            self.diagnostics.update(
+                "commissioning.manifest",
+                "ERROR",
+                "commissioning",
+                "El manifiesto de comisionamiento requiere correcciones",
+                action=(
+                    "Abre Configurar estacion y revisa el mapeo; la interfaz "
+                    "permanece disponible pero READY esta bloqueado"
+                ),
+                details={"validator_exit_code": commissioning_status},
+                blocking=True,
+            )
+            startup_report = self.diagnostics.snapshot()
         print(
             f"[DIAGNOSTICS] Arranque estatico: "
             f"{startup_report['overall_status']} "

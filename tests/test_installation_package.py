@@ -35,7 +35,10 @@ class InstallationPackageTests(unittest.TestCase):
             self.manifest.resolve(),
         )
 
-    def test_package_declares_exact_external_models_and_part_numbers(self):
+    def test_package_declares_default_external_models_and_part_numbers(self):
+        manifest = json.loads(
+            self.manifest.read_text(encoding="utf-8")
+        )
         system = json.loads(
             (self.package / "system.json").read_text(encoding="utf-8")
         )
@@ -47,6 +50,7 @@ class InstallationPackageTests(unittest.TestCase):
             system["controller"]["model_map"],
             {"A": "MODELO_A", "B": "MODELO_B", "C": "MODELO_C"},
         )
+        self.assertFalse(manifest["exact_model_map"])
         self.assertEqual(
             {
                 recipe["machine"]["external_model"]:
@@ -88,6 +92,69 @@ class InstallationPackageTests(unittest.TestCase):
 
         self.assertFalse(report["ready_for_commissioning"])
         self.assertIn("MODEL_MAPPING", {item["code"] for item in report["errors"]})
+
+    def test_configurable_mapping_allows_external_ids_to_change(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_copy = Path(temp_dir) / "worksurface"
+            shutil.copytree(self.package, package_copy)
+            manifest = json.loads(
+                (package_copy / "commissioning.json").read_text(encoding="utf-8")
+            )
+            manifest["project_root"] = "."
+            manifest["system_config"] = "system.json"
+            manifest["exact_model_map"] = False
+            (package_copy / "commissioning.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            system = json.loads(
+                (package_copy / "system.json").read_text(encoding="utf-8")
+            )
+            system["recipes"]["file"] = "recipes.json"
+            system["controller"]["model_map"] = {
+                "SLOT-1": "MODELO_B",
+                "SLOT-2": "MODELO_A",
+                "SLOT-3": "MODELO_C",
+            }
+            (package_copy / "system.json").write_text(
+                json.dumps(system), encoding="utf-8"
+            )
+
+            report = validate_installation(package_copy / "commissioning.json")
+
+        self.assertEqual(report["errors"], [])
+        self.assertTrue(report["ready_for_commissioning"])
+
+    def test_exact_mapping_policy_still_rejects_external_id_swap(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            package_copy = Path(temp_dir) / "worksurface"
+            shutil.copytree(self.package, package_copy)
+            manifest = json.loads(
+                (package_copy / "commissioning.json").read_text(encoding="utf-8")
+            )
+            manifest["project_root"] = "."
+            manifest["system_config"] = "system.json"
+            manifest["exact_model_map"] = True
+            (package_copy / "commissioning.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            system = json.loads(
+                (package_copy / "system.json").read_text(encoding="utf-8")
+            )
+            system["recipes"]["file"] = "recipes.json"
+            system["controller"]["model_map"] = {
+                "A": "MODELO_B",
+                "B": "MODELO_A",
+                "C": "MODELO_C",
+            }
+            (package_copy / "system.json").write_text(
+                json.dumps(system), encoding="utf-8"
+            )
+
+            report = validate_installation(package_copy / "commissioning.json")
+
+        error_codes = {item["code"] for item in report["errors"]}
+        self.assertIn("MODEL_MAPPING", error_codes)
+        self.assertIn("EXACT_MODEL_MAP", error_codes)
 
     def test_cli_strict_mode_rejects_pending_calibration(self):
         output = StringIO()

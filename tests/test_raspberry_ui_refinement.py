@@ -19,6 +19,9 @@ class RaspberryUiRefinementTests(unittest.TestCase):
         )
         cls.app_source = Path("app/app.py").read_text(encoding="utf-8")
         cls.theme_source = Path("ui/theme.py").read_text(encoding="utf-8")
+        cls.system_dialog_source = Path("ui/system_config_dialog.py").read_text(
+            encoding="utf-8"
+        )
 
     def test_every_configuration_editor_uses_common_modal_execution(self):
         self.assertNotIn("configure_dialog(", self.config_source)
@@ -73,6 +76,24 @@ class RaspberryUiRefinementTests(unittest.TestCase):
         )
         self.assertIn('buttonRole="commit"] {', self.theme_source)
         self.assertIn('buttonRole="commit"]:pressed', self.theme_source)
+
+    def test_controller_mapping_is_not_presented_as_recipe_order(self):
+        self.assertIn(
+            "Este cuadro no ordena ni asigna prioridad a las recetas",
+            self.system_dialog_source,
+        )
+        self.assertIn(
+            "El orden de las filas no establece prioridad",
+            self.system_dialog_source,
+        )
+
+    def test_invalid_commissioning_keeps_ui_open_but_blocks_ready(self):
+        self.assertIn(
+            "VISION_COMMISSIONING_VALIDATION_STATUS",
+            self.app_source,
+        )
+        self.assertIn('"commissioning.manifest"', self.app_source)
+        self.assertIn("blocking=True", self.app_source)
 
 
 if __name__ == "__main__":

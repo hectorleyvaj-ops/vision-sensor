@@ -64,12 +64,20 @@ class DeploymentPhase12Tests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         service = (root / "deploy/systemd/vision-sensor.service.in").read_text(encoding="utf-8")
         autostart = (root / "deploy/autostart/vision-sensor.desktop").read_text(encoding="utf-8")
+        launcher = (root / "scripts/launch_vision.sh").read_text(encoding="utf-8")
         self.assertIn("Restart=on-failure", service)
         self.assertNotIn("User=root", service)
         self.assertIn("start_graphical_service.sh", autostart)
         unit_section, service_section = service.split("[Service]", 1)
         self.assertIn("StartLimitIntervalSec=120", unit_section)
         self.assertNotIn("StartLimitIntervalSec", service_section)
+        self.assertIn("La interfaz continuara", launcher)
+        self.assertIn("READY productivo se valida por separado", launcher)
+        self.assertIn("VISION_COMMISSIONING_VALIDATION_STATUS", launcher)
+        self.assertNotIn(
+            "La configuracion estructural es invalida; no se reiniciara",
+            launcher,
+        )
 
     def test_maintenance_clis_import_project_from_any_working_directory(self):
         root = Path(__file__).resolve().parents[1]

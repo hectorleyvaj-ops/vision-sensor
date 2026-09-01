@@ -2,7 +2,7 @@
     "schema_version": 1,
     "system_config": "system.json",
     "project_root": "../..",
-    "exact_model_map": true,
+    "exact_model_map": false,
     "required_models": [
         {
             "external_id": "A",
