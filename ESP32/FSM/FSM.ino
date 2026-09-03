@@ -31,6 +31,9 @@ uint32_t cycleCounter = 0;
 String activeCycle;
 String activeModel = DEFAULT_MODEL;
 String lastPublishedModel = DEFAULT_MODEL;
+String pendingModel;
+String triggerModel;
+unsigned long lastValidModelMs = 0;
 String acceptedVisionResult;
 String finalResult;
 
@@ -176,6 +179,36 @@ String readModel() {
   return "";
 }
 
+void rememberValidModel(const String &model, unsigned long observedAtMs) {
+  if (model.length() == 0) return;
+  pendingModel = model;
+  activeModel = model;
+  lastValidModelMs = observedAtMs;
+}
+
+void clearRememberedModel() {
+  pendingModel = "";
+  triggerModel = "";
+  lastValidModelMs = 0;
+}
+
+void captureModelAtTriggerEdge() {
+  const unsigned long now = millis();
+  const String current = readModel();
+
+  // Si los bits aun siguen presentes en el primer flanco, esa lectura tiene
+  // prioridad. Normalmente el PLC ya los habra llevado a 00 junto con Y2.
+  if (current.length() > 0) {
+    rememberValidModel(current, now);
+  }
+
+  triggerModel = "";
+  if (pendingModel.length() > 0 &&
+      now - lastValidModelMs <= MODEL_LATCH_MAX_AGE_MS) {
+    triggerModel = pendingModel;
+  }
+}
+
 bool stableSensorIsOk(uint8_t pin) {
   uint8_t activeSamples = 0;
   for (uint8_t index = 0; index < SENSOR_STABLE_SAMPLES; ++index) {
@@ -208,6 +241,7 @@ void resetCycleState() {
   finalRetries = 0;
   focusBusy = false;
   visionDeadlineMs = 0;
+  clearRememberedModel();
 }
 
 void loseLink(const String &reason) {
@@ -221,7 +255,7 @@ void loseLink(const String &reason) {
 void sendHelloAck() {
   const String detectedModel = readModel();
   if (detectedModel.length() > 0) {
-    activeModel = detectedModel;
+    rememberValidModel(detectedModel, millis());
     lastPublishedModel = detectedModel;
   }
   String payload = "HELLO_ACK|PROTO=" + String(PROTOCOL_VERSION) +
@@ -270,12 +304,15 @@ void beginPhysicalCycle() {
     return;
   }
 
-  const String detectedModel = readModel();
-  if (detectedModel.length() == 0) {
-    sendError("INVALID_MODEL_BITS", "Y0=0 Y1=0 durante trigger");
+  // No volver a leer Y0/Y1 aqui: el ladder los apaga al mismo tiempo que
+  // activa Y2. Se utiliza exclusivamente el modelo congelado en el primer
+  // flanco del trigger.
+  if (triggerModel.length() == 0) {
+    sendError("INVALID_MODEL_BITS",
+              "Sin modelo valido retenido antes del trigger");
     return;
   }
-  activeModel = detectedModel;
+  activeModel = triggerModel;
   ++cycleCounter;
   activeCycle = bootToken + "-" + String(cycleCounter);
   acceptedVisionResult = "";
@@ -439,6 +476,14 @@ void updateTriggerInput() {
   if (current != rawTrigger) {
     rawTrigger = current;
     triggerChangedMs = millis();
+    if (rawTrigger) {
+      // Congelar antes de esperar el antirrebote. Durante esos 80 ms el PLC ya
+      // puede haber retirado por completo el codigo Y0/Y1.
+      captureModelAtTriggerEdge();
+    } else if (!stableTrigger) {
+      // Fue un pulso que no supero el antirrebote; no conservar su candidato.
+      triggerModel = "";
+    }
   }
   if (millis() - triggerChangedMs < INPUT_DEBOUNCE_MS) return;
   if (stableTrigger == rawTrigger) return;
@@ -449,6 +494,7 @@ void updateTriggerInput() {
     beginPhysicalCycle();
   } else if (!stableTrigger) {
     triggerLatched = false;
+    triggerModel = "";
     if (cycleState == CycleState::HOLD_RESULT && finalAcked) {
       resetCycleState();
     }
@@ -463,10 +509,15 @@ void updateQualityRelease() {
 }
 
 void updateModelPublication() {
-  if (!linkSynced || cycleState != CycleState::IDLE) return;
+  // La seleccion solamente se acepta en reposo y antes del primer flanco del
+  // trigger. Desde ese instante hasta finalizar/resetear el ciclo es inmutable.
+  if (!linkSynced || cycleState != CycleState::IDLE || rawTrigger ||
+      stableTrigger || triggerLatched) {
+    return;
+  }
   const String current = readModel();
   if (current.length() == 0) return;
-  activeModel = current;
+  rememberValidModel(current, millis());
   if (current != lastPublishedModel) {
     lastPublishedModel = current;
     sendPayload("MODEL|CODE=" + percentEncode(current));
@@ -515,7 +566,9 @@ void setup() {
   bootToken = "WS-" + String(static_cast<uint32_t>(esp_random()), HEX);
   bootToken.toUpperCase();
   const String startupModel = readModel();
-  if (startupModel.length() > 0) activeModel = startupModel;
+  if (startupModel.length() > 0) {
+    rememberValidModel(startupModel, millis());
+  }
   lastPublishedModel = startupModel;
   rawTrigger = isActiveLevel(PIN_TRIGGER, TRIGGER_ACTIVE_HIGH);
   stableTrigger = rawTrigger;

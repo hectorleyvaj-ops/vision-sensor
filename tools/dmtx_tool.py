@@ -423,13 +423,18 @@ class DataMatrixTool(ToolBase):
     
     def _safe_decode(self, image, timeout_ms=250):
         """
-        from pylibdmtx.pylibdmtx import decode
-
-        Decode siempre acotado. Una version antigua sin argumento ``timeout``
-        se rechaza para no introducir una llamada imposible de cancelar.
+        Ejecuta la decodificacion DataMatrix con un tiempo maximo acotado.
+        Una version antigua sin soporte para timeout se rechaza.
         """
         try:
-            return decode(image, timeout=timeout_ms)
+            from pylibdmtx.pylibdmtx import decode as dmtx_decode
+        except (ImportError, OSError) as exc:
+            raise RuntimeError(
+                "No se pudo cargar pylibdmtx/libdmtx"
+            ) from exc
+
+        try:
+            return dmtx_decode(image, timeout=timeout_ms)
         except TypeError as exc:
             raise RuntimeError(
                 "La version instalada de pylibdmtx no soporta timeout; "

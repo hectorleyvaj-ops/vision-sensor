@@ -5,7 +5,7 @@
 namespace WorksurfaceConfig {
 
 // Firmware y transporte.
-constexpr char FIRMWARE_VERSION[] = "worksurface-controller-1.0.0";
+constexpr char FIRMWARE_VERSION[] = "worksurface-controller-1.0.1";
 constexpr char PROTOCOL_VERSION[] = "1";
 constexpr uint32_t SERIAL_BAUDRATE = 115200;
 constexpr size_t MAX_PAYLOAD_BYTES = 512;
@@ -48,6 +48,10 @@ constexpr SensorPattern SENSOR_PATTERNS[] = {
 };
 
 constexpr uint32_t INPUT_DEBOUNCE_MS = 80;
+// Y0/Y1 desaparecen cuando el PLC activa el trigger. El ultimo modelo valido
+// observado en reposo solo puede reutilizarse si estaba presente inmediatamente
+// antes del flanco del trigger. Esta ventana evita reutilizar selecciones viejas.
+constexpr uint32_t MODEL_LATCH_MAX_AGE_MS = 500;
 constexpr uint32_t VISION_TIMEOUT_MS = 30000;
 constexpr uint32_t FOCUS_BUSY_TIMEOUT_MS = 90000;
 constexpr uint32_t LINK_TIMEOUT_MS = 7000;
