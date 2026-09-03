@@ -3,7 +3,7 @@
 
 from core.execution_control import check_execution
 from core.roi import crop_image
-from tools.result import ToolFailure
+from tools.result import ToolFailure, ToolExecutionError
 from tools.tool_base import ToolBase
 
 class CompareImgHistTool(ToolBase):
@@ -53,6 +53,8 @@ class CompareImgHistTool(ToolBase):
     def process(self, **kwargs):
         #BUSCA Y GUARDA LA INFORMACION DE LOS ARGUMENTOS
         frame = kwargs.get("frame")
+        capture_provider = kwargs.get("capture_provider")
+        frame_provider = kwargs.get("frame_provider")
         template_paths = kwargs.get("template_paths")
         threshold = kwargs.get("threshold", 80.0)
         roi_cfg = kwargs.get("roi")
@@ -63,8 +65,31 @@ class CompareImgHistTool(ToolBase):
 
         check_execution(cancel_event=cancel_event, deadline=deadline)
 
+        if frame is None and capture_provider is not None:
+            capture = capture_provider()
+
+            if not isinstance(capture, dict) or capture.get("status") != "OK":
+                error = (
+                    capture.get("error")
+                    if isinstance(capture, dict)
+                    else "captura invalida"
+                )
+                raise ToolExecutionError(
+                    f"No se pudo obtener frame fresco: {error}",
+                    data=capture if isinstance(capture, dict) else None,
+                    code="FRAME_UNAVAILABLE",
+                )
+
+            frame = capture.get("frame")
+
+        if frame is None and frame_provider is not None:
+            frame = frame_provider()
+
         if frame is None:
-            raise ValueError("No frame recibido")
+            raise ToolExecutionError(
+                "No frame recibido",
+                code="FRAME_UNAVAILABLE",
+            )
         
         if not template_paths or len(template_paths) == 0:
             raise ValueError("No template_paths definidos")
